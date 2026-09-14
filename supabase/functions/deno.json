@@ -1,0 +1,10 @@
+{
+  "imports": {
+    "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@3.1131.0",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.116.0"
+  },
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window", "deno.ns"]
+  }
+}
