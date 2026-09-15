@@ -46,11 +46,16 @@ export async function POST(request: NextRequest) {
   const { success: withinRateLimit, remaining, reset } = await pinRatelimit.limit(limiterKey);
 
   if (!withinRateLimit) {
-    const minutesRemaining = Math.max(1, Math.ceil((reset - Date.now()) / 60000));
+    const msRemaining = Math.max(0, reset - Date.now());
+    const secondsRemaining = Math.max(1, Math.ceil(msRemaining / 1000));
+    const minutesRemaining = Math.max(1, Math.ceil(msRemaining / 60000));
     return NextResponse.json(
       {
         success: false,
-        error: `Too many invalid attempts. Brute-force lockout active. Try again in ${minutesRemaining} minutes.`,
+        isTemporaryLockout: true,
+        lockoutRemainingSeconds: secondsRemaining,
+        lockoutMinutes: minutesRemaining,
+        error: `Temporary security cooldown active to prevent brute-force attacks. Access will automatically restore in ${minutesRemaining} minute${minutesRemaining > 1 ? "s" : ""}. This is a temporary cooldown, not a ban.`,
       },
       { status: 429 }
     );
@@ -62,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   const { data: candidates, error: candidateErr } = await adminClient
     .from("onboarding_pins")
-    .select("id, pin_hash, pin_salt")
+    .select("id, pin_hash, pin_salt, label")
     .eq("is_active", true)
     .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
 
@@ -78,16 +83,16 @@ export async function POST(request: NextRequest) {
   }
 
   // 6. Argon2id constant-time verification against candidates
-  let matchedPinId: string | null = null;
+  let matchedPin: { id: string; label?: string | null } | null = null;
   for (const candidate of candidates) {
     const isMatch = await verifyPin(pin, candidate.pin_salt, candidate.pin_hash, PIN_PEPPER);
     if (isMatch) {
-      matchedPinId = candidate.id;
+      matchedPin = candidate;
       break;
     }
   }
 
-  if (!matchedPinId) {
+  if (!matchedPin) {
     return NextResponse.json(
       {
         success: false,
@@ -98,10 +103,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Extract custom quota if embedded in label [quota:bytes]
+  let assignedQuotaBytes: number | null = null;
+  if (matchedPin.label) {
+    const match = matchedPin.label.match(/\[quota:(\d+)\]/);
+    if (match) {
+      assignedQuotaBytes = parseInt(match[1], 10);
+    }
+  }
+
   // 7. Authoritative Atomic PostgreSQL Transaction
   // Consumes PIN with row-level lock, updates profile to approved, and inserts audit log in one commit
   const { error: redeemErr } = await adminClient.rpc("redeem_onboarding_pin", {
-    p_pin_id: matchedPinId,
+    p_pin_id: matchedPin.id,
     p_user_id: user.id,
   });
 
@@ -116,8 +130,34 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 8. If PIN has a custom quota allocation, authoritatively update user's profile
+  if (assignedQuotaBytes && assignedQuotaBytes >= 1048576) {
+    const { error: quotaUpdateErr } = await adminClient
+      .from("profiles")
+      .update({ quota_bytes: assignedQuotaBytes })
+      .eq("id", user.id);
+
+    if (quotaUpdateErr) {
+      console.error("[PIN Verify] Failed to update custom quota on profile:", quotaUpdateErr);
+    } else {
+      // Audit log the custom quota grant
+      await adminClient.from("audit_logs").insert({
+        actor_id: user.id,
+        action: "PROFILE_QUOTA_ASSIGNED",
+        entity_type: "profile",
+        entity_id: user.id,
+        details: {
+          source: "onboarding_pin",
+          pin_id: matchedPin.id,
+          quota_bytes: assignedQuotaBytes,
+        },
+      });
+    }
+  }
+
   return NextResponse.json({
     success: true,
     message: "Onboarding PIN successfully verified! Access granted.",
+    assigned_quota_bytes: assignedQuotaBytes || null,
   });
 }

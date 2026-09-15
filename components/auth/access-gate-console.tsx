@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { useTheme } from "@/components/theme-provider";
@@ -48,6 +48,31 @@ export function AccessGateConsole({
   const [pinLoading, setPinLoading] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinSuccess, setPinSuccess] = useState<string | null>(null);
+  const [lockoutSecondsRemaining, setLockoutSecondsRemaining] = useState<number | null>(null);
+
+  // Live countdown timer for temporary abuse cooldown
+  useEffect(() => {
+    if (lockoutSecondsRemaining === null || lockoutSecondsRemaining <= 0) return;
+
+    const timer = setInterval(() => {
+      setLockoutSecondsRemaining((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timer);
+          setPinError(null);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [lockoutSecondsRemaining]);
+
+  const formatCooldownTimer = (totalSeconds: number): string => {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
   const handleClearPin = () => {
     setPin("");
@@ -94,7 +119,13 @@ export function AccessGateConsole({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setPinError(data.error || "Failed to verify PIN");
+        if (res.status === 429 && data.isTemporaryLockout) {
+          const secs = Number(data.lockoutRemainingSeconds) || (Number(data.lockoutMinutes) ? Number(data.lockoutMinutes) * 60 : 900);
+          setLockoutSecondsRemaining(secs);
+          setPinError(data.error || "Temporary security cooldown active. Please wait.");
+        } else {
+          setPinError(data.error || "Failed to verify PIN");
+        }
         setPinLoading(false);
         setTimeout(() => {
           pinInputRef.current?.select();
@@ -253,7 +284,35 @@ export function AccessGateConsole({
           </div>
 
           {/* Messages */}
-          {pinError && (
+          {lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0 ? (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span className="font-semibold text-xs tracking-tight">Temporary Abuse Defense Active</span>
+                </div>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  Not a Permanent Ban
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Too many randomized or invalid PIN attempts detected. Verification is temporarily paused to protect the gate against automated bots. Access will be restored automatically.
+              </p>
+              <div className="flex items-center justify-between pt-1 border-t border-amber-500/20">
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-mono font-bold">
+                  <Clock className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Cooldown resets in {formatCooldownTimer(lockoutSecondsRemaining)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("request")}
+                  className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                >
+                  Request Admin Access &rarr;
+                </button>
+              </div>
+            </div>
+          ) : pinError ? (
             <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start justify-between gap-2.5 text-rose-600 dark:text-rose-400 text-xs animate-in fade-in duration-200">
               <div className="flex items-start gap-2.5 flex-1">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -268,7 +327,7 @@ export function AccessGateConsole({
                 <span>Clear</span>
               </button>
             </div>
-          )}
+          ) : null}
 
           {pinSuccess && (
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400 text-xs">
@@ -283,7 +342,7 @@ export function AccessGateConsole({
                 <label htmlFor="access-pin-input" className="block text-xs font-medium text-muted-foreground">
                   4-Digit Security PIN
                 </label>
-                {pin.length > 0 && (
+                {pin.length > 0 && !(lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0) && (
                   <button
                     type="button"
                     onClick={handleClearPin}
@@ -303,6 +362,7 @@ export function AccessGateConsole({
                   pattern="[0-9]*"
                   maxLength={4}
                   autoComplete="one-time-code"
+                  disabled={lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0}
                   autoFocus
                   value={pin}
                   onChange={(e) => {
@@ -310,10 +370,10 @@ export function AccessGateConsole({
                     setPin(val);
                     if (pinError) setPinError(null);
                   }}
-                  placeholder="••••"
-                  className="w-full text-center tracking-[0.7em] text-3xl font-mono py-3 px-4 rounded-xl bg-muted/40 hover:bg-muted/60 focus:bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-200"
+                  placeholder={lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0 ? "PAUSED" : "••••"}
+                  className="w-full text-center tracking-[0.7em] text-3xl font-mono py-3 px-4 rounded-xl bg-muted/40 hover:bg-muted/60 focus:bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                {pin.length > 0 && (
+                {pin.length > 0 && !(lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0) && (
                   <button
                     type="button"
                     onClick={handleClearPin}
@@ -328,7 +388,7 @@ export function AccessGateConsole({
             </div>
 
             {/* Turnstile Protection */}
-            {siteKey && (
+            {siteKey && !(lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0) && (
               <div className="flex justify-center py-1">
                 <Turnstile
                   siteKey={siteKey}
@@ -342,13 +402,23 @@ export function AccessGateConsole({
             <button
               type="submit"
               id="submit-pin-btn"
-              disabled={pinLoading || pin.length !== 4 || (siteKey ? !pinTurnstile : false)}
+              disabled={
+                pinLoading ||
+                pin.length !== 4 ||
+                (siteKey ? !pinTurnstile : false) ||
+                (lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0)
+              }
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.99]"
             >
               {pinLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Verifying PIN...</span>
+                </>
+              ) : lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0 ? (
+                <>
+                  <Clock className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Cooldown Active ({formatCooldownTimer(lockoutSecondsRemaining)})</span>
                 </>
               ) : (
                 <>

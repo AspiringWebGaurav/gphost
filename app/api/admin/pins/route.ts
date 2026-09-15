@@ -15,6 +15,7 @@ const createPinSchema = z
     label: z.string().trim().min(1, "Label is required").max(100),
     max_uses: z.number().int().min(1).nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
+    quota_bytes: z.number().int().min(1048576, "Minimum quota is 1 MB").nullable().optional(),
   })
   .strict();
 
@@ -42,9 +43,25 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "DATABASE_ERROR" }, { status: 500 });
     }
 
+    // Extract structured quota metadata if embedded in label
+    const enrichedPins = (pins || []).map((p) => {
+      let displayLabel = p.label || "";
+      let quotaBytes: number | null = null;
+      const match = displayLabel.match(/\[quota:(\d+)\]/);
+      if (match) {
+        quotaBytes = parseInt(match[1], 10);
+        displayLabel = displayLabel.replace(/\s*\[quota:\d+\]/, "").trim();
+      }
+      return {
+        ...p,
+        label: displayLabel,
+        quota_bytes: quotaBytes,
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      pins: pins || [],
+      pins: enrichedPins,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
@@ -80,7 +97,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { pin: requestedPin, label, max_uses, expires_at } = parseResult.data;
+    const { pin: requestedPin, label, max_uses, expires_at, quota_bytes } = parseResult.data;
 
     // Generate cryptographically secure 4-digit PIN if omitted
     const plaintextPin = requestedPin || crypto.randomInt(1000, 10000).toString();
@@ -93,6 +110,9 @@ export async function POST(req: NextRequest) {
     const ipHash = hashClientIp(clientIp);
     const adminClient = createAdminClient();
 
+    // Embed structured quota metadata [quota:bytes] into label if specified
+    const storedLabel = quota_bytes ? `${label} [quota:${quota_bytes}]` : label;
+
     // Call atomic stored procedure
     const { data: rpcResult, error: rpcError } = await adminClient.rpc(
       "admin_create_onboarding_pin",
@@ -100,7 +120,7 @@ export async function POST(req: NextRequest) {
         p_admin_id: adminUser.id,
         p_pin_hash: pinHashHex,
         p_pin_salt: saltHex,
-        p_label: label,
+        p_label: storedLabel,
         p_max_uses: max_uses || null,
         p_expires_at: expires_at || null,
         p_ip_hash: ipHash,
@@ -121,6 +141,7 @@ export async function POST(req: NextRequest) {
         id: rpcResult.pin_id,
         plaintextPin, // Returned once to authorized admin; never persisted
         label,
+        quota_bytes: quota_bytes || null,
         max_uses: max_uses || null,
         expires_at: expires_at || null,
       },

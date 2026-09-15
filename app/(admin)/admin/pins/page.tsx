@@ -19,15 +19,25 @@ export default async function AdminPinsPage() {
     console.error("Failed to load onboarding pins:", error);
   }
 
-  const initialPins: OnboardingPinItem[] = (pins || []).map((p) => ({
-    id: p.id,
-    label: p.label,
-    is_active: Boolean(p.is_active),
-    max_uses: Number(p.max_uses),
-    times_used: Number(p.times_used),
-    expires_at: p.expires_at,
-    created_at: p.created_at,
-  }));
+  const initialPins: OnboardingPinItem[] = (pins || []).map((p) => {
+    let displayLabel = p.label || "";
+    let quotaBytes: number | null = null;
+    const match = displayLabel.match(/\[quota:(\d+)\]/);
+    if (match) {
+      quotaBytes = parseInt(match[1], 10);
+      displayLabel = displayLabel.replace(/\s*\[quota:\d+\]/, "").trim();
+    }
+    return {
+      id: p.id,
+      label: displayLabel || null,
+      quota_bytes: quotaBytes,
+      is_active: Boolean(p.is_active),
+      max_uses: Number(p.max_uses),
+      times_used: Number(p.times_used),
+      expires_at: p.expires_at,
+      created_at: p.created_at,
+    };
+  });
 
   return (
     <div className="space-y-6">

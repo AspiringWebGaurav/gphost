@@ -13,11 +13,13 @@ import {
   Loader2,
   X,
   ShieldAlert,
+  HardDrive,
 } from "lucide-react";
 
 export interface OnboardingPinItem {
   id: string;
   label: string | null;
+  quota_bytes?: number | null;
   is_active: boolean;
   max_uses: number;
   times_used: number;
@@ -29,6 +31,38 @@ interface PinsManagerProps {
   initialPins: OnboardingPinItem[];
 }
 
+function formatQuota(bytes: number | null | undefined): string {
+  if (!bytes) return "Default (5 GB)";
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${Math.round(bytes / (1024 * 1024))} MB`;
+  }
+  const gb = bytes / (1024 * 1024 * 1024);
+  return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+}
+
+function getQuotaBytes(preset: string, customMb: number): number | null {
+  switch (preset) {
+    case "1mb":
+      return 1024 * 1024;
+    case "10mb":
+      return 10 * 1024 * 1024;
+    case "50mb":
+      return 50 * 1024 * 1024;
+    case "100mb":
+      return 100 * 1024 * 1024;
+    case "500mb":
+      return 500 * 1024 * 1024;
+    case "1gb":
+      return 1024 * 1024 * 1024;
+    case "5gb":
+      return 5 * 1024 * 1024 * 1024;
+    case "custom":
+      return Math.max(1, Math.floor(customMb)) * 1024 * 1024;
+    default:
+      return null;
+  }
+}
+
 export function PinsManager({ initialPins }: PinsManagerProps) {
   const [pins, setPins] = useState<OnboardingPinItem[]>(initialPins);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -38,6 +72,8 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
   const [maxUses, setMaxUses] = useState(1);
   const [expiryHours, setExpiryHours] = useState(24);
   const [customPin, setCustomPin] = useState("");
+  const [quotaPreset, setQuotaPreset] = useState<string>("5gb");
+  const [customQuotaMb, setCustomQuotaMb] = useState<number>(10);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -45,6 +81,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
   const [revealedPin, setRevealedPin] = useState<{
     pin: string;
     label: string | null;
+    quotaBytes?: number | null;
     expiresAt: string | null;
   } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -60,15 +97,19 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
 
     try {
       const expiresAt = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
+      const computedQuotaBytes = getQuotaBytes(quotaPreset, customQuotaMb);
+
       const body: {
         label?: string;
         max_uses: number;
         expires_at: string;
         pin?: string;
+        quota_bytes?: number | null;
       } = {
         label: label.trim() || undefined,
         max_uses: maxUses,
         expires_at: expiresAt,
+        quota_bytes: computedQuotaBytes,
       };
 
       if (customPin.trim()) {
@@ -94,6 +135,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
       const newPinRecord: OnboardingPinItem = {
         id: createdPin.id,
         label: createdPin.label || label.trim() || null,
+        quota_bytes: createdPin.quota_bytes ?? computedQuotaBytes,
         is_active: true,
         max_uses: createdPin.max_uses ?? maxUses,
         times_used: 0,
@@ -106,6 +148,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
       setRevealedPin({
         pin: createdPin.plaintextPin,
         label: createdPin.label || label.trim() || null,
+        quotaBytes: createdPin.quota_bytes ?? computedQuotaBytes,
         expiresAt: createdPin.expires_at || expiresAt,
       });
 
@@ -114,6 +157,8 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
       setMaxUses(1);
       setExpiryHours(24);
       setCustomPin("");
+      setQuotaPreset("5gb");
+      setCustomQuotaMb(10);
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Creation failed");
     } finally {
@@ -165,7 +210,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
         <div>
           <h2 className="text-sm font-semibold text-white">Active & Past PINs</h2>
           <p className="text-xs text-neutral-400">
-            PINs grant instantaneous onboarding bypass for invited users.
+            PINs grant instantaneous onboarding bypass and customizable storage quotas for invited users.
           </p>
         </div>
         <button
@@ -185,6 +230,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
               <tr className="border-b border-neutral-800 bg-neutral-950/40 text-neutral-400 font-semibold">
                 <th className="px-4 py-3">Label</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Storage Quota</th>
                 <th className="px-4 py-3">Usage</th>
                 <th className="px-4 py-3">Expires At</th>
                 <th className="px-4 py-3">Created</th>
@@ -194,7 +240,7 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
             <tbody className="divide-y divide-neutral-800/60 text-neutral-300">
               {pins.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-10 text-neutral-500">
+                  <td colSpan={7} className="text-center py-10 text-neutral-500">
                     No onboarding PINs created yet.
                   </td>
                 </tr>
@@ -236,6 +282,17 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
                             <Ban className="w-3 h-3" />
                             Revoked
                           </span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3 font-mono text-[11px]">
+                        {pin.quota_bytes ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                            <HardDrive className="w-3 h-3 text-purple-400" />
+                            {formatQuota(pin.quota_bytes)}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">Default (5 GB)</span>
                         )}
                       </td>
 
@@ -325,6 +382,66 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
                 />
               </div>
 
+              {/* Storage Quota Assignment */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-neutral-300 font-medium flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Allocated Storage Quota</span>
+                  </label>
+                  <span className="text-[11px] text-neutral-500">
+                    Hard space cap
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: "1mb", label: "1 MB", desc: "Sandbox" },
+                    { id: "10mb", label: "10 MB", desc: "Light Test" },
+                    { id: "50mb", label: "50 MB", desc: "Basic" },
+                    { id: "100mb", label: "100 MB", desc: "Starter" },
+                    { id: "500mb", label: "500 MB", desc: "Standard" },
+                    { id: "1gb", label: "1 GB", desc: "Pro" },
+                    { id: "5gb", label: "5 GB", desc: "Default" },
+                    { id: "custom", label: "Custom", desc: "Manual MB" },
+                  ].map((preset) => {
+                    const isSelected = quotaPreset === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setQuotaPreset(preset.id)}
+                        className={`px-2 py-1.5 rounded-lg border text-center transition flex flex-col items-center justify-center ${
+                          isSelected
+                            ? "bg-purple-600/25 border-purple-500 text-purple-200 ring-1 ring-purple-500/50"
+                            : "bg-neutral-950/60 border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-300"
+                        }`}
+                      >
+                        <span className="font-semibold text-xs leading-tight">{preset.label}</span>
+                        <span className="text-[9px] text-neutral-500 mt-0.5">{preset.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {quotaPreset === "custom" && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={102400}
+                      value={customQuotaMb}
+                      onChange={(e) => setCustomQuotaMb(Math.max(1, Number(e.target.value)))}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-1.5 text-neutral-200 font-mono text-xs focus:outline-none focus:border-purple-500"
+                      placeholder="Enter quota in Megabytes (e.g. 25)"
+                    />
+                    <span className="text-xs text-neutral-400 font-mono shrink-0">MB</span>
+                  </div>
+                )}
+                <p className="text-[11px] text-neutral-500 leading-normal">
+                  Authoritatively caps user uploads and dashboard capacity across the entire system.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-neutral-300 font-medium">Max Uses</label>
@@ -410,6 +527,12 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
               <p className="text-neutral-400 text-xs mt-1">
                 {revealedPin.label || "One-time invitation PIN"}
               </p>
+            </div>
+
+            {/* Storage Quota allocation pill */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold mx-auto">
+              <HardDrive className="w-3.5 h-3.5 text-purple-400" />
+              <span>Assigned Storage: {formatQuota(revealedPin.quotaBytes)}</span>
             </div>
 
             {/* Plaintext PIN Banner */}
