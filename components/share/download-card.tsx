@@ -17,6 +17,7 @@ import {
   HardDrive,
 } from "lucide-react";
 import type { PublicShareMetadata } from "@/lib/storage/share";
+import { formatExpiryBadge } from "@/lib/storage/expiry";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (bytes === 0) return "0 Bytes";
@@ -201,12 +202,21 @@ export function DownloadCard({
             </span>
           )}
 
-          {metadata.expires_at && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-              <Clock className="w-3.5 h-3.5" />
-              Expires {new Date(metadata.expires_at).toLocaleDateString()}
-            </span>
-          )}
+          {metadata.expires_at && (() => {
+            const badge = formatExpiryBadge(metadata.expires_at);
+            return (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+                  badge.isExpired
+                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{badge.label}</span>
+              </span>
+            );
+          })()}
 
           {metadata.max_downloads && !isSingleUse && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">

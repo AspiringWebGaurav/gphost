@@ -30,16 +30,19 @@ const RESERVED_SLUGS = new Set([
   "about",
 ]);
 
+import {
+  EXPIRY_PRESET_VALUES,
+  calculateExpiryDate,
+} from "@/lib/storage/expiry";
+
+const SHARE_EXPIRY_PRESETS = [...EXPIRY_PRESET_VALUES, "file_expiry"] as const;
+
 const createShareSchema = z.object({
   fileId: z.string().uuid(),
   maxDownloads: z.number().int().positive().nullable().optional(),
   isSingleUse: z.boolean().optional().default(false),
-  expiresInPreset: z
-    .enum(["1h", "24h", "7d", "30d", "90d", "never", "file_expiry"])
-    .optional(),
-  expiresIn: z
-    .enum(["1h", "24h", "7d", "30d", "90d", "never", "file_expiry"])
-    .optional(),
+  expiresInPreset: z.enum(SHARE_EXPIRY_PRESETS).optional(),
+  expiresIn: z.enum(SHARE_EXPIRY_PRESETS).optional(),
   password: z.string().min(1).max(128).optional(),
   customSlug: z
     .string()
@@ -57,32 +60,12 @@ function calculateShareExpiry(
   preset: string,
   fileExpiresAt: string | null
 ): Date | null {
-  const now = Date.now();
   let candidateExpiry: Date | null = null;
 
-  switch (preset) {
-    case "1h":
-      candidateExpiry = new Date(now + 60 * 60 * 1000);
-      break;
-    case "24h":
-      candidateExpiry = new Date(now + 24 * 60 * 60 * 1000);
-      break;
-    case "7d":
-      candidateExpiry = new Date(now + 7 * 24 * 60 * 60 * 1000);
-      break;
-    case "30d":
-      candidateExpiry = new Date(now + 30 * 24 * 60 * 60 * 1000);
-      break;
-    case "90d":
-      candidateExpiry = new Date(now + 90 * 24 * 60 * 60 * 1000);
-      break;
-    case "never":
-      candidateExpiry = null;
-      break;
-    case "file_expiry":
-    default:
-      candidateExpiry = fileExpiresAt ? new Date(fileExpiresAt) : null;
-      break;
+  if (preset === "file_expiry") {
+    candidateExpiry = fileExpiresAt ? new Date(fileExpiresAt) : null;
+  } else {
+    candidateExpiry = calculateExpiryDate(preset);
   }
 
   // Effective Expiry Invariant: min(file.expires_at, share.expires_at)

@@ -10,6 +10,7 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
+import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -31,7 +32,7 @@ function formatBytes(bytes: number): string {
 
 export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compact = false }: UploadZoneProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [expiryPreset, setExpiryPreset] = useState<"24h" | "7d" | "30d" | "90d" | "never">("30d");
+  const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>("30d");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState<string>("");
@@ -338,30 +339,25 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               <Clock className="w-3.5 h-3.5 text-muted-foreground" />
               <select
                 value={expiryPreset}
-                onChange={(e) =>
-                  setExpiryPreset(
-                    e.target.value as "24h" | "7d" | "30d" | "90d" | "never"
-                  )
-                }
+                onChange={(e) => setExpiryPreset(e.target.value as ExpiryPreset)}
                 className="bg-transparent border-none focus:outline-none text-xs text-foreground cursor-pointer"
               >
-                <option value="24h" className="bg-card text-foreground">
-                  Expires in 24 Hours
-                </option>
-                <option value="7d" className="bg-card text-foreground">
-                  Expires in 7 Days
-                </option>
-                <option value="30d" className="bg-card text-foreground">
-                  Expires in 30 Days (Default)
-                </option>
-                <option value="90d" className="bg-card text-foreground">
-                  Expires in 90 Days
-                </option>
-                {(isAdmin || canCreatePermanent) && (
-                  <option value="never" className="bg-card text-purple-600 dark:text-purple-300">
-                    Never Expire (Permanent)
-                  </option>
-                )}
+                {EXPIRY_OPTIONS.map((opt) => {
+                  if (opt.requiresPerm && !isAdmin && !canCreatePermanent) {
+                    return null;
+                  }
+                  return (
+                    <option
+                      key={opt.value}
+                      value={opt.value}
+                      className={`bg-card text-foreground ${
+                        opt.value === "never" ? "text-purple-600 dark:text-purple-300 font-medium" : ""
+                      }`}
+                    >
+                      {opt.label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

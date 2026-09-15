@@ -17,8 +17,13 @@ import {
   Lock,
   Globe,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
+import {
+  formatTimeRemaining,
+  EXPIRY_OPTIONS,
+} from "@/lib/storage/expiry";
 
 export interface SafeFileItem {
   id: string;
@@ -48,20 +53,8 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-function formatExpiry(expiresAt: string | null): string {
-  if (!expiresAt) return "Permanent";
-  const date = new Date(expiresAt);
-  const now = new Date();
-  const diffMs = date.getTime() - now.getTime();
-
-  if (diffMs <= 0) return "Expired";
-  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-  const diffHours = Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-
-  if (diffDays > 0) {
-    return `${diffDays}d ${diffHours}h left`;
-  }
-  return `${diffHours}h left`;
+function formatExpiry(expiresAt: string | null, baseTime?: number): string {
+  return formatTimeRemaining(expiresAt, baseTime);
 }
 
 export function FileManager({
@@ -81,6 +74,16 @@ export function FileManager({
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [loading, setLoading] = useState(false);
 
+  // Live real-time ticker for dynamic expiration countdowns (35m -> 34m -> etc.)
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Modals state
   const [selectedFileForDetails, setSelectedFileForDetails] = useState<SafeFileItem | null>(null);
   const [selectedFileForShare, setSelectedFileForShare] = useState<SafeFileItem | null>(null);
@@ -88,7 +91,7 @@ export function FileManager({
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Share form state
-  const [shareExpiresIn, setShareExpiresIn] = useState<"24h" | "7d" | "30d" | "90d" | "never">("30d");
+  const [shareExpiresIn, setShareExpiresIn] = useState<string>("file_expiry");
   const [shareMaxDownloads, setShareMaxDownloads] = useState<string>("");
   const [shareIsSingleUse, setShareIsSingleUse] = useState<boolean>(false);
   const [sharePassword, setSharePassword] = useState<string>("");
@@ -96,6 +99,18 @@ export function FileManager({
   const [shareEnableXurl, setShareEnableXurl] = useState<boolean>(true);
   const [creatingShare, setCreatingShare] = useState<boolean>(false);
   const [shareError, setShareError] = useState<string | null>(null);
+
+  const handleOpenShare = (file: SafeFileItem) => {
+    setSelectedFileForShare(file);
+    setShareResult(null);
+    setShareError(null);
+    setShareCustomSlug("");
+    setShareExpiresIn("file_expiry");
+    setShareMaxDownloads("");
+    setShareIsSingleUse(false);
+    setSharePassword("");
+    setShareEnableXurl(true);
+  };
   const [shareResult, setShareResult] = useState<{
     slug?: string;
     shareUrl: string;
@@ -173,6 +188,11 @@ export function FileManager({
   const handleCreateShare = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFileForShare) return;
+
+    if (selectedFileForShare.expires_at && new Date(selectedFileForShare.expires_at).getTime() <= currentTime) {
+      setShareError("This file has expired. Share links cannot be created for expired files.");
+      return;
+    }
 
     setCreatingShare(true);
     setShareError(null);
@@ -353,12 +373,7 @@ export function FileManager({
                   </button>
 
                   <button
-                    onClick={() => {
-                      setSelectedFileForShare(file);
-                      setShareResult(null);
-                      setShareError(null);
-                      setShareCustomSlug("");
-                    }}
+                    onClick={() => handleOpenShare(file)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
                   >
                     <Share2 className="w-3.5 h-3.5" />
@@ -484,27 +499,86 @@ export function FileManager({
       )}
 
       {/* SHARE MODAL */}
-      {selectedFileForShare && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-card border border-border p-6 shadow-2xl relative space-y-5">
-            <div className="flex items-center justify-between border-b border-border pb-4">
-              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                <Share2 className="w-4 h-4 text-blue-500" />
-                <span>Share File</span>
-              </h3>
-              <button
-                onClick={() => setSelectedFileForShare(null)}
-                className="text-muted-foreground hover:text-foreground transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      {selectedFileForShare && (() => {
+        const fileRemainingMs = selectedFileForShare.expires_at
+          ? new Date(selectedFileForShare.expires_at).getTime() - currentTime
+          : null;
+        const isFileExpired = fileRemainingMs !== null && fileRemainingMs <= 0;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl lg:max-w-3xl rounded-2xl bg-card border border-border p-5 md:p-6 shadow-2xl relative space-y-4 max-h-[94vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-border pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <Share2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Share File</h3>
+                    <p className="text-[11px] text-muted-foreground">Configure custom link, access restrictions, and strict expiry sync</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedFileForShare(null)}
+                  className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Compact File & Plan Status Strip with Realtime Expiration Ticker */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-muted/40 border border-border">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-background border border-border/80 text-blue-500 flex items-center justify-center shrink-0">
+                    <FileIcon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground truncate max-w-[280px] sm:max-w-[360px]" title={selectedFileForShare.sanitized_name}>
+                      {selectedFileForShare.sanitized_name}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-2 font-mono">
+                      <span>{formatBytes(selectedFileForShare.byte_size)}</span>
+                      <span>&bull;</span>
+                      {selectedFileForShare.expires_at ? (
+                        isFileExpired ? (
+                          <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 inline" />
+                            <span>Expired</span>
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">
+                            Expires {formatExpiry(selectedFileForShare.expires_at, currentTime)}
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-purple-600 dark:text-purple-300 font-medium">
+                          Permanent
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+              {isPremium ? (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs shrink-0 self-start sm:self-auto">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                  <span className="font-semibold text-[11px]">Premium Plan</span>
+                  <span className="text-[10px] text-blue-500/80 dark:text-blue-400/80">&bull; Custom slug unlocked</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted border border-border text-muted-foreground text-xs shrink-0 self-start sm:self-auto">
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
+                  <span className="font-medium text-[11px] text-foreground">Standard Plan</span>
+                  <span className="text-[10px] text-muted-foreground">&bull; PRO for custom slug</span>
+                </div>
+              )}
             </div>
 
             {shareResult ? (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                   <Check className="w-4 h-4 shrink-0" />
-                  <span>Share link active! Anyone with this link can access the file.</span>
+                  <span>Share link active! Anyone with this link can access the file within the expiration window.</span>
                 </div>
 
                 {/* Synced Expiration & Metadata Card */}
@@ -515,94 +589,104 @@ export function FileManager({
                       <span>Synced Expiration:</span>
                     </span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatExpiry(shareResult.expires_at || null)}
+                      {formatExpiry(shareResult.expires_at || null, currentTime)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/60">
                     <span>Target &amp; Short Link Sync:</span>
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
                       <Check className="w-3 h-3" />
-                      <span>Synchronized Lifecycle</span>
+                      <span>Strict Backend Immutability Verified</span>
                     </span>
                   </div>
                 </div>
 
-                {/* Direct Link */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-xs font-medium text-foreground">Direct Link</label>
-                      {shareResult.is_custom_slug && (
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                          Custom Slug
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">Primary Link</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      readOnly
-                      value={shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || ""}
-                      className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-foreground font-mono select-all"
-                    />
-                    <button
-                      onClick={() => {
-                        const url = shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || "";
-                        if (url) {
-                          navigator.clipboard.writeText(url);
-                          setCopiedDirect(true);
-                          setTimeout(() => setCopiedDirect(false), 2000);
-                        }
-                      }}
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                    >
-                      {copiedDirect ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedDirect ? "Copied" : "Copy"}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* XURL Shortlink */}
-                {(shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Direct Link */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <label className="text-xs font-medium text-foreground">Short Link</label>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                          Synced
-                        </span>
+                        <label className="text-xs font-medium text-foreground">Direct Link</label>
+                        {shareResult.is_custom_slug && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                            Custom Slug
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[10px] text-blue-500 font-mono">xurl.eu.cc</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">Primary Link</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
                         readOnly
-                        value={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl || ""}
-                        className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all"
+                        value={shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || ""}
+                        className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-foreground font-mono select-all"
                       />
                       <button
                         onClick={() => {
-                          const shortUrl = shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl;
-                          if (shortUrl) {
-                            navigator.clipboard.writeText(shortUrl);
-                            setCopiedXurl(true);
-                            setTimeout(() => setCopiedXurl(false), 2000);
+                          const url = shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || "";
+                          if (url) {
+                            navigator.clipboard.writeText(url);
+                            setCopiedDirect(true);
+                            setTimeout(() => setCopiedDirect(false), 2000);
                           }
                         }}
-                        className="px-3 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium flex items-center gap-1.5 border border-border transition cursor-pointer"
+                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
                       >
-                        {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedXurl ? "Copied" : "Copy"}</span>
+                        {copiedDirect ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedDirect ? "Copied" : "Copy"}</span>
                       </button>
                     </div>
                   </div>
-                )}
+
+                  {/* XURL Shortlink */}
+                  {(shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl) ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-xs font-medium text-foreground">Short Link</label>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                            Synced
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-blue-500 font-mono">xurl.eu.cc</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl || ""}
+                          className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all"
+                        />
+                        <button
+                          onClick={() => {
+                            const shortUrl = shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl;
+                            if (shortUrl) {
+                              navigator.clipboard.writeText(shortUrl);
+                              setCopiedXurl(true);
+                              setTimeout(() => setCopiedXurl(false), 2000);
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium flex items-center gap-1.5 border border-border transition cursor-pointer shrink-0"
+                        >
+                          {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedXurl ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground">Short Link Status</label>
+                      <div className="p-2 rounded-xl bg-muted/20 border border-border text-[11px] text-muted-foreground flex items-center gap-2">
+                        <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span>Short link was not requested for this share.</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div className="pt-2 border-t border-border flex justify-end">
                   <button
                     onClick={() => setSelectedFileForShare(null)}
-                    className="px-4 py-2 rounded-xl bg-foreground text-background text-xs font-semibold hover:opacity-90 transition cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-foreground text-background text-xs font-semibold hover:opacity-90 transition cursor-pointer"
                   >
                     Done
                   </button>
@@ -610,191 +694,265 @@ export function FileManager({
               </div>
             ) : (
               <form onSubmit={handleCreateShare} className="space-y-4">
-                {/* Plan Detection Indicator */}
-                {isPremium ? (
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-                      </span>
-                      <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                        <span>Premium Plan Detected</span>
-                      </span>
+                {/* Expired File Warning Banner */}
+                {isFileExpired && (
+                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 flex items-start gap-2.5 animate-in fade-in duration-200">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5 text-xs">
+                      <div className="font-semibold">File Has Expired — Share Link Creation Locked</div>
+                      <div className="text-[11px] text-rose-600/90 dark:text-rose-400/90">
+                        This file has reached the end of its retention lifecycle. Share links cannot be created for expired files.
+                      </div>
                     </div>
-                    <span className="text-[11px] text-muted-foreground font-medium">Custom slug unlocked</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40 border border-border text-xs">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
-                      <span className="font-medium text-foreground">Standard Plan</span>
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">Custom slugs require Premium</span>
                   </div>
                 )}
 
-                <div className="text-xs text-muted-foreground">
-                  File: <span className="text-foreground font-medium">{selectedFileForShare.sanitized_name}</span>
-                </div>
-
-                {/* Expiry Selector */}
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground font-medium">Link Expiration</label>
-                  <select
-                    value={shareExpiresIn}
-                    onChange={(e) =>
-                      setShareExpiresIn(
-                        e.target.value as "24h" | "7d" | "30d" | "90d" | "never"
-                      )
-                    }
-                    className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="24h">24 Hours</option>
-                    <option value="7d">7 Days</option>
-                    <option value="30d">30 Days (Default)</option>
-                    <option value="90d">90 Days</option>
-                    {canCreatePermanent && <option value="never">Never Expire</option>}
-                  </select>
-                </div>
-
-                {/* Custom Slug Option */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                      <span>Custom Link Slug</span>
-                      {isPremium ? (
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                          PRO
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-1">
-                          <Lock className="w-2.5 h-2.5" />
-                          <span>PRO ONLY</span>
-                        </span>
-                      )}
-                    </label>
-                    <span className="text-[10px] text-muted-foreground">
-                      {isPremium ? "Letters, numbers, dashes" : "Upgrade to unlock"}
-                    </span>
-                  </div>
-
-                  {isPremium ? (
-                    <div className="space-y-1">
-                      <div className="flex items-center rounded-xl bg-background border border-border focus-within:border-blue-500 transition overflow-hidden">
-                        <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
-                          /f/
-                        </span>
-                        <input
-                          type="text"
-                          placeholder="my-custom-slug"
-                          value={shareCustomSlug}
-                          onChange={(e) =>
-                            setShareCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
-                          }
-                          maxLength={48}
-                          className="w-full px-3 py-2 text-xs text-foreground bg-transparent focus:outline-none font-mono placeholder:text-muted-foreground"
-                        />
-                        {shareCustomSlug && (
-                          <button
-                            type="button"
-                            onClick={() => setShareCustomSlug("")}
-                            className="p-1.5 mr-1 text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${isFileExpired ? "opacity-45 pointer-events-none select-none" : ""}`}>
+                  {/* Left Column: Link Settings */}
+                  <div className="space-y-3.5">
+                    {/* Expiry Selector strictly synchronized with file upload */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Link Expiration</span>
+                        </label>
+                        {selectedFileForShare.expires_at && !isFileExpired && (
+                          <span className="text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            <span>Strict Sync</span>
+                          </span>
+                        )}
+                        {selectedFileForShare.expires_at && isFileExpired && (
+                          <span className="text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Expired</span>
+                          </span>
                         )}
                       </div>
-                      {shareCustomSlug && (
-                        <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
-                          <span className="font-medium text-foreground">Sync Preview:</span>
-                          <span className="font-mono text-blue-600 dark:text-blue-400">
-                            gphost.eu.cc/f/{shareCustomSlug}
-                          </span>
-                          {shareEnableXurl && (
-                            <>
-                              <span className="text-muted-foreground">&bull;</span>
-                              <span className="font-mono text-indigo-500 dark:text-indigo-400">
-                                xurl.eu.cc/{shareCustomSlug}
-                              </span>
-                            </>
+
+                      <select
+                        value={shareExpiresIn}
+                        onChange={(e) => setShareExpiresIn(e.target.value)}
+                        disabled={isFileExpired}
+                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium disabled:cursor-not-allowed"
+                      >
+                        {selectedFileForShare.expires_at ? (
+                          <>
+                            <option
+                              value="file_expiry"
+                              className={isFileExpired ? "font-semibold text-rose-600 dark:text-rose-400" : "font-semibold text-blue-600 dark:text-blue-400"}
+                            >
+                              {isFileExpired
+                                ? "File Expired (Cannot create share link)"
+                                : `Strictly Synced with File Lifecycle (${formatExpiry(selectedFileForShare.expires_at, currentTime)}) [Default]`}
+                            </option>
+                            {!isFileExpired &&
+                              EXPIRY_OPTIONS.filter(
+                                (opt) => opt.durationMs !== null && fileRemainingMs !== null && opt.durationMs < fileRemainingMs
+                              ).map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                          </>
+                        ) : (
+                          <>
+                            <option value="file_expiry" className="font-semibold text-purple-600 dark:text-purple-300">
+                              Permanent / Matches File (Never Expire)
+                            </option>
+                            {EXPIRY_OPTIONS.map((opt) => {
+                              if (opt.requiresPerm && !canCreatePermanent) return null;
+                              return (
+                                <option
+                                  key={opt.value}
+                                  value={opt.value}
+                                  className={opt.value === "never" ? "text-purple-600 dark:text-purple-300 font-medium" : ""}
+                                >
+                                  {opt.label}
+                                </option>
+                              );
+                            })}
+                          </>
+                        )}
+                      </select>
+
+                      <div className="text-[11px] text-muted-foreground pt-0.5">
+                        {selectedFileForShare.expires_at ? (
+                          isFileExpired ? (
+                            <span className="text-rose-600 dark:text-rose-400 font-medium flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              <span>Target file has expired. Sharing is locked.</span>
+                            </span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>XURL &amp; GPHost links strictly expire in {formatExpiry(selectedFileForShare.expires_at, currentTime)}.</span>
+                            </span>
+                          )
+                        ) : (
+                          <span>Target file is permanent. You can select custom link retention or keep permanent.</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Custom Slug Option */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                          <span>Custom Link Slug</span>
+                          {isPremium ? (
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                              PRO
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-1">
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>PRO ONLY</span>
+                            </span>
                           )}
+                        </label>
+                        <span className="text-[10px] text-muted-foreground">
+                          {isPremium ? "Letters, numbers, dashes" : "Upgrade to unlock"}
+                        </span>
+                      </div>
+
+                      {isPremium ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center rounded-xl bg-background border border-border focus-within:border-blue-500 transition overflow-hidden">
+                            <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                              /f/
+                            </span>
+                            <input
+                              type="text"
+                              placeholder="my-custom-slug"
+                              value={shareCustomSlug}
+                              onChange={(e) =>
+                                setShareCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
+                              }
+                              maxLength={48}
+                              className="w-full px-3 py-2 text-xs text-foreground bg-transparent focus:outline-none font-mono placeholder:text-muted-foreground"
+                            />
+                            {shareCustomSlug && (
+                              <button
+                                type="button"
+                                onClick={() => setShareCustomSlug("")}
+                                className="p-1.5 mr-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                          {shareCustomSlug && (
+                            <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
+                              <span className="font-medium text-foreground">Sync:</span>
+                              <span className="font-mono text-blue-600 dark:text-blue-400 truncate max-w-[170px]">
+                                gphost.eu.cc/f/{shareCustomSlug}
+                              </span>
+                              {shareEnableXurl && (
+                                <>
+                                  <span className="text-muted-foreground">&bull;</span>
+                                  <span className="font-mono text-indigo-500 dark:text-indigo-400 truncate max-w-[140px]">
+                                    xurl.eu.cc/{shareCustomSlug}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center rounded-xl bg-muted/20 border border-border overflow-hidden opacity-60 cursor-not-allowed">
+                          <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                            /f/
+                          </span>
+                          <input
+                            type="text"
+                            disabled
+                            placeholder="Upgrade to Premium to set custom slugs"
+                            className="w-full px-3 py-2 text-xs text-muted-foreground bg-transparent focus:outline-none font-mono cursor-not-allowed"
+                          />
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex items-center rounded-xl bg-muted/20 border border-border overflow-hidden opacity-60 cursor-not-allowed">
-                      <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
-                        /f/
-                      </span>
+
+                    {/* Max Downloads (Strict Backend Enforcement) */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-muted-foreground font-medium">Max Downloads (Optional)</label>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {shareIsSingleUse ? "Single-Use: 1" : shareMaxDownloads ? `${shareMaxDownloads} max` : "Unlimited"}
+                        </span>
+                      </div>
                       <input
-                        type="text"
-                        disabled
-                        placeholder="Upgrade to Premium to set custom slugs"
-                        className="w-full px-3 py-2 text-xs text-muted-foreground bg-transparent focus:outline-none font-mono cursor-not-allowed"
+                        type="number"
+                        min="1"
+                        placeholder={shareIsSingleUse ? "1 (Single-Use Link Locked)" : "Unlimited (e.g. 5, 10, 50)"}
+                        value={shareIsSingleUse ? "1" : shareMaxDownloads}
+                        onChange={(e) => setShareMaxDownloads(e.target.value)}
+                        disabled={shareIsSingleUse}
+                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        {shareIsSingleUse ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">
+                            Strictly immutable: link destroys itself immediately after first download.
+                          </span>
+                        ) : (
+                          <span>Owner can set a download limit enforced by backend database locks, or leave empty for unlimited.</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Security & Sync Options */}
+                  <div className="space-y-3.5">
+                    {/* Password Protection */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>Password (Optional)</span>
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Set a password for this link"
+                        value={sharePassword}
+                        onChange={(e) => setSharePassword(e.target.value)}
+                        maxLength={128}
+                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500"
                       />
                     </div>
-                  )}
-                </div>
 
-                {/* Max Downloads */}
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground font-medium">Max Downloads (Optional)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="Unlimited"
-                    value={shareMaxDownloads}
-                    onChange={(e) => setShareMaxDownloads(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 font-mono"
-                  />
-                </div>
+                    {/* Single Use Toggle */}
+                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
+                      <div>
+                        <div className="text-xs font-medium text-foreground">Single-Use Link</div>
+                        <div className="text-[11px] text-muted-foreground">Expires automatically after 1st download</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={shareIsSingleUse}
+                        onChange={(e) => setShareIsSingleUse(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
 
-                {/* Single Use Toggle */}
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
-                  <div>
-                    <div className="text-xs font-medium text-foreground">Single-Use Link</div>
-                    <div className="text-[11px] text-muted-foreground">Expires automatically after the first download</div>
+                    {/* XURL Toggle */}
+                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
+                      <div>
+                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Shorten &amp; Sync Link</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">Creates clean synchronized xurl.eu.cc short link (synced expiry)</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={shareEnableXurl}
+                        onChange={(e) => setShareEnableXurl(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={shareIsSingleUse}
-                    onChange={(e) => setShareIsSingleUse(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Password Protection */}
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Password (Optional)</span>
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="Set a password for this link"
-                    value={sharePassword}
-                    onChange={(e) => setSharePassword(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                {/* XURL Toggle */}
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
-                  <div>
-                    <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-blue-500" />
-                      <span>Shorten &amp; Sync Link</span>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">Creates a clean, synchronized xurl.eu.cc short link</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={shareEnableXurl}
-                    onChange={(e) => setShareEnableXurl(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                  />
                 </div>
 
                 {shareError && (
@@ -803,28 +961,46 @@ export function FileManager({
                   </div>
                 )}
 
-                <div className="pt-2 border-t border-border flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFileForShare(null)}
-                    className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={creatingShare}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition disabled:opacity-50 cursor-pointer shadow-xs"
-                  >
-                    {creatingShare && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>Create Link</span>
-                  </button>
+                <div className="pt-3 border-t border-border flex items-center justify-between">
+                  <p className="text-[11px] text-muted-foreground hidden sm:block">
+                    {isFileExpired
+                      ? "Expired files cannot have share links generated."
+                      : "Share links inherit synchronized lifecycle with target files."}
+                  </p>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFileForShare(null)}
+                      className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition cursor-pointer"
+                    >
+                      {isFileExpired ? "Close" : "Cancel"}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingShare || isFileExpired}
+                      className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
+                        isFileExpired
+                          ? "bg-muted text-muted-foreground cursor-not-allowed border border-border"
+                          : "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50"
+                      }`}
+                    >
+                      {creatingShare && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {isFileExpired ? (
+                        <>
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Sharing Locked (File Expired)</span>
+                        </>
+                      ) : (
+                        <span>Create Link</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
           </div>
         </div>
-      )}
+      ); })()}
 
       {/* DELETE CONFIRMATION MODAL */}
       <ConfirmationModal

@@ -4,29 +4,17 @@ import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { headR2Object } from "@/lib/storage/r2";
 
+import {
+  EXPIRY_PRESET_VALUES,
+  calculateExpiryDate,
+} from "@/lib/storage/expiry";
+
 export const dynamic = "force-dynamic";
 
 const completeUploadSchema = z.object({
   fileId: z.string().uuid(),
+  expiryPreset: z.enum(EXPIRY_PRESET_VALUES).optional(),
 });
-
-function calculateExpiryDate(preset: string): Date | null {
-  const now = new Date();
-  switch (preset) {
-    case "24h":
-      return new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    case "7d":
-      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    case "30d":
-      return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    case "90d":
-      return new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
-    case "never":
-      return null;
-    default:
-      return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  }
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,13 +85,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Compute authoritative expiration timestamp
-    if (file.expiry_preset === "never" && profile.role !== "admin" && !profile.can_create_permanent) {
+    const effectivePreset = parseResult.data.expiryPreset || file.expiry_preset;
+    if (effectivePreset === "never" && profile.role !== "admin" && !profile.can_create_permanent) {
       return NextResponse.json(
         { error: "Unauthorized expiry preset" },
         { status: 403 }
       );
     }
-    const expiresAt = calculateExpiryDate(file.expiry_preset);
+    // If expires_at was already accurately pre-calculated at initiation and matches preset, preserve it, otherwise recalculate
+    const expiresAt = file.expires_at && !parseResult.data.expiryPreset
+      ? new Date(file.expires_at)
+      : calculateExpiryDate(effectivePreset);
 
     // 5. Authoritative Quota Commit in PostgreSQL
     // Converts reserved_bytes to storage_used_bytes based on verified R2 object size

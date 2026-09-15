@@ -69,7 +69,9 @@ tsconfig.tsbuildinfo
 *.backup
 *.tmp
 *.bak
+*~
 .temp/
+**/.temp/
 *.zip
 *.tar.gz
 

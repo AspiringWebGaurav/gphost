@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { RouteLoader } from "@/components/ui/route-loader";
 import { SwitchyyFastSync } from "@/components/switchyy-fast-sync";
 import "./globals.css";
 
@@ -71,6 +72,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground selection:bg-blue-500/20 selection:text-blue-500">
+        <RouteLoader />
         <ThemeProvider defaultTheme="light" storageKey="gphost-theme">
           {children}
         </ThemeProvider>

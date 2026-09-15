@@ -11,6 +11,12 @@ import {
   abortR2MultipartUpload,
 } from "@/lib/storage/r2";
 
+import {
+  EXPIRY_PRESET_VALUES,
+  calculateExpiryDate,
+  getLegacyEnumFallback,
+} from "@/lib/storage/expiry";
+
 export const dynamic = "force-dynamic";
 
 const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -20,7 +26,7 @@ const initiateUploadSchema = z.object({
   filename: z.string().min(1).max(255),
   byte_size: z.number().int().positive().max(1073741824), // Max 1 GB
   mime_type: z.string().max(128).optional().default("application/octet-stream"),
-  expiry_preset: z.enum(["24h", "7d", "30d", "90d", "never"]).default("30d"),
+  expiry_preset: z.enum(EXPIRY_PRESET_VALUES).default("30d"),
 });
 
 export async function POST(req: NextRequest) {
@@ -109,10 +115,11 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Record in public.files
-      const { data: fileRecord, error: insertError } = await adminClient
-        .from("files")
-        .insert({
+      // Pre-calculate exact target expiration timestamp
+      const targetExpiresAt = calculateExpiryDate(expiry_preset);
+
+      const insertFileRecord = async (isMultipart: boolean, uploadId?: string) => {
+        const payload: Record<string, unknown> = {
           user_id: user.id,
           filename,
           sanitized_name: sanitizedName,
@@ -121,11 +128,35 @@ export async function POST(req: NextRequest) {
           r2_key: r2Key,
           status: "UPLOADING",
           expiry_preset,
-          is_multipart: true,
-          r2_upload_id: r2UploadId,
-        })
-        .select("id, sanitized_name, byte_size, mime_type, expiry_preset, status, created_at")
-        .single();
+          expires_at: targetExpiresAt?.toISOString() || null,
+          is_multipart: isMultipart,
+        };
+        if (isMultipart && uploadId) {
+          payload.r2_upload_id = uploadId;
+        }
+
+        let res = await adminClient
+          .from("files")
+          .insert(payload)
+          .select("id, sanitized_name, byte_size, mime_type, expiry_preset, status, created_at")
+          .single();
+
+        // Graceful DB Enum Fallback: if database hasn't had migration 009 applied yet,
+        // fallback to legacy enum value for the column while keeping the exact expires_at timestamp!
+        if (res.error && (res.error.code === "22P02" || res.error.message?.includes("enum"))) {
+          payload.expiry_preset = getLegacyEnumFallback(expiry_preset);
+          res = await adminClient
+            .from("files")
+            .insert(payload)
+            .select("id, sanitized_name, byte_size, mime_type, expiry_preset, status, created_at")
+            .single();
+        }
+
+        return res;
+      };
+
+      // Record in public.files
+      const { data: fileRecord, error: insertError } = await insertFileRecord(true, r2UploadId);
 
       if (insertError || !fileRecord) {
         console.error("Failed to create file record:", insertError);
@@ -165,21 +196,37 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { data: fileRecord, error: insertError } = await adminClient
+      const targetExpiresAt = calculateExpiryDate(expiry_preset);
+      const payload: Record<string, unknown> = {
+        user_id: user.id,
+        filename,
+        sanitized_name: sanitizedName,
+        mime_type,
+        byte_size,
+        r2_key: r2Key,
+        status: "UPLOADING",
+        expiry_preset,
+        expires_at: targetExpiresAt?.toISOString() || null,
+        is_multipart: false,
+      };
+
+      let res = await adminClient
         .from("files")
-        .insert({
-          user_id: user.id,
-          filename,
-          sanitized_name: sanitizedName,
-          mime_type,
-          byte_size,
-          r2_key: r2Key,
-          status: "UPLOADING",
-          expiry_preset,
-          is_multipart: false,
-        })
+        .insert(payload)
         .select("id, sanitized_name, byte_size, mime_type, expiry_preset, status, created_at")
         .single();
+
+      if (res.error && (res.error.code === "22P02" || res.error.message?.includes("enum"))) {
+        payload.expiry_preset = getLegacyEnumFallback(expiry_preset);
+        res = await adminClient
+          .from("files")
+          .insert(payload)
+          .select("id, sanitized_name, byte_size, mime_type, expiry_preset, status, created_at")
+          .single();
+      }
+
+      const fileRecord = res.data;
+      const insertError = res.error;
 
       if (insertError || !fileRecord) {
         console.error("Failed to create file record:", insertError);
