@@ -86,26 +86,27 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to create PIN");
+        throw new Error(data.error || data.message || "Failed to create PIN");
       }
 
+      const createdPin = data.pin;
       // Add to local list
       const newPinRecord: OnboardingPinItem = {
-        id: data.pin_id,
-        label: label.trim() || null,
+        id: createdPin.id,
+        label: createdPin.label || label.trim() || null,
         is_active: true,
-        max_uses: maxUses,
+        max_uses: createdPin.max_uses ?? maxUses,
         times_used: 0,
-        expires_at: expiresAt,
+        expires_at: createdPin.expires_at || expiresAt,
         created_at: new Date().toISOString(),
       };
 
       setPins((prev) => [newPinRecord, ...prev]);
       setShowCreateModal(false);
       setRevealedPin({
-        pin: data.pin,
-        label: label.trim() || null,
-        expiresAt: expiresAt,
+        pin: createdPin.plaintextPin,
+        label: createdPin.label || label.trim() || null,
+        expiresAt: createdPin.expires_at || expiresAt,
       });
 
       // Reset form

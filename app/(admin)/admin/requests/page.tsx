@@ -5,16 +5,6 @@ import { UserCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-interface RawAccessRequestJoin {
-  id: string;
-  user_id: string;
-  status: string;
-  requested_at: string;
-  notes: string | null;
-  reviewed_at: string | null;
-  rejection_reason: string | null;
-  profiles?: { email: string; full_name: string | null } | null;
-}
 
 export default async function AdminRequestsPage() {
   await requireAdminUser();
@@ -27,21 +17,32 @@ export default async function AdminRequestsPage() {
       id,
       user_id,
       status,
-      requested_at,
-      notes,
+      created_at,
+      reason,
       reviewed_at,
       rejection_reason,
       profiles:user_id (email, full_name)
     `)
-    .order("requested_at", { ascending: false });
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error("Failed to load access requests:", error);
   }
 
+  interface RawAccessRequestDb {
+    id: string;
+    user_id: string;
+    status: string;
+    created_at: string;
+    reason: string | null;
+    reviewed_at: string | null;
+    rejection_reason: string | null;
+    profiles?: { email: string; full_name: string | null } | null;
+  }
+
   const initialRequests: AccessRequestItem[] = (
-    (requests as unknown as RawAccessRequestJoin[]) || []
-  ).map((r: RawAccessRequestJoin) => {
+    (requests as unknown as RawAccessRequestDb[]) || []
+  ).map((r: RawAccessRequestDb) => {
     const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
     return {
       id: r.id,
@@ -49,8 +50,8 @@ export default async function AdminRequestsPage() {
       email: profile?.email || "Unknown",
       full_name: profile?.full_name || null,
       status: r.status as "pending" | "approved" | "rejected",
-      requested_at: r.requested_at,
-      notes: r.notes,
+      requested_at: r.created_at || new Date().toISOString(),
+      notes: r.reason || null,
       reviewed_at: r.reviewed_at,
       rejection_reason: r.rejection_reason,
     };
