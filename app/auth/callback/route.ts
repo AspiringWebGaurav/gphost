@@ -94,7 +94,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Otherwise route to the access gate (pending / rejected / revoked holding area)
-  const gateResponse = NextResponse.redirect(new URL("/access-gate", request.url));
+  const gateTarget = next && next.startsWith("/access-gate") ? getSafeRedirectUrl(next, "/access-gate") : "/access-gate";
+  const gateResponse = NextResponse.redirect(new URL(gateTarget, request.url));
   const cookieStore = await cookies();
   cookieStore.getAll().forEach((cookie) => {
     gateResponse.cookies.set(cookie.name, cookie.value, {
