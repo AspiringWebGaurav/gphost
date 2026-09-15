@@ -1,24 +1,36 @@
-# Environment variables
+# Environment variables & secrets
 .env
 .env*.local
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.vault
+*.pem
+*.key
+*.cert
 
 # Dependencies
 node_modules/
 /.pnp
 .pnp.js
+.yarn/
 
-# Testing
+# Testing & Coverage
 /coverage/
+playwright-report/
+test-results/
+blob-report/
 
-# Next.js build output
+# Next.js build output & caches
 /.next/
 /out/
 /build/
 /dist/
+.turbo/
+
+# Vercel
+.vercel/
 
 # Debug and runtime logs
 npm-debug.log*
@@ -29,18 +41,25 @@ pnpm-debug.log*
 
 # Operating System Files
 .DS_Store
-*.pem
 Thumbs.db
+ehthumbs.db
+desktop.ini
 
 # IDE and Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-workspace
+*.sublime-project
 
-# Agent Governance & Local Agent Files
+# Agent Governance, IDE & Local Scratch
 .agent/
 .agents/
+.gemini/
+scratch/
+scratch_*
+*.scratch.*
 
 # TypeScript build cache
 *.tsbuildinfo
@@ -50,7 +69,6 @@ tsconfig.tsbuildinfo
 *.backup
 *.tmp
 *.bak
-scratch/
 .temp/
 *.zip
 *.tar.gz
