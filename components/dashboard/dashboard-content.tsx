@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, Activity, ArrowRight, UploadCloud } from "lucide-react";
+import { ArrowRight, UploadCloud } from "lucide-react";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { FileList, FileItem } from "@/components/dashboard/file-list";
 
@@ -23,6 +23,11 @@ export function DashboardContent({ initialFiles, profile }: DashboardContentProp
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
 
   const isAdmin = profile.role === "admin";
+  const isPremium =
+    isAdmin ||
+    profile.can_create_permanent ||
+    profile.quota_bytes === -1 ||
+    profile.quota_bytes > 5368709120;
 
   const refreshData = async () => {
     try {
@@ -38,44 +43,7 @@ export function DashboardContent({ initialFiles, profile }: DashboardContentProp
 
   return (
     <div className="space-y-4 max-w-5xl w-full mx-auto">
-      {/* 1. Slim Welcome Header (No duplicate storage widget - single source of truth in sidebar) */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-medium mb-1">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Direct Cloud Storage Active</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-            Welcome back, {profile.full_name || profile.email.split("@")[0]}
-          </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Encrypted file storage with custom expiration and secure sharing.
-          </p>
-        </div>
-
-        {/* Engine Status & Tier Pill */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="px-3 py-1.5 rounded-xl bg-muted/40 border border-border flex items-center gap-2 text-xs">
-            <Activity className="w-3.5 h-3.5 text-emerald-500" />
-            <span className="font-semibold text-foreground flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>R2 Cloud Storage</span>
-            </span>
-          </div>
-
-          <span
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize border ${
-              isAdmin
-                ? "bg-purple-500/10 text-purple-600 dark:text-purple-300 border-purple-500/20"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/20"
-            }`}
-          >
-            {profile.role} Tier
-          </span>
-        </div>
-      </div>
-
-      {/* 2. Upload Section (Stacked Below - Full Width, Compact Height) */}
+      {/* Upload Section */}
       <div className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -125,6 +93,7 @@ export function DashboardContent({ initialFiles, profile }: DashboardContentProp
           onFileDeleted={refreshData}
           hideHeader={true}
           maxHeight="max-h-[220px]"
+          isPremium={isPremium}
         />
       </div>
     </div>

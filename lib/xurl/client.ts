@@ -9,6 +9,12 @@ export interface XurlShortenResult {
   attempts?: number;
 }
 
+export interface ShortenUrlOptions {
+  customSlug?: string;
+  expiresAt?: string | null;
+  customRedis?: Redis | null;
+}
+
 const CIRCUIT_BREAKER_KEY = "circuit:xurl:cooldown";
 const RATELIMIT_BREAKER_KEY = "circuit:xurl:ratelimit";
 const CIRCUIT_BREAKER_TTL = 86400; // 24 hours in seconds
@@ -34,10 +40,11 @@ function getRedisClient(customRedis?: Redis | null): Redis | null {
  * - Upstash Redis 24h circuit breaker on 403 quota exhaustion
  * - Upstash Redis 60s cooldown on 429 rate limits
  * - Non-blocking: never throws unhandled errors
+ * - Supports customSlug and expiresAt synchronization for premium links
  */
 export async function shortenUrl(
   targetUrl: string,
-  customRedis?: Redis | null
+  options?: ShortenUrlOptions | Redis | null
 ): Promise<XurlShortenResult> {
   // 1. Basic URL validation
   try {
@@ -56,6 +63,18 @@ export async function shortenUrl(
       error: "Malformed target URL",
     };
   }
+
+  // Parse options / Redis backwards-compatibility
+  const isDirectRedis = options && typeof (options as Record<string, unknown>).get === "function";
+  const customRedis = isDirectRedis
+    ? (options as Redis)
+    : (options as ShortenUrlOptions | undefined)?.customRedis;
+  const customSlug = !isDirectRedis
+    ? (options as ShortenUrlOptions | undefined)?.customSlug
+    : undefined;
+  const expiresAt = !isDirectRedis
+    ? (options as ShortenUrlOptions | undefined)?.expiresAt
+    : undefined;
 
   // 2. Check Redis Circuit Breakers
   const redisClient = getRedisClient(customRedis);
@@ -96,6 +115,14 @@ export async function shortenUrl(
     };
   }
 
+  const requestBody: Record<string, unknown> = { url: targetUrl };
+  if (customSlug) {
+    requestBody.customSlug = customSlug;
+  }
+  if (expiresAt) {
+    requestBody.expiresAt = expiresAt;
+  }
+
   let attempt = 0;
   let lastError = "";
 
@@ -108,7 +135,7 @@ export async function shortenUrl(
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ url: targetUrl }),
+        body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(8000), // 8s bounded timeout
       });
 

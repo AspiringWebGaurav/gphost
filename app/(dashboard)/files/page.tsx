@@ -22,6 +22,11 @@ export default async function FilesPage() {
   }
 
   const isAdmin = profile.role === "admin";
+  const isPremium =
+    isAdmin ||
+    profile.can_create_permanent ||
+    profile.quota_bytes === -1 ||
+    profile.quota_bytes > 5368709120;
   const adminClient = createAdminClient();
 
   // Initial Server-Side Query (Page 1, pageSize 20)
@@ -61,6 +66,7 @@ export default async function FilesPage() {
         initialTotalCount={totalCount}
         initialTotalPages={totalPages}
         canCreatePermanent={profile.can_create_permanent || isAdmin}
+        isPremium={isPremium}
       />
     </div>
   );

@@ -10,6 +10,26 @@ import { reserveXurlMapping, updateXurlMapping } from "@/lib/xurl/mapping";
 
 export const dynamic = "force-dynamic";
 
+const RESERVED_SLUGS = new Set([
+  "api",
+  "f",
+  "admin",
+  "login",
+  "auth",
+  "download",
+  "share",
+  "settings",
+  "terms",
+  "privacy",
+  "dashboard",
+  "files",
+  "upload",
+  "access-gate",
+  "help",
+  "docs",
+  "about",
+]);
+
 const createShareSchema = z.object({
   fileId: z.string().uuid(),
   maxDownloads: z.number().int().positive().nullable().optional(),
@@ -21,6 +41,14 @@ const createShareSchema = z.object({
     .enum(["1h", "24h", "7d", "30d", "90d", "never", "file_expiry"])
     .optional(),
   password: z.string().min(1).max(128).optional(),
+  customSlug: z
+    .string()
+    .trim()
+    .min(3, "Custom slug must be at least 3 characters")
+    .max(48, "Custom slug cannot exceed 48 characters")
+    .regex(/^[a-zA-Z0-9_-]+$/, "Slug can only contain alphanumeric characters, underscores, and hyphens")
+    .optional()
+    .nullable(),
   shortenWithXurl: z.boolean().optional().default(false),
   enableXurl: z.boolean().optional(),
 });
@@ -76,7 +104,7 @@ function generateSecureSlug(): string {
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative server authentication & approval check
-    const { user } = await requireApprovedUser();
+    const { user, profile } = await requireApprovedUser();
 
     // 2. Ephemeral rate limiting
     const { success: rateLimitOk } = await shareCreateRatelimit.limit(user.id);
@@ -104,12 +132,20 @@ export async function POST(req: NextRequest) {
       expiresInPreset,
       expiresIn,
       password,
+      customSlug,
       shortenWithXurl: rawShorten,
       enableXurl,
     } = parseResult.data;
 
     const effectivePreset = expiresInPreset || expiresIn || "file_expiry";
     const shortenWithXurl = rawShorten ?? enableXurl ?? false;
+
+    // Detect if user has a paid/premium plan
+    const isPremiumUser =
+      profile.role === "admin" ||
+      profile.can_create_permanent ||
+      profile.quota_bytes === -1 ||
+      profile.quota_bytes > 5368709120;
 
     // 4. File ownership & eligibility check in PostgreSQL
     const adminClient = createAdminClient();
@@ -146,8 +182,51 @@ export async function POST(req: NextRequest) {
     // 5. Compute effective expiry
     const effectiveExpiry = calculateShareExpiry(effectivePreset, file.expires_at);
 
-    // 6. Generate secure slug and internal verification token hash
-    const slug = generateSecureSlug();
+    // 6. Handle Custom Slug or generate secure random slug
+    let slug: string;
+    const sanitizedCustomSlug = customSlug?.trim().toLowerCase();
+
+    if (sanitizedCustomSlug) {
+      if (!isPremiumUser) {
+        return NextResponse.json(
+          {
+            error:
+              "Custom slugs are an exclusive Premium Plan feature. Please upgrade your plan to unlock custom slugs.",
+          },
+          { status: 403 }
+        );
+      }
+
+      if (RESERVED_SLUGS.has(sanitizedCustomSlug)) {
+        return NextResponse.json(
+          {
+            error: `The custom slug '${sanitizedCustomSlug}' is reserved by the system. Please pick another.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Check if custom slug already exists in share_links table
+      const { data: existingShare } = await adminClient
+        .from("share_links")
+        .select("id")
+        .eq("slug", sanitizedCustomSlug)
+        .maybeSingle();
+
+      if (existingShare) {
+        return NextResponse.json(
+          {
+            error: `The custom slug '${sanitizedCustomSlug}' is already taken. Please choose a different one.`,
+          },
+          { status: 409 }
+        );
+      }
+
+      slug = sanitizedCustomSlug;
+    } else {
+      slug = generateSecureSlug();
+    }
+
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
@@ -189,7 +268,7 @@ export async function POST(req: NextRequest) {
     ).replace(/\/+$/, "");
     const shareUrl = `${canonicalBaseUrl}/f/${shareRecord.slug}`;
 
-    // 8. Atomic XURL Shortening (Optional, Non-blocking)
+    // 8. Atomic XURL Shortening (Optional, Non-blocking) with customSlug and expiration sync
     let xurlPayload: {
       shortUrl?: string;
       status: "pending" | "active" | "failed" | "cooldown";
@@ -200,7 +279,10 @@ export async function POST(req: NextRequest) {
       try {
         const { isCreator, mapping } = await reserveXurlMapping(shareRecord.id, shareUrl);
         if (isCreator) {
-          const shortenRes = await shortenUrl(shareUrl);
+          const shortenRes = await shortenUrl(shareUrl, {
+            customSlug: sanitizedCustomSlug || undefined,
+            expiresAt: effectiveExpiry ? effectiveExpiry.toISOString() : null,
+          });
           await updateXurlMapping(shareRecord.id, {
             status: shortenRes.status,
             xurlId: shortenRes.xurlId,
@@ -239,6 +321,7 @@ export async function POST(req: NextRequest) {
       ip_hash: "server_authoritative",
       metadata: {
         slug: shareRecord.slug,
+        is_custom_slug: Boolean(sanitizedCustomSlug),
         is_single_use: isSingleUse,
         expires_at: shareRecord.expires_at,
         is_password_protected: Boolean(passwordHash),
@@ -251,6 +334,8 @@ export async function POST(req: NextRequest) {
       success: true,
       shareUrl,
       slug: shareRecord.slug,
+      isCustomSlug: Boolean(sanitizedCustomSlug),
+      isPremium: isPremiumUser,
       xurl: xurlPayload,
       share: {
         slug: shareRecord.slug,
@@ -259,6 +344,8 @@ export async function POST(req: NextRequest) {
         max_downloads: shareRecord.max_downloads,
         is_single_use: shareRecord.is_single_use,
         is_password_protected: Boolean(passwordHash),
+        is_custom_slug: Boolean(sanitizedCustomSlug),
+        is_premium: isPremiumUser,
         xurl: xurlPayload,
       },
     });

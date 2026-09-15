@@ -14,6 +14,7 @@ import {
   Link as LinkIcon,
   Lock,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 
@@ -32,6 +33,7 @@ interface FileListProps {
   onFileDeleted?: () => void;
   hideHeader?: boolean;
   maxHeight?: string;
+  isPremium?: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -61,8 +63,11 @@ function formatExpiry(expiresAt: string | null): string {
 interface ShareResponseData {
   slug: string;
   shareUrl: string;
+  expires_at: string | null;
   is_single_use?: boolean;
   is_password_protected?: boolean;
+  is_custom_slug?: boolean;
+  is_premium?: boolean;
   xurl?: {
     shortUrl?: string;
     status: "pending" | "active" | "failed" | "cooldown";
@@ -75,6 +80,7 @@ export function FileList({
   onFileDeleted,
   hideHeader = false,
   maxHeight,
+  isPremium = false,
 }: FileListProps) {
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
   const [isDeletingFile, setIsDeletingFile] = useState(false);
@@ -85,6 +91,7 @@ export function FileList({
   const [maxDownloads, setMaxDownloads] = useState<string>("");
   const [isSingleUse, setIsSingleUse] = useState(false);
   const [sharePassword, setSharePassword] = useState("");
+  const [customSlug, setCustomSlug] = useState("");
   const [shortenWithXurl, setShortenWithXurl] = useState(false);
   const [creatingShare, setCreatingShare] = useState(false);
   const [shareResult, setShareResult] = useState<ShareResponseData | null>(null);
@@ -127,6 +134,10 @@ export function FileList({
         expiresInPreset: sharePreset,
         shortenWithXurl,
       };
+
+      if (customSlug.trim()) {
+        payload.customSlug = customSlug.trim();
+      }
 
       if (sharePassword.trim()) {
         payload.password = sharePassword.trim();
@@ -242,6 +253,7 @@ export function FileList({
                     setShareResult(null);
                     setShareError(null);
                     setSharePassword("");
+                    setCustomSlug("");
                     setShortenWithXurl(false);
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition-colors cursor-pointer"
@@ -286,6 +298,31 @@ export function FileList({
 
             {!shareResult ? (
               <div className="space-y-4">
+                {/* Plan Detection Indicator */}
+                {isPremium ? (
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                      </span>
+                      <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Premium Plan Detected</span>
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground font-medium">Custom slug unlocked</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40 border border-border text-xs">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+                      <span className="font-medium text-foreground">Standard Plan</span>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Custom slugs require Premium</span>
+                  </div>
+                )}
+
                 {/* Expiration Preset */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">Link Expiration</label>
@@ -301,6 +338,85 @@ export function FileList({
                     <option value="24h">24 Hours</option>
                     <option value="7d">7 Days</option>
                   </select>
+                </div>
+
+                {/* Custom Slug Option */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                      <span>Custom Link Slug</span>
+                      {isPremium ? (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          PRO
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>PRO ONLY</span>
+                        </span>
+                      )}
+                    </label>
+                    <span className="text-[10px] text-muted-foreground">
+                      {isPremium ? "Letters, numbers, dashes" : "Upgrade to unlock"}
+                    </span>
+                  </div>
+
+                  {isPremium ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center rounded-xl bg-background border border-border focus-within:border-blue-500 transition overflow-hidden">
+                        <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                          /f/
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="my-custom-slug"
+                          value={customSlug}
+                          onChange={(e) =>
+                            setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
+                          }
+                          maxLength={48}
+                          className="w-full px-3 py-2 text-xs text-foreground bg-transparent focus:outline-none font-mono placeholder:text-muted-foreground"
+                        />
+                        {customSlug && (
+                          <button
+                            type="button"
+                            onClick={() => setCustomSlug("")}
+                            className="p-1.5 mr-1 text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      {customSlug && (
+                        <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
+                          <span className="font-medium text-foreground">Sync Preview:</span>
+                          <span className="font-mono text-blue-600 dark:text-blue-400">
+                            gphost.eu.cc/f/{customSlug}
+                          </span>
+                          {shortenWithXurl && (
+                            <>
+                              <span className="text-muted-foreground">&bull;</span>
+                              <span className="font-mono text-indigo-500 dark:text-indigo-400">
+                                xurl.eu.cc/{customSlug}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center rounded-xl bg-muted/20 border border-border overflow-hidden opacity-60 cursor-not-allowed">
+                      <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                        /f/
+                      </span>
+                      <input
+                        type="text"
+                        disabled
+                        placeholder="Upgrade to Premium to set custom slugs"
+                        className="w-full px-3 py-2 text-xs text-muted-foreground bg-transparent focus:outline-none font-mono cursor-not-allowed"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Download Limit */}
@@ -352,9 +468,10 @@ export function FileList({
                     onChange={(e) => setShortenWithXurl(e.target.checked)}
                     className="rounded border-border bg-background text-blue-600 focus:ring-0"
                   />
-                  <span className="flex items-center gap-1">
-                    <Globe className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-                    <span>Shorten link with XURL (xurl.eu.cc)</span>
+                  <span className="flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                    <span className="font-medium">Shorten &amp; sync link with XURL</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">(xurl.eu.cc)</span>
                   </span>
                 </label>
 
@@ -374,7 +491,7 @@ export function FileList({
                   <button
                     onClick={handleCreateShare}
                     disabled={creatingShare}
-                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 shadow-sm"
+                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 shadow-sm cursor-pointer"
                   >
                     {creatingShare && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>Generate Share Link</span>
@@ -388,10 +505,37 @@ export function FileList({
                   <span>Share link active! Anyone with this link can access the file.</span>
                 </div>
 
+                {/* Synced Expiration & Metadata Card */}
+                <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Synced Expiration:</span>
+                    </span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatExpiry(shareResult.expires_at)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/60">
+                    <span>Target &amp; Short Link Sync:</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>Synchronized Lifecycle</span>
+                    </span>
+                  </div>
+                </div>
+
                 {/* Primary Direct Link */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-foreground">Direct Link</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-foreground">Direct Link</label>
+                      {shareResult.is_custom_slug && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          Custom Slug
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-muted-foreground font-mono">Primary Link</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -408,7 +552,7 @@ export function FileList({
                           false
                         )
                       }
-                      className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs transition-colors shrink-0 flex items-center gap-1 shadow-sm"
+                      className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs transition-colors shrink-0 flex items-center gap-1 shadow-sm cursor-pointer"
                     >
                       {copiedDirect ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                       <span className="text-[11px] font-medium">{copiedDirect ? "Copied" : "Copy"}</span>
@@ -420,7 +564,12 @@ export function FileList({
                 {shareResult.xurl?.shortUrl && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-foreground">Short Link</label>
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-xs font-medium text-foreground">Short Link</label>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                          Synced
+                        </span>
+                      </div>
                       <span className="text-[10px] text-blue-500 font-mono">xurl.eu.cc</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -432,7 +581,7 @@ export function FileList({
                       />
                       <button
                         onClick={() => copyToClipboard(shareResult.xurl!.shortUrl!, true)}
-                        className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs transition-colors shrink-0 flex items-center gap-1 border border-border"
+                        className="p-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs transition-colors shrink-0 flex items-center gap-1 border border-border cursor-pointer"
                       >
                         {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <LinkIcon className="w-3.5 h-3.5" />}
                         <span className="text-[11px] font-medium">{copiedXurl ? "Copied" : "Copy"}</span>
@@ -459,7 +608,7 @@ export function FileList({
                 <div className="flex justify-end pt-2">
                   <button
                     onClick={() => setShareFile(null)}
-                    className="px-4 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border"
+                    className="px-4 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border cursor-pointer"
                   >
                     Done
                   </button>
