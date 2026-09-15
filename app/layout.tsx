@@ -29,8 +29,11 @@ export default async function RootLayout({
   const headersList = await headers();
   const nonce = headersList.get("x-nonce") ?? undefined;
 
-  const switchyyProjectId = process.env.NEXT_PUBLIC_SWITCHYY_PROJECT_ID;
-  const switchyyPublicKey = process.env.NEXT_PUBLIC_SWITCHYY_PUBLIC_KEY;
+  const switchyyProjectId =
+    process.env.NEXT_PUBLIC_SWITCHYY_PROJECT_ID || "JkCtLzQwCN6MxCmKVxJc";
+  const switchyyPublicKey =
+    process.env.NEXT_PUBLIC_SWITCHYY_PUBLIC_KEY || "pk_ca919ba3878c69361cf0c662";
+  const switchyySrc = `https://switchyy.eu.cc/switchy.js?key=${switchyyPublicKey}&project=${switchyyProjectId}`;
 
   return (
     <html
@@ -45,15 +48,11 @@ export default async function RootLayout({
             __html: `(function(){try{var s=localStorage.getItem('gphost-theme');var d=s?s==='dark'||(s==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches):false;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
           }}
         />
-        {switchyyProjectId && switchyyPublicKey && (
-          <Script
-            src="https://switchyy.eu.cc/switchy.js"
-            data-project-id={switchyyProjectId}
-            data-public-key={switchyyPublicKey}
-            strategy="beforeInteractive"
-            nonce={nonce}
-          />
-        )}
+        <Script
+          src={switchyySrc}
+          strategy="beforeInteractive"
+          nonce={nonce}
+        />
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground selection:bg-blue-500/20 selection:text-blue-500">
         <ThemeProvider defaultTheme="light" storageKey="gphost-theme">
