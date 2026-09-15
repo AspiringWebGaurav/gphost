@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:cors": "node scripts/test_r2_cors.mjs"
+    "test:cors": "node scripts/test_r2_cors.mjs",
+    "clean": "node scripts/clean.mjs standard",
+    "total-clean": "node scripts/clean.mjs total"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",

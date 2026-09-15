@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -15,6 +15,7 @@ import {
   KeyRound,
   Timer,
   Shield,
+  RotateCcw,
 } from "lucide-react";
 
 function LoginForm() {
@@ -23,12 +24,82 @@ function LoginForm() {
   const next = searchParams.get("next") || "/dashboard";
 
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(rawError);
+  const [clientError, setClientError] = useState<string | null>(null);
+  const [dismissedRawError, setDismissedRawError] = useState<string | null>(null);
+
+  // Declarative error message without cascading setState in effects
+  const errorMessage =
+    clientError ||
+    (rawError && rawError !== dismissedRawError
+      ? rawError.includes("access_denied") ||
+        rawError.toLowerCase().includes("denied") ||
+        rawError.toLowerCase().includes("cancel")
+        ? "Google sign-in was cancelled. You can try again whenever you're ready."
+        : rawError
+      : null);
+
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetState = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setLoading(false);
+  }, [setLoading]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  // BFCache and Window Focus Recovery:
+  // When user hits browser Back button from Google or switches back to this tab,
+  // BFCache (back-forward cache) restores the exact JavaScript heap state where loading was true.
+  // Listening to 'pageshow', 'focus', and 'visibilitychange' guarantees the button is never stuck.
+  useEffect(() => {
+    const handlePageShow = () => {
+      resetState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setTimeout(() => {
+          resetState();
+        }, 400);
+      }
+    };
+
+    const handleWindowFocus = () => {
+      setTimeout(() => {
+        resetState();
+      }, 400);
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [resetState]);
 
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
-      setErrorMessage(null);
+      setClientError(null);
+      if (rawError) setDismissedRawError(rawError);
+
+      // Watchdog timeout: if redirect hasn't completed within 6s (e.g. adblocker, popup cancelled), auto-recover
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        resetState();
+      }, 6000);
 
       const supabase = createClient();
       const redirectOrigin = window.location.origin;
@@ -48,13 +119,13 @@ function LoginForm() {
       });
 
       if (error) {
-        setErrorMessage(error.message);
-        setLoading(false);
+        setClientError(error.message);
+        resetState();
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to initiate login";
-      setErrorMessage(msg);
-      setLoading(false);
+      setClientError(msg);
+      resetState();
     }
   };
 
@@ -80,11 +151,14 @@ function LoginForm() {
         <div className="w-full mt-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-2.5 text-rose-600 dark:text-rose-400 text-xs text-left animate-in fade-in duration-200">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="flex-1 leading-relaxed">
-            <span className="font-semibold">Error:</span> {errorMessage}
+            <span className="font-semibold">Notice:</span> {errorMessage}
           </div>
           <button
             type="button"
-            onClick={() => setErrorMessage(null)}
+            onClick={() => {
+              setClientError(null);
+              if (rawError) setDismissedRawError(rawError);
+            }}
             className="text-rose-500/70 hover:text-rose-600 dark:hover:text-rose-300 font-medium cursor-pointer"
           >
             Dismiss
@@ -153,6 +227,20 @@ function LoginForm() {
             </>
           )}
         </button>
+
+        {loading && (
+          <div className="flex items-center justify-center gap-1.5 pt-1 text-xs text-muted-foreground animate-in fade-in duration-200">
+            <span>Taking longer than expected?</span>
+            <button
+              type="button"
+              onClick={resetState}
+              className="font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer transition-colors inline-flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Cancel &amp; Try Again</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Onboarding Link & Disclaimer */}
