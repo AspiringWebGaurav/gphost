@@ -198,7 +198,7 @@ export default function LoginPage() {
             aria-hidden="true"
           />
 
-          {/* Left Top Bar: Brand + Simple Vault Pill */}
+          {/* Left Top Bar: Brand */}
           <div className="flex items-center gap-3 relative z-10">
             <Link href="/" className="flex items-center gap-2.5 group">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/20 ring-1 ring-white/20 transition-transform duration-200 group-hover:scale-105 shrink-0">
@@ -206,11 +206,6 @@ export default function LoginPage() {
               </div>
               <span className="font-bold tracking-tight text-foreground text-sm">GPHosting</span>
             </Link>
-            <span className="text-muted-foreground/40">/</span>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
-              <Lock className="w-3 h-3" />
-              <span>Secure Vault</span>
-            </div>
           </div>
 
           {/* Left Center Content: Simple wording + Simple Lock Framework */}
