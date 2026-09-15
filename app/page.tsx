@@ -287,7 +287,7 @@ export default async function HomePage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-6 text-xs text-muted-foreground font-medium">
+          <div className="flex items-center gap-6 text-xs text-muted-foreground font-medium sm:pr-24">
             <Link
               href="/privacy"
               target="_blank"
