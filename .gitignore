@@ -73,3 +73,10 @@ tsconfig.tsbuildinfo
 *.zip
 *.tar.gz
 
+# Local Maintenance & Cleanup Scripts (Kept local, excluded from cloud)
+/clean.sh
+/Makefile
+/scripts/clean.sh
+/scripts/clean.mjs
+/scripts/Makefile
+
