@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   UploadCloud,
 } from "lucide-react";
+import { BackToTop } from "@/components/ui/back-to-top";
 
 export const dynamic = "force-dynamic";
 
@@ -314,6 +315,9 @@ export default async function HomePage() {
           </div>
         </div>
       </footer>
+
+      {/* Floating Back to top button */}
+      <BackToTop />
     </div>
   );
 }
