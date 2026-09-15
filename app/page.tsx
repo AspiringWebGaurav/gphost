@@ -277,7 +277,7 @@ export default async function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-border/80 bg-muted/30 py-6 px-6 transition-colors">
-        <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4 pb-10 sm:pb-0">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
               GP
@@ -287,7 +287,7 @@ export default async function HomePage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-6 text-xs text-muted-foreground font-medium sm:pr-24">
+          <div className="flex items-center gap-6 text-xs text-muted-foreground font-medium">
             <Link
               href="/privacy"
               target="_blank"

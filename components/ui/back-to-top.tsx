@@ -49,7 +49,7 @@ export function BackToTop({ threshold = 300, className = "" }: BackToTopProps) {
       onClick={scrollToTop}
       aria-label="Back to top"
       title="Back to top"
-      className={`fixed bottom-4 right-4 sm:bottom-4.5 sm:right-6 z-40 flex items-center gap-1.5 px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-background/95 hover:bg-background text-foreground border border-border shadow-md shadow-black/5 dark:shadow-black/20 backdrop-blur-md transition-all duration-300 ease-out cursor-pointer hover:scale-105 active:scale-95 group ${
+      className={`fixed bottom-4 sm:bottom-4.5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-background/95 hover:bg-background text-foreground border border-border shadow-md shadow-black/5 dark:shadow-black/20 backdrop-blur-md transition-all duration-300 ease-out cursor-pointer hover:scale-105 active:scale-95 group ${
         isVisible
           ? "opacity-100 translate-y-0 pointer-events-auto"
           : "opacity-0 translate-y-3 pointer-events-none"
