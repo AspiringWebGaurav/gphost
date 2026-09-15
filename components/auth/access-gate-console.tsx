@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { useTheme } from "@/components/theme-provider";
@@ -15,6 +15,8 @@ import {
   UserX,
   ArrowRight,
   Sparkles,
+  X,
+  RotateCcw,
 } from "lucide-react";
 
 interface AccessGateConsoleProps {
@@ -40,11 +42,18 @@ export function AccessGateConsole({
   const [activeTab, setActiveTab] = useState<"pin" | "request">(initialTab);
 
   // PIN Form State
+  const pinInputRef = useRef<HTMLInputElement>(null);
   const [pin, setPin] = useState("");
   const [pinTurnstile, setPinTurnstile] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinSuccess, setPinSuccess] = useState<string | null>(null);
+
+  const handleClearPin = () => {
+    setPin("");
+    setPinError(null);
+    pinInputRef.current?.focus();
+  };
 
   // Request Access Form State
   const [reason, setReason] = useState("");
@@ -60,6 +69,7 @@ export function AccessGateConsole({
 
     if (!/^\d{4}$/.test(pin)) {
       setPinError("Please enter a valid 4-digit numeric PIN.");
+      pinInputRef.current?.focus();
       return;
     }
 
@@ -86,6 +96,9 @@ export function AccessGateConsole({
       if (!res.ok || !data.success) {
         setPinError(data.error || "Failed to verify PIN");
         setPinLoading(false);
+        setTimeout(() => {
+          pinInputRef.current?.select();
+        }, 50);
         return;
       }
 
@@ -241,9 +254,19 @@ export function AccessGateConsole({
 
           {/* Messages */}
           {pinError && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-2.5 text-rose-600 dark:text-rose-400 text-xs">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{pinError}</span>
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start justify-between gap-2.5 text-rose-600 dark:text-rose-400 text-xs animate-in fade-in duration-200">
+              <div className="flex items-start gap-2.5 flex-1">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{pinError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearPin}
+                className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 hover:underline shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Clear</span>
+              </button>
             </div>
           )}
 
@@ -256,12 +279,25 @@ export function AccessGateConsole({
 
           <form onSubmit={handlePinSubmit} className="space-y-4 text-left">
             <div>
-              <label htmlFor="access-pin-input" className="block text-xs font-medium text-muted-foreground mb-1.5">
-                4-Digit Security PIN
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="access-pin-input" className="block text-xs font-medium text-muted-foreground">
+                  4-Digit Security PIN
+                </label>
+                {pin.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearPin}
+                    className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Clear Code</span>
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <input
                   id="access-pin-input"
+                  ref={pinInputRef}
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -277,6 +313,17 @@ export function AccessGateConsole({
                   placeholder="••••"
                   className="w-full text-center tracking-[0.7em] text-3xl font-mono py-3 px-4 rounded-xl bg-muted/40 hover:bg-muted/60 focus:bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-200"
                 />
+                {pin.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearPin}
+                    aria-label="Clear PIN"
+                    title="Clear input"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all cursor-pointer hover:scale-105 active:scale-95"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
