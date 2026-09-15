@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SwitchyyFastSync } from "@/components/switchyy-fast-sync";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,7 +34,9 @@ export default async function RootLayout({
     process.env.NEXT_PUBLIC_SWITCHYY_PROJECT_ID || "JkCtLzQwCN6MxCmKVxJc";
   const switchyyPublicKey =
     process.env.NEXT_PUBLIC_SWITCHYY_PUBLIC_KEY || "pk_ca919ba3878c69361cf0c662";
-  const switchyySrc = `https://switchyy.eu.cc/switchy.js?key=${switchyyPublicKey}&project=${switchyyProjectId}`;
+  // Request-scoped cache buster using dynamic CSP nonce so Switchyy's edge serves the exact live mode state on high priority
+  const cacheBuster = nonce ? encodeURIComponent(nonce) : "";
+  const switchyySrc = `https://switchyy.eu.cc/switchy.js?key=${switchyyPublicKey}&project=${switchyyProjectId}${cacheBuster ? `&_t=${cacheBuster}` : ""}`;
 
   return (
     <html
@@ -48,6 +51,19 @@ export default async function RootLayout({
             __html: `(function(){try{var s=localStorage.getItem('gphost-theme');var d=s?s==='dark'||(s==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches):false;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
           }}
         />
+        {/* Pre-clear any stale 5-minute Switchyy session cache to guarantee immediate mode reflection */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{sessionStorage.removeItem('switchy_config_${switchyyProjectId}');}catch(e){}})();`,
+          }}
+        />
+        <link
+          rel="preload"
+          href="https://switchyy.eu.cc/switchy_layouts/glass.js"
+          as="script"
+          nonce={nonce}
+        />
         <Script
           src={switchyySrc}
           strategy="beforeInteractive"
@@ -58,6 +74,11 @@ export default async function RootLayout({
         <ThemeProvider defaultTheme="light" storageKey="gphost-theme">
           {children}
         </ThemeProvider>
+        {/* Real-time high-priority Switchyy mode monitor */}
+        <SwitchyyFastSync
+          projectId={switchyyProjectId}
+          publicKey={switchyyPublicKey}
+        />
       </body>
     </html>
   );
