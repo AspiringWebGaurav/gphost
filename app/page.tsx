@@ -84,21 +84,13 @@ export default async function HomePage() {
               <LogoutButton variant="outline" className="hidden sm:inline-flex h-9 text-xs" />
             </div>
           ) : (
-            <>
-              <Link
-                href="/request-access"
-                className="hidden sm:inline-flex items-center px-3.5 h-9 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 border border-border transition-colors shrink-0"
-              >
-                Request Access
-              </Link>
-              <Link
-                href="/login"
-                className="inline-flex items-center gap-1.5 px-4 h-9 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-blue-500/20 transition-all duration-200 shrink-0"
-              >
-                <span>Sign In</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </>
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 px-4 h-9 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-blue-500/20 transition-all duration-200 shrink-0"
+            >
+              <span>Sign In</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           )}
 
           {/* Theme Toggle */}
