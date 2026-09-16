@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getUserMaxFiles } from "@/lib/storage/user-limits";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
 
 export const dynamic = "force-dynamic";
@@ -20,19 +21,71 @@ export default async function DashboardPage() {
     redirect("/access-gate");
   }
 
+  // Fetch user file limits and approval context
+  const maxFiles = await getUserMaxFiles(user.id);
+
   // Fetch initial files for server rendering
   const adminClient = createAdminClient();
-  const { data: files } = await adminClient
-    .from("files")
-    .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at")
-    .eq("user_id", user.id)
-    .not("status", "in", '("DELETE_PENDING","DELETE_FAILED","PURGED")')
-    .order("created_at", { ascending: false })
-    .limit(10);
+  const nowIso = new Date().toISOString();
+
+  // Reconcile any past-due files to EXPIRED before rendering
+  await Promise.all([
+    adminClient
+      .from("files")
+      .update({ status: "EXPIRED", updated_at: nowIso })
+      .eq("user_id", user.id)
+      .in("status", ["ACTIVE", "EXPIRING"])
+      .not("expires_at", "is", null)
+      .lte("expires_at", nowIso),
+    adminClient
+      .from("share_links")
+      .update({ is_active: false, updated_at: nowIso })
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .not("expires_at", "is", null)
+      .lte("expires_at", nowIso),
+  ]);
+
+  const [{ data: files }, { data: approvedRequest }] = await Promise.all([
+    adminClient
+      .from("files")
+      .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at")
+      .eq("user_id", user.id)
+      .not("status", "in", '("DELETE_PENDING","DELETE_FAILED","PURGED")')
+      .order("created_at", { ascending: false })
+      .limit(10),
+    adminClient
+      .from("access_requests")
+      .select("reviewed_at, rejection_reason")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .order("reviewed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  // Only display the Admin Approval Welcome Banner to regular users with an approved access request
+  const isOwnerOrAdmin =
+    profile.role === "admin" ||
+    profile.email.toLowerCase() === (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
+
+  const welcomeInfo =
+    !isOwnerOrAdmin && approvedRequest
+      ? {
+          userId: user.id,
+          userName: profile.full_name || profile.email.split("@")[0],
+          userEmail: profile.email,
+          maxFiles: maxFiles && maxFiles > 0 ? maxFiles : null,
+          quotaBytes: profile.quota_bytes,
+          approvedAt: approvedRequest.reviewed_at || null,
+          approvalNote: approvedRequest.rejection_reason || null,
+        }
+      : undefined;
 
   return (
     <DashboardContent
       initialFiles={files || []}
+      welcomeInfo={welcomeInfo}
       profile={{
         full_name: profile.full_name,
         email: profile.email,
@@ -41,6 +94,7 @@ export default async function DashboardPage() {
         storage_used_bytes: profile.storage_used_bytes,
         reserved_bytes: profile.reserved_bytes,
         can_create_permanent: profile.can_create_permanent,
+        max_files: maxFiles,
       }}
     />
   );

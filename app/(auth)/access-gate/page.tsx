@@ -22,21 +22,53 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
   const profile = await getUserProfile(user.id);
   const status = profile?.status || "pending";
 
-  if (status === "approved") {
-    redirect("/dashboard");
+  if (status === "revoked") {
+    redirect("/login?reason=revoked");
   }
 
   const params = await searchParams;
-  const initialTab = params?.tab === "request" ? "request" : "pin";
-
-  // Check database for any existing pending request
   const adminClient = createAdminClient();
-  const { data: existingRequest } = await adminClient
-    .from("access_requests")
-    .select("id, status, created_at, reason")
-    .eq("user_id", user.id)
-    .eq("status", "pending")
-    .maybeSingle();
+  const nowIso = new Date().toISOString();
+
+  // Check database for active unredeemed PIN, pending request, and approved request
+  const [
+    { data: activeIssuedPin },
+    { data: existingPendingRequest },
+    { data: latestApprovedRequest },
+  ] = await Promise.all([
+    user.email
+      ? adminClient
+          .from("onboarding_pins")
+          .select("id")
+          .eq("is_active", true)
+          .ilike("label", `%User: ${user.email}%`)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    adminClient
+      .from("access_requests")
+      .select("id, status, created_at, reason")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .maybeSingle(),
+    adminClient
+      .from("access_requests")
+      .select("id, status, created_at, reviewed_at, rejection_reason")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .order("reviewed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  // If approved AND no pending unredeemed PIN exists, route to dashboard
+  if (status === "approved" && !activeIssuedPin) {
+    redirect("/dashboard");
+  }
+
+  const isApprovedByAdmin = !existingPendingRequest && (!!latestApprovedRequest || !!activeIssuedPin);
+  const initialTab = isApprovedByAdmin ? "pin" : (params?.tab === "request" ? "request" : "pin");
 
   return (
     <div className="h-screen max-h-screen w-screen max-w-full overflow-hidden flex flex-col bg-background text-foreground relative">
@@ -178,11 +210,14 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
           <div className="my-auto w-full py-2">
             <AccessGateConsole
               userEmail={user.email || ""}
-              hasExistingPendingRequest={!!existingRequest}
-              existingRequestReason={existingRequest?.reason}
-              existingRequestDate={existingRequest?.created_at}
+              hasExistingPendingRequest={!!existingPendingRequest}
+              existingRequestReason={existingPendingRequest?.reason}
+              existingRequestDate={existingPendingRequest?.created_at}
+              isApprovedByAdmin={isApprovedByAdmin}
+              approvalDecision={latestApprovedRequest?.rejection_reason}
               status={status as "pending" | "rejected" | "revoked"}
               initialTab={initialTab}
+              adminContactEmail={process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com"}
             />
           </div>
 

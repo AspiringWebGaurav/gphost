@@ -2,6 +2,7 @@ import React from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { QuotaWidget } from "@/components/dashboard/quota-widget";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -26,8 +27,30 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
+  if (profile.status === "revoked") {
+    redirect("/login?reason=revoked");
+  }
+
   if (profile.status !== "approved") {
     redirect("/access-gate");
+  }
+
+  // If user was issued an Onboarding PIN by administrator, force verification at access-gate before vault access
+  if (user.email) {
+    const adminClient = createAdminClient();
+    const nowIso = new Date().toISOString();
+    const { data: activePin } = await adminClient
+      .from("onboarding_pins")
+      .select("id")
+      .eq("is_active", true)
+      .ilike("label", `%User: ${user.email}%`)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (activePin) {
+      redirect("/access-gate");
+    }
   }
 
   const isAdmin = profile.role === "admin";

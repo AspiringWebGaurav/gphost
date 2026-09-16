@@ -65,6 +65,47 @@ export function IdleSessionMonitor() {
     }
   }, [router]);
 
+  const handleRevocationLogout = useCallback(async () => {
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
+
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(STORAGE_KEY);
+        sessionStorage.clear();
+      }
+      setCookie(COOKIE_NAME, "0", 0);
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    } catch (err) {
+      console.error("Error during revocation logout:", err);
+    } finally {
+      router.push("/login?reason=revoked");
+      router.refresh();
+    }
+  }, [router]);
+
+  const checkRevocationStatus = useCallback(async () => {
+    if (isLoggingOutRef.current) return;
+    try {
+      const res = await fetch("/api/auth/session-status");
+      if (res.status === 403 || res.status === 401) {
+        const data = await res.json().catch(() => ({}));
+        if (data.isRevoked || data.status === "revoked") {
+          handleRevocationLogout();
+        }
+      } else if (res.ok) {
+        const data = await res.json();
+        if (data.isRevoked || data.status === "revoked") {
+          handleRevocationLogout();
+        }
+      }
+    } catch {
+      // Ignored
+    }
+  }, [handleRevocationLogout]);
+
   const recordActivity = useCallback(() => {
     const now = Date.now();
     lastActiveRef.current = now;
@@ -99,8 +140,35 @@ export function IdleSessionMonitor() {
   useEffect(() => {
     // Initial sync
     recordActivity();
+    checkRevocationStatus();
 
-    // 1. User activity event listeners
+    // 1. Supabase Realtime Listener for Immediate Revocation (<500ms response)
+    const supabase = createClient();
+    let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      realtimeChannel = supabase
+        .channel(`user-profile-guard-${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${user.id}`,
+          },
+          (payload) => {
+            const newStatus = (payload.new as { status?: string })?.status;
+            if (newStatus === "revoked" || newStatus === "rejected") {
+              handleRevocationLogout();
+            }
+          }
+        )
+        .subscribe();
+    });
+
+    // 2. User activity event listeners
     const activityEvents = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
     const onActivity = () => {
       recordActivity();
@@ -110,7 +178,7 @@ export function IdleSessionMonitor() {
       window.addEventListener(ev, onActivity, { passive: true });
     });
 
-    // 2. Cross-tab activity synchronization via localStorage
+    // 3. Cross-tab activity synchronization via localStorage
     const onStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY && e.newValue) {
         const parsed = parseInt(e.newValue, 10);
@@ -121,11 +189,12 @@ export function IdleSessionMonitor() {
     };
     window.addEventListener("storage", onStorage);
 
-    // 3. Tab visibility / Window focus check:
-    // If user returns to tab after leaving computer idle, immediately verify elapsed time
+    // 4. Tab visibility / Window focus check:
+    // If user returns to tab after leaving computer idle, immediately verify elapsed time and revocation
     const onVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") {
         checkIdleStatus();
+        checkRevocationStatus();
         if (!isLoggingOutRef.current) {
           recordActivity();
         }
@@ -134,16 +203,19 @@ export function IdleSessionMonitor() {
     document.addEventListener("visibilitychange", onVisibilityOrFocus);
     window.addEventListener("focus", onVisibilityOrFocus);
 
-    // 4. Background periodic timer to check idle timeout (every 15 seconds)
+    // 5. Background periodic timer to check idle timeout (every 15 seconds)
     idleCheckIntervalRef.current = setInterval(checkIdleStatus, 15000);
 
-    // 5. Periodic Supabase session keep-alive while user is active
+    // 6. Fast Heartbeat polling to detect revocation (< 8 seconds fallback)
+    const revocationPollInterval = setInterval(checkRevocationStatus, 8000);
+
+    // 7. Periodic Supabase session keep-alive while user is active
     tokenRefreshIntervalRef.current = setInterval(async () => {
       const elapsed = Date.now() - lastActiveRef.current;
       if (elapsed < IDLE_TIMEOUT_MS) {
         try {
-          const supabase = createClient();
-          await supabase.auth.getSession();
+          const client = createClient();
+          await client.auth.getSession();
         } catch {}
       }
     }, TOKEN_REFRESH_INTERVAL_MS);
@@ -156,10 +228,14 @@ export function IdleSessionMonitor() {
       document.removeEventListener("visibilitychange", onVisibilityOrFocus);
       window.removeEventListener("focus", onVisibilityOrFocus);
 
+      if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+      }
       if (idleCheckIntervalRef.current) clearInterval(idleCheckIntervalRef.current);
+      if (revocationPollInterval) clearInterval(revocationPollInterval);
       if (tokenRefreshIntervalRef.current) clearInterval(tokenRefreshIntervalRef.current);
     };
-  }, [recordActivity, checkIdleStatus]);
+  }, [recordActivity, checkIdleStatus, checkRevocationStatus, handleRevocationLogout]);
 
   // Headless component
   return null;

@@ -137,35 +137,35 @@ export function XurlMonitor({
       {/* Circuit Breaker & Health Overview Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Monthly Volume */}
-        <div className="p-4 bg-neutral-900/60 border border-neutral-800/80 rounded-2xl backdrop-blur-sm">
-          <div className="text-neutral-400 text-xs font-medium">
+        <div className="p-4 bg-card border border-border rounded-2xl shadow-sm">
+          <div className="text-muted-foreground text-xs font-medium">
             Monthly Shortlinks Generated
           </div>
-          <div className="text-2xl font-bold text-white mt-1 font-mono">
+          <div className="text-2xl font-bold text-foreground mt-1 font-mono">
             {totalMonthlyCount}
           </div>
-          <div className="text-[11px] text-neutral-500 mt-1">
+          <div className="text-[11px] text-muted-foreground mt-1">
             Free tier monthly budget: ~10,000 requests
           </div>
         </div>
 
         {/* Quota Cooldown Breaker */}
-        <div className="p-4 bg-neutral-900/60 border border-neutral-800/80 rounded-2xl backdrop-blur-sm">
+        <div className="p-4 bg-card border border-border rounded-2xl shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-neutral-400 text-xs font-medium">
+            <span className="text-muted-foreground text-xs font-medium">
               Quota Exhaustion Breaker
             </span>
             {cooldownActive ? (
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 text-red-500 dark:text-red-400 border border-red-500/20">
                 TRIPPED (Active)
               </span>
             ) : (
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 HEALTHY
               </span>
             )}
           </div>
-          <p className="text-[11px] text-neutral-500 mt-2">
+          <p className="text-[11px] text-muted-foreground mt-2">
             {cooldownActive
               ? "Requests to XURL are halted until monthly quota rolls over."
               : "No quota limits triggered."}
@@ -173,22 +173,22 @@ export function XurlMonitor({
         </div>
 
         {/* Rate Limit Breaker */}
-        <div className="p-4 bg-neutral-900/60 border border-neutral-800/80 rounded-2xl backdrop-blur-sm">
+        <div className="p-4 bg-card border border-border rounded-2xl shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-neutral-400 text-xs font-medium">
+            <span className="text-muted-foreground text-xs font-medium">
               Rate Limit Cooldown
             </span>
             {ratelimitActive ? (
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                 BACKOFF (Active)
               </span>
             ) : (
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 HEALTHY
               </span>
             )}
           </div>
-          <p className="text-[11px] text-neutral-500 mt-2">
+          <p className="text-[11px] text-muted-foreground mt-2">
             {ratelimitActive
               ? "HTTP 429 received from XURL; requests temporarily backed off."
               : "No rate limits detected."}
@@ -197,17 +197,17 @@ export function XurlMonitor({
       </div>
 
       {/* Action Bar */}
-      <div className="flex items-center justify-between p-4 bg-neutral-900/40 border border-neutral-800/60 rounded-2xl">
+      <div className="flex items-center justify-between p-4 bg-muted/40 border border-border rounded-2xl">
         <div className="text-xs">
-          <span className="font-semibold text-white">Circuit Breaker Control</span>
-          <p className="text-neutral-400 text-[11px]">
+          <span className="font-semibold text-foreground">Circuit Breaker Control</span>
+          <p className="text-muted-foreground text-[11px]">
             If quota was increased or rate limit expired, you can manually reset Redis flags.
           </p>
         </div>
         <button
           onClick={handleResetBreaker}
           disabled={isResetting || (!cooldownActive && !ratelimitActive)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-medium transition disabled:opacity-40"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium transition border border-border/60 disabled:opacity-40 shadow-sm"
         >
           {isResetting ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -219,12 +219,12 @@ export function XurlMonitor({
       </div>
 
       {/* Mappings Table */}
-      <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl overflow-hidden backdrop-blur-sm">
-        <div className="px-4 py-3 border-b border-neutral-800 bg-neutral-950/40 flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-white">
+      <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-foreground">
             Recent Shortlink Mappings
           </h3>
-          <span className="text-[11px] text-neutral-500 font-mono">
+          <span className="text-[11px] text-muted-foreground font-mono">
             Total: {mappings.length}
           </span>
         </div>
@@ -232,7 +232,7 @@ export function XurlMonitor({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-neutral-800 bg-neutral-950/20 text-neutral-400 font-semibold">
+              <tr className="border-b border-border bg-muted/20 text-muted-foreground font-semibold">
                 <th className="px-4 py-3">Short URL</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Attempts</th>
@@ -241,10 +241,10 @@ export function XurlMonitor({
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800/60 text-neutral-300">
+            <tbody className="divide-y divide-border/60 text-foreground">
               {mappings.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-neutral-500">
+                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
                     No shortlinks generated yet.
                   </td>
                 </tr>
@@ -259,61 +259,61 @@ export function XurlMonitor({
                   const canRetry = m.status === "failed" && !isPermanentError;
 
                   return (
-                    <tr key={m.id} className="hover:bg-neutral-800/30 transition">
+                    <tr key={m.id} className="hover:bg-muted/40 transition">
                       <td className="px-4 py-3">
                         {m.short_url ? (
                           <a
                             href={m.short_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-purple-400 hover:text-purple-300 font-mono font-medium flex items-center gap-1"
+                            className="text-primary hover:underline font-mono font-medium flex items-center gap-1"
                           >
                             <span>{m.short_url}</span>
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         ) : (
-                          <span className="text-neutral-500 font-mono">—</span>
+                          <span className="text-muted-foreground font-mono">—</span>
                         )}
                       </td>
 
                       <td className="px-4 py-3">
                         {m.status === "active" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                             <CheckCircle className="w-3 h-3" />
                             ACTIVE
                           </span>
                         )}
                         {m.status === "pending" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                             <Clock className="w-3 h-3" />
                             PENDING
                           </span>
                         )}
                         {m.status === "failed" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
                             FAILED
                           </span>
                         )}
                       </td>
 
-                      <td className="px-4 py-3 font-mono text-[11px] text-neutral-400">
+                      <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">
                         {m.attempts} / 3
                       </td>
 
-                      <td className="px-4 py-3 text-neutral-400 max-w-xs truncate text-[11px]">
+                      <td className="px-4 py-3 text-muted-foreground max-w-xs truncate text-[11px]">
                         {m.last_error ? (
                           <span
-                            className={isPermanentError ? "text-amber-400" : "text-red-400"}
+                            className={isPermanentError ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}
                             title={m.last_error}
                           >
                             {m.last_error}
                           </span>
                         ) : (
-                          <span className="text-neutral-600">—</span>
+                          <span className="text-muted-foreground/60">—</span>
                         )}
                       </td>
 
-                      <td className="px-4 py-3 font-mono text-[11px] text-neutral-500">
+                      <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">
                         {new Date(m.created_at).toLocaleDateString()}
                       </td>
 
@@ -322,7 +322,7 @@ export function XurlMonitor({
                           <button
                             onClick={() => handleRetryMapping(m)}
                             disabled={retryingId === m.id}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-medium transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-secondary-foreground text-[11px] font-medium transition border border-border/60 disabled:opacity-50"
                           >
                             {retryingId === m.id ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
@@ -332,11 +332,11 @@ export function XurlMonitor({
                             <span>Retry</span>
                           </button>
                         ) : isPermanentError ? (
-                          <span className="text-amber-500/70 text-[10px] font-medium">
+                          <span className="text-amber-600/80 dark:text-amber-400/70 text-[10px] font-medium">
                             Permanent 4xx
                           </span>
                         ) : (
-                          <span className="text-neutral-600 text-[11px] italic">
+                          <span className="text-muted-foreground/60 text-[11px] italic">
                             Synced
                           </span>
                         )}

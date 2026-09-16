@@ -89,14 +89,14 @@ export default async function AdminSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
+        <div className="flex items-center gap-2 text-primary text-xs font-semibold uppercase tracking-wider mb-1">
           <ShieldCheck className="w-3.5 h-3.5" />
           <span>Infrastructure Diagnostics</span>
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           Platform Health & Telemetry
         </h1>
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Real-time service connectivity and operational latency metrics. Hardened for owner-exclusive inspection with zero secrets exposed.
         </p>
       </div>

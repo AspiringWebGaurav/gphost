@@ -22,15 +22,22 @@ export default async function AdminPinsPage() {
   const initialPins: OnboardingPinItem[] = (pins || []).map((p) => {
     let displayLabel = p.label || "";
     let quotaBytes: number | null = null;
-    const match = displayLabel.match(/\[quota:(\d+)\]/);
-    if (match) {
-      quotaBytes = parseInt(match[1], 10);
+    let maxFiles: number | null = null;
+    const qMatch = displayLabel.match(/\[quota:(\d+)\]/);
+    if (qMatch) {
+      quotaBytes = parseInt(qMatch[1], 10);
       displayLabel = displayLabel.replace(/\s*\[quota:\d+\]/, "").trim();
+    }
+    const fMatch = displayLabel.match(/\[files:(\d+)\]/);
+    if (fMatch) {
+      maxFiles = parseInt(fMatch[1], 10);
+      displayLabel = displayLabel.replace(/\s*\[files:\d+\]/, "").trim();
     }
     return {
       id: p.id,
       label: displayLabel || null,
       quota_bytes: quotaBytes,
+      max_files: maxFiles,
       is_active: Boolean(p.is_active),
       max_uses: Number(p.max_uses),
       times_used: Number(p.times_used),
@@ -42,14 +49,14 @@ export default async function AdminPinsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
+        <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
           <KeyRound className="w-3.5 h-3.5" />
           <span>Access Grants</span>
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           Fast-Track Onboarding PINs
         </h1>
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Create and manage 4-digit invitation PINs. All PINs are stored as Argon2id salted hashes and plaintexts are revealed only once.
         </p>
       </div>

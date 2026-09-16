@@ -102,11 +102,6 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/admin");
 
-  const isAuthPage =
-    pathname === "/login" ||
-    pathname === "/access-gate" ||
-    pathname === "/request-access";
-
   // Helper to attach CSP and forward refreshed session cookies to redirect responses
   const redirectWithCsp = (targetUrl: URL) => {
     const res = NextResponse.redirect(targetUrl);
@@ -171,11 +166,29 @@ export async function proxy(request: NextRequest) {
     .single();
 
   const isApproved = profile?.status === "approved";
+  const isRevoked = profile?.status === "revoked";
   const isAdmin = profile?.role === "admin";
 
+  // Instant Revocation Gate: Immediately log out revoked users and strip credentials
+  if (isRevoked) {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    url.pathname = "/login";
+    url.searchParams.set("reason", "revoked");
+    const res = redirectWithCsp(url);
+    res.cookies.delete("gphost_last_active");
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.startsWith("sb-")) {
+        res.cookies.delete(cookie.name);
+      }
+    });
+    return res;
+  }
+
   if (isApproved) {
-    // Approved users visiting auth gate/login screens redirect to dashboard
-    if (isAuthPage && pathname !== "/request-access") {
+    // Approved users visiting login screen redirect to dashboard
+    if (pathname === "/login") {
       url.pathname = "/dashboard";
       url.searchParams.delete("next");
       return redirectWithCsp(url);
@@ -187,7 +200,7 @@ export async function proxy(request: NextRequest) {
       return redirectWithCsp(url);
     }
   } else {
-    // Unapproved (pending, rejected, revoked) users attempting to access dashboard
+    // Unapproved (pending, rejected) users attempting to access dashboard
     if (isProtectedPath) {
       url.pathname = "/access-gate";
       return redirectWithCsp(url);

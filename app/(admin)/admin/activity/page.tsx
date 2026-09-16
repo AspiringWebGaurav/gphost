@@ -61,14 +61,14 @@ export default async function AdminActivityPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
+        <div className="flex items-center gap-2 text-primary text-xs font-semibold uppercase tracking-wider mb-1">
           <Activity className="w-3.5 h-3.5" />
           <span>Security & Compliance</span>
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           System Audit Logs
         </h1>
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Immutable audit record of all administrative mutations, quota updates, PIN operations, and access decisions.
         </p>
       </div>

@@ -5,9 +5,14 @@ import Link from "next/link";
 import { ArrowRight, UploadCloud } from "lucide-react";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { FileList, FileItem } from "@/components/dashboard/file-list";
+import {
+  ApprovalWelcomeBanner,
+  ApprovalWelcomeInfo,
+} from "@/components/dashboard/approval-welcome-banner";
 
 interface DashboardContentProps {
   initialFiles: FileItem[];
+  welcomeInfo?: ApprovalWelcomeInfo;
   profile: {
     full_name: string | null;
     email: string;
@@ -16,10 +21,15 @@ interface DashboardContentProps {
     storage_used_bytes: number;
     reserved_bytes: number;
     can_create_permanent: boolean;
+    max_files?: number | null;
   };
 }
 
-export function DashboardContent({ initialFiles, profile }: DashboardContentProps) {
+export function DashboardContent({
+  initialFiles,
+  profile,
+  welcomeInfo,
+}: DashboardContentProps) {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
 
   const isAdmin = profile.role === "admin";
@@ -43,8 +53,26 @@ export function DashboardContent({ initialFiles, profile }: DashboardContentProp
 
   return (
     <div className="space-y-4 max-w-5xl w-full mx-auto">
+      {/* Admin Approval Dynamic Welcome Banner (Regular approved users only, never admin) */}
+      {!isAdmin && welcomeInfo && (
+        <ApprovalWelcomeBanner
+          info={welcomeInfo}
+          onUploadClick={() => {
+            const el = document.getElementById("dashboard-upload-zone");
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth" });
+            } else {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          }}
+        />
+      )}
+
       {/* Upload Section */}
-      <div className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-2xs space-y-3">
+      <div
+        id="dashboard-upload-zone"
+        className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-2xs space-y-3"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500">

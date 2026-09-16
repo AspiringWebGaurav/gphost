@@ -24,16 +24,22 @@ interface AccessGateConsoleProps {
   hasExistingPendingRequest: boolean;
   existingRequestReason?: string | null;
   existingRequestDate?: string | null;
-  status: "pending" | "rejected" | "revoked";
+  isApprovedByAdmin?: boolean;
+  approvalDecision?: string | null;
+  status?: "pending" | "rejected" | "revoked";
   initialTab?: "pin" | "request";
+  adminContactEmail?: string;
 }
 
 export function AccessGateConsole({
   userEmail,
   hasExistingPendingRequest,
   existingRequestDate,
+  isApprovedByAdmin,
+  approvalDecision,
   status,
   initialTab = "pin",
+  adminContactEmail,
 }: AccessGateConsoleProps) {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -209,7 +215,7 @@ export function AccessGateConsole({
           </p>
         </div>
         <div className="p-4 rounded-xl bg-muted/60 border border-border text-xs text-muted-foreground">
-          Administrator: <span className="text-foreground font-mono font-medium">gauravpatil9262@gmail.com</span>
+          Administrator: <span className="text-foreground font-mono font-medium">{adminContactEmail || "support@gphost.internal"}</span>
         </div>
       </div>
     );
@@ -229,7 +235,7 @@ export function AccessGateConsole({
           </p>
         </div>
         <div className="p-4 rounded-xl bg-muted/60 border border-border text-xs text-muted-foreground">
-          Administrator: <span className="text-foreground font-mono font-medium">gauravpatil9262@gmail.com</span>
+          Administrator: <span className="text-foreground font-mono font-medium">{adminContactEmail || "support@gphost.internal"}</span>
         </div>
       </div>
     );
@@ -282,6 +288,24 @@ export function AccessGateConsole({
               <span className="text-foreground font-medium font-mono">{userEmail}</span>.
             </p>
           </div>
+
+          {/* Admin Approval Notice Banner */}
+          {isApprovedByAdmin && (
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-blue-500/15 border border-emerald-500/30 text-left space-y-1.5 animate-in fade-in duration-300 shadow-2xs">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                <span>Access Request Approved by Administrator!</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Your account request has been approved. Enter your issued 4-digit Onboarding PIN below to unlock your encrypted file vault and activate your account.
+              </p>
+              {approvalDecision && (
+                <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300 pt-0.5">
+                  Approval Info: {approvalDecision}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Messages */}
           {lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0 ? (

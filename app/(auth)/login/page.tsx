@@ -174,6 +174,16 @@ function LoginForm() {
         </div>
       )}
 
+      {/* Account Revoked Notice Banner */}
+      {searchParams.get("reason") === "revoked" && (
+        <div className="w-full mt-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-600 dark:text-rose-400 text-xs text-left animate-in fade-in duration-200">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+          <div className="flex-1 leading-relaxed">
+            <span className="font-semibold">Access Revoked:</span> An administrator has revoked your account access. Your session was terminated immediately. If you require assistance, please contact the administrator.
+          </div>
+        </div>
+      )}
+
       {/* Idle Inactivity Notice Banner */}
       {(searchParams.get("reason") === "idle_timeout" || searchParams.get("reason") === "timeout") && !errorMessage && (
         <div className="w-full mt-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-amber-600 dark:text-amber-400 text-xs text-left animate-in fade-in duration-200">

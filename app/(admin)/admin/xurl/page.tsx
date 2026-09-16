@@ -52,14 +52,14 @@ export default async function AdminXurlPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
+        <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
           <Globe className="w-3.5 h-3.5" />
           <span>Integration Monitor</span>
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           XURL Shortlink Monitor
         </h1>
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Inspect circuit breaker statuses, monthly quotas, and retry failed shortlink requests with strict non-blocking guarantees.
         </p>
       </div>

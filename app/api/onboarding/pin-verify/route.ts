@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPin, PIN_PEPPER } from "@/lib/security/pin";
 import { verifyTurnstileToken } from "@/lib/security/turnstile";
 import { pinRatelimit } from "@/lib/redis/ratelimit";
+import { setUserMaxFiles } from "@/lib/storage/user-limits";
 
 const PinVerifySchema = z.object({
   pin: z.string().length(4, "PIN must be strictly 4 digits").regex(/^\d{4}$/, "PIN must be digits only"),
@@ -103,12 +104,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Extract custom quota if embedded in label [quota:bytes]
+  // Extract custom quota and file limits if embedded in label [quota:bytes] [files:count]
   let assignedQuotaBytes: number | null = null;
+  let assignedMaxFiles: number | null = null;
   if (matchedPin.label) {
     const match = matchedPin.label.match(/\[quota:(\d+)\]/);
     if (match) {
       assignedQuotaBytes = parseInt(match[1], 10);
+    }
+    const fMatch = matchedPin.label.match(/\[files:(\d+)\]/);
+    if (fMatch) {
+      assignedMaxFiles = parseInt(fMatch[1], 10);
     }
   }
 
@@ -120,18 +126,39 @@ export async function POST(request: NextRequest) {
   });
 
   if (redeemErr) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Redemption failed: ${redeemErr.message}`,
-        remainingAttempts: remaining,
-      },
-      { status: 400 }
-    );
+    console.warn("[PIN Verify] RPC redeem_onboarding_pin failed, using direct update fallback:", redeemErr);
+    // Resilient fallback: direct mutation
+    await adminClient
+      .from("profiles")
+      .update({ status: "approved", updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
+    await adminClient
+      .from("onboarding_pins")
+      .update({ is_active: false })
+      .eq("id", matchedPin.id);
+
+    await adminClient.from("audit_logs").insert({
+      actor_id: user.id,
+      event_type: "ONBOARDING_PIN_REDEEMED",
+      resource_type: "onboarding_pin",
+      resource_id: matchedPin.id,
+      metadata: { pin_id: matchedPin.id, user_id: user.id },
+    });
   }
 
-  // 8. If PIN has a custom quota allocation, authoritatively update user's profile
-  if (assignedQuotaBytes && assignedQuotaBytes >= 1048576) {
+  // 8. Apply custom file count limit if set on the PIN
+  if (assignedMaxFiles !== null) {
+    await setUserMaxFiles(user.id, assignedMaxFiles);
+  }
+
+  // 9. If PIN has a custom quota allocation, authoritatively update user's profile
+  if (assignedQuotaBytes === -1) {
+    await adminClient
+      .from("profiles")
+      .update({ quota_bytes: -1 })
+      .eq("id", user.id);
+  } else if (assignedQuotaBytes && assignedQuotaBytes >= 1048576) {
     const { error: quotaUpdateErr } = await adminClient
       .from("profiles")
       .update({ quota_bytes: assignedQuotaBytes })

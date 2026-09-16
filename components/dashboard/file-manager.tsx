@@ -26,6 +26,9 @@ import {
   FileText,
   Film,
   Archive,
+  RotateCw,
+  Download,
+  AlertCircle,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
@@ -217,6 +220,70 @@ export function FileManager({
   } | null>(null);
   const [copiedDirect, setCopiedDirect] = useState(false);
   const [copiedXurl, setCopiedXurl] = useState(false);
+
+  // Extend Expiry Modal State
+  const [selectedFileForExtend, setSelectedFileForExtend] = useState<SafeFileItem | null>(null);
+  const [extendPreset, setExtendPreset] = useState<string>("30d");
+  const [isExtending, setIsExtending] = useState<boolean>(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
+
+  // Direct Download State
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDirectDownload = async (file: SafeFileItem) => {
+    setDownloadingId(file.id);
+    try {
+      const res = await fetch(`/api/files/${file.id}/download`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Failed to download file");
+        return;
+      }
+      const data = await res.json();
+      if (data.downloadUrl) {
+        const a = document.createElement("a");
+        a.href = data.downloadUrl;
+        a.download = file.sanitized_name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (err) {
+      console.error("Direct download failed:", err);
+      alert("Network error starting download");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleExtendConfirm = async () => {
+    if (!selectedFileForExtend) return;
+    setIsExtending(true);
+    setExtendError(null);
+    try {
+      const res = await fetch(`/api/files/${selectedFileForExtend.id}/extend`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset: extendPreset }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to extend file expiry");
+      }
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === selectedFileForExtend.id
+            ? { ...f, status: data.file.status, expires_at: data.file.expires_at }
+            : f
+        )
+      );
+      setSelectedFileForExtend(null);
+    } catch (err: unknown) {
+      setExtendError(err instanceof Error ? err.message : "Failed to extend expiry");
+    } finally {
+      setIsExtending(false);
+    }
+  };
 
   // Fetch paginated files with server-side query
   const fetchFiles = useCallback(
@@ -569,12 +636,17 @@ export function FileManager({
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
             {files.map((file) => {
+              const isExpired =
+                file.status === "EXPIRED" ||
+                (file.expires_at !== null && new Date(file.expires_at).getTime() <= currentTime);
               const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
               const FileTypeIcon = fileType.icon;
               return (
                 <div
                   key={file.id}
-                  className="rounded-2xl border border-border bg-card p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between"
+                  className={`rounded-2xl border ${
+                    isExpired ? "border-rose-500/35 bg-rose-500/[0.02]" : "border-border bg-card"
+                  } p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between`}
                 >
                   {/* Card Top: Type badge & Name */}
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -613,6 +685,7 @@ export function FileManager({
                           <div className="h-1 bg-rose-500/20 rounded-full w-3/4" />
                           <div className="h-1 bg-rose-500/20 rounded-full w-1/2" />
                         </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">PDF</span>
                       </div>
                     ) : fileType.type === "media" ? (
                       <div className="flex flex-col items-center gap-1.5 text-sky-600 dark:text-sky-400">
@@ -647,10 +720,17 @@ export function FileManager({
                   {/* Card Metadata */}
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 pb-2 border-b border-border/60">
                     <span className="font-mono">{formatBytes(file.byte_size)}</span>
-                    <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
-                      <Clock className="w-3 h-3 text-amber-500" />
-                      <span>{formatExpiry(file.expires_at, currentTime)}</span>
-                    </span>
+                    {isExpired ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>EXPIRED</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
+                        <Clock className="w-3 h-3 text-amber-500" />
+                        <span>{formatExpiry(file.expires_at, currentTime)}</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Card Actions */}
@@ -665,12 +745,40 @@ export function FileManager({
                     </button>
 
                     <div className="flex items-center gap-1.5">
+                      {isExpired ? (
+                        <button
+                          onClick={() => {
+                            setSelectedFileForExtend(file);
+                            setExtendPreset("30d");
+                            setExtendError(null);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                          title="Extend file expiration"
+                        >
+                          <RotateCw className="w-3 h-3" />
+                          <span>Extend</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenShare(file)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                        >
+                          <Share2 className="w-3 h-3" />
+                          <span>Share</span>
+                        </button>
+                      )}
+
                       <button
-                        onClick={() => handleOpenShare(file)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                        onClick={() => handleDirectDownload(file)}
+                        disabled={downloadingId === file.id}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                        title="Download file"
                       >
-                        <Share2 className="w-3 h-3" />
-                        <span>Share</span>
+                        {downloadingId === file.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
                       </button>
 
                       <button
@@ -719,12 +827,19 @@ export function FileManager({
         <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
           <div className="divide-y divide-border">
             {files.map((file) => {
+              const isExpired =
+                file.status === "EXPIRED" ||
+                (file.expires_at !== null && new Date(file.expires_at).getTime() <= currentTime);
               const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
               const FileTypeIcon = fileType.icon;
               return (
                 <div
                   key={file.id}
-                  className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/40 transition group"
+                  className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition group ${
+                    isExpired
+                      ? "bg-rose-500/[0.02] dark:bg-rose-500/[0.04] hover:bg-rose-500/[0.06] border-l-2 border-l-rose-500/60"
+                      : "hover:bg-muted/40 border-l-2 border-l-transparent"
+                  }`}
                 >
                   <div className="flex items-start sm:items-center gap-3 min-w-0">
                     <div className={`w-9 h-9 rounded-xl border ${fileType.bg} ${fileType.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
@@ -739,10 +854,17 @@ export function FileManager({
                         <span>&bull;</span>
                         <span className="truncate max-w-[120px]">{file.mime_type}</span>
                         <span>&bull;</span>
-                        <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
-                          <Clock className="w-3 h-3 text-amber-500" />
-                          {formatExpiry(file.expires_at, currentTime)}
-                        </span>
+                        {isExpired ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>EXPIRED</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
+                            <Clock className="w-3 h-3 text-amber-500" />
+                            {formatExpiry(file.expires_at, currentTime)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -758,12 +880,40 @@ export function FileManager({
                       <span className="hidden sm:inline">Details</span>
                     </button>
 
+                    {isExpired ? (
+                      <button
+                        onClick={() => {
+                          setSelectedFileForExtend(file);
+                          setExtendPreset("30d");
+                          setExtendError(null);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                        title="Extend file expiration"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                        <span>Extend</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleOpenShare(file)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>Share</span>
+                      </button>
+                    )}
+
                     <button
-                      onClick={() => handleOpenShare(file)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                      onClick={() => handleDirectDownload(file)}
+                      disabled={downloadingId === file.id}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                      title="Download file"
                     >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>Share</span>
+                      {downloadingId === file.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
                     </button>
 
                     <button
@@ -1384,6 +1534,109 @@ export function FileManager({
         cancelText="Cancel"
         variant="danger"
       />
+
+      {/* EXTEND EXPIRY MODAL */}
+      {selectedFileForExtend && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-5 md:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <RotateCw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">Extend File Expiry</h4>
+                  <p className="text-[11px] text-muted-foreground">Restore status to ACTIVE and resume secure access</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedFileForExtend(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target File Info */}
+            <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-background border border-border/80 text-amber-500 flex items-center justify-center shrink-0">
+                <FileIcon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground truncate">{selectedFileForExtend.sanitized_name}</p>
+                <p className="text-[11px] text-muted-foreground font-mono">{formatBytes(selectedFileForExtend.byte_size)}</p>
+              </div>
+            </div>
+
+            {/* Explanatory Callout */}
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>What happens when you extend?</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                This file is currently expired and locked from public access. Extending it restores status to <strong className="text-amber-800 dark:text-amber-200">ACTIVE</strong>, recalculates its countdown, and allows sharing once again.
+              </p>
+            </div>
+
+            {/* Preset Selection */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">New Expiration Duration</label>
+              <select
+                value={extendPreset}
+                onChange={(e) => setExtendPreset(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-xs focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+              >
+                <option value="1h">1 Hour from now</option>
+                <option value="2h">2 Hours from now</option>
+                <option value="5h">5 Hours from now</option>
+                <option value="12h">12 Hours from now</option>
+                <option value="24h">24 Hours (1 Day)</option>
+                <option value="7d">7 Days</option>
+                <option value="30d">30 Days (Recommended)</option>
+                <option value="90d">90 Days</option>
+                {isPremium && <option value="never">Permanent (Never Expire)</option>}
+              </select>
+            </div>
+
+            {extendError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs">
+                {extendError}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setSelectedFileForExtend(null)}
+                disabled={isExtending}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExtendConfirm}
+                disabled={isExtending}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isExtending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Re-activating...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Re-activate File</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

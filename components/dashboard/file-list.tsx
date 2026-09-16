@@ -16,6 +16,10 @@ import {
   Globe,
   Sparkles,
   AlertTriangle,
+  RotateCw,
+  Download,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
@@ -35,6 +39,7 @@ export interface FileItem {
 interface FileListProps {
   files: FileItem[];
   onFileDeleted?: () => void;
+  onFileUpdated?: () => void;
   hideHeader?: boolean;
   maxHeight?: string;
   isPremium?: boolean;
@@ -70,13 +75,30 @@ interface ShareResponseData {
 export function FileList({
   files,
   onFileDeleted,
+  onFileUpdated,
   hideHeader = false,
   maxHeight,
   isPremium = false,
 }: FileListProps) {
+  const [localUpdates, setLocalUpdates] = useState<Record<string, Partial<FileItem>>>({});
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+
+  const fileList = files
+    .filter((f) => !deletedIds.has(f.id))
+    .map((f) => (localUpdates[f.id] ? { ...f, ...localUpdates[f.id] } : f));
+
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
   const [isDeletingFile, setIsDeletingFile] = useState(false);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
+
+  // Extend Expiry modal state
+  const [extendFile, setExtendFile] = useState<FileItem | null>(null);
+  const [extendPreset, setExtendPreset] = useState<string>("30d");
+  const [isExtending, setIsExtending] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
+
+  // Direct download state
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // Real-time live countdown ticker (ticks every second for smooth 35m -> 34m updates)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -87,6 +109,62 @@ export function FileList({
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Direct owner download
+  const handleDirectDownload = async (file: FileItem) => {
+    setDownloadingId(file.id);
+    try {
+      const res = await fetch(`/api/files/${file.id}/download`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Failed to download file");
+        return;
+      }
+      const data = await res.json();
+      if (data.downloadUrl) {
+        const a = document.createElement("a");
+        a.href = data.downloadUrl;
+        a.download = file.sanitized_name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (err) {
+      console.error("Direct download failed:", err);
+      alert("Network error starting download");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Extend expiration & re-activate
+  const handleExtendConfirm = async () => {
+    if (!extendFile) return;
+    setIsExtending(true);
+    setExtendError(null);
+    try {
+      const res = await fetch(`/api/files/${extendFile.id}/extend`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset: extendPreset }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to extend file expiry");
+      }
+      setLocalUpdates((prev) => ({
+        ...prev,
+        [extendFile.id]: { status: data.file.status, expires_at: data.file.expires_at },
+      }));
+      setExtendFile(null);
+      if (onFileUpdated) onFileUpdated();
+      else if (onFileDeleted) onFileDeleted();
+    } catch (err: unknown) {
+      setExtendError(err instanceof Error ? err.message : "Failed to extend expiry");
+    } finally {
+      setIsExtending(false);
+    }
+  };
 
   // Share modal state
   const [sharePreset, setSharePreset] = useState<string>("file_expiry");
@@ -110,7 +188,9 @@ export function FileList({
         const data = await res.json().catch(() => ({}));
         alert(data.error || "Failed to delete file");
       } else {
+        const deletedId = fileToDelete.id;
         setFileToDelete(null);
+        setDeletedIds((prev) => new Set(prev).add(deletedId));
         if (onFileDeleted) onFileDeleted();
       }
     } catch (err) {
@@ -181,7 +261,7 @@ export function FileList({
     }
   };
 
-  if (files.length === 0) {
+  if (fileList.length === 0) {
     return (
       <div
         className={`text-center ${
@@ -206,7 +286,7 @@ export function FileList({
       {!hideHeader && (
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">
-            Your Files ({files.length})
+            Your Files ({fileList.length})
           </h3>
         </div>
       )}
@@ -216,66 +296,139 @@ export function FileList({
           maxHeight ? `${maxHeight} overflow-y-auto` : ""
         }`}
       >
-        {files.map((file) => {
+        {fileList.map((file) => {
+          const isExpired =
+            file.status === "EXPIRED" ||
+            (file.expires_at !== null && new Date(file.expires_at).getTime() <= currentTime);
+
           return (
             <div
               key={file.id}
-              className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/40 transition-colors"
+              className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
+                isExpired
+                  ? "bg-rose-500/[0.02] dark:bg-rose-500/[0.04] hover:bg-rose-500/[0.06] border-l-2 border-l-rose-500/60"
+                  : "hover:bg-muted/40 border-l-2 border-l-transparent"
+              }`}
             >
               {/* File Info */}
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+                <div
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                    isExpired
+                      ? "bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
                   <FileIcon className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate max-w-xs sm:max-w-md">
                     {file.sanitized_name}
                   </p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                    <span>{formatBytes(file.byte_size)}</span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                    <span className="font-mono">{formatBytes(file.byte_size)}</span>
                     <span>•</span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatExpiry(file.expires_at)}
-                    </span>
+                    {isExpired ? (
+                      <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold">
+                        <Clock className="w-3 h-3 text-rose-500" />
+                        <span>Expired</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{formatExpiry(file.expires_at, currentTime)}</span>
+                      </span>
+                    )}
                     <span>•</span>
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-mono uppercase ${
-                        file.status === "ACTIVE"
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                      }`}
-                    >
-                      {file.status}
-                    </span>
+                    {isExpired ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-2xs">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>EXPIRED</span>
+                      </span>
+                    ) : file.status === "ACTIVE" ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>ACTIVE</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        <Clock className="w-3 h-3" />
+                        <span>{file.status}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                <button
-                  onClick={() => {
-                    setShareFile(file);
-                    setShareResult(null);
-                    setShareError(null);
-                    setSharePassword("");
-                    setCustomSlug("");
-                    setSharePreset("file_expiry");
-                    setMaxDownloads("");
-                    setIsSingleUse(false);
-                    setShortenWithXurl(false);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition-colors cursor-pointer"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
-                  <span>Share</span>
-                </button>
+                {isExpired ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setExtendFile(file);
+                        setExtendPreset("30d");
+                        setExtendError(null);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                      title="Re-activate this expired file and restore public sharing"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      <span>Extend Expiry</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDirectDownload(file)}
+                      disabled={downloadingId === file.id}
+                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      title="Download your copy"
+                    >
+                      {downloadingId === file.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        setShareFile(file);
+                        setShareResult(null);
+                        setShareError(null);
+                        setSharePassword("");
+                        setCustomSlug("");
+                        setSharePreset("file_expiry");
+                        setMaxDownloads("");
+                        setIsSingleUse(false);
+                        setShortenWithXurl(false);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                      <span>Share</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDirectDownload(file)}
+                      disabled={downloadingId === file.id}
+                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      title="Direct download"
+                    >
+                      {downloadingId === file.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </>
+                )}
 
                 <button
                   onClick={() => setFileToDelete(file)}
                   className="p-1.5 rounded-lg border border-border hover:border-red-500/30 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
-                  title="Delete file"
+                  title={isExpired ? "Delete expired file to free storage quota" : "Delete file"}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -801,6 +954,109 @@ export function FileList({
         cancelText="Cancel"
         variant="danger"
       />
+
+      {/* Extend Expiry Modal */}
+      {extendFile && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-5 md:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <RotateCw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">Extend File Expiry</h4>
+                  <p className="text-[11px] text-muted-foreground">Restore status to ACTIVE and resume secure access</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setExtendFile(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target File Info */}
+            <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-background border border-border/80 text-amber-500 flex items-center justify-center shrink-0">
+                <FileIcon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground truncate">{extendFile.sanitized_name}</p>
+                <p className="text-[11px] text-muted-foreground font-mono">{formatBytes(extendFile.byte_size)}</p>
+              </div>
+            </div>
+
+            {/* Explanatory Callout */}
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>What happens when you extend?</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                This file is currently expired and locked from public access. Extending it restores status to <strong className="text-amber-800 dark:text-amber-200">ACTIVE</strong>, recalculates its countdown, and allows sharing once again.
+              </p>
+            </div>
+
+            {/* Preset Selection */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">New Expiration Duration</label>
+              <select
+                value={extendPreset}
+                onChange={(e) => setExtendPreset(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-xs focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+              >
+                <option value="1h">1 Hour from now</option>
+                <option value="2h">2 Hours from now</option>
+                <option value="5h">5 Hours from now</option>
+                <option value="12h">12 Hours from now</option>
+                <option value="24h">24 Hours (1 Day)</option>
+                <option value="7d">7 Days</option>
+                <option value="30d">30 Days (Recommended)</option>
+                <option value="90d">90 Days</option>
+                {isPremium && <option value="never">Permanent (Never Expire)</option>}
+              </select>
+            </div>
+
+            {extendError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs">
+                {extendError}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setExtendFile(null)}
+                disabled={isExtending}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExtendConfirm}
+                disabled={isExtending}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isExtending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Re-activating...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Re-activate File</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

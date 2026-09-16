@@ -16,6 +16,7 @@ const createPinSchema = z
     max_uses: z.number().int().min(1).nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
     quota_bytes: z.number().int().min(1048576, "Minimum quota is 1 MB").nullable().optional(),
+    max_files: z.number().int().min(1, "Minimum file limit is 1").nullable().optional(),
   })
   .strict();
 
@@ -43,19 +44,26 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "DATABASE_ERROR" }, { status: 500 });
     }
 
-    // Extract structured quota metadata if embedded in label
+    // Extract structured quota and file limit metadata if embedded in label
     const enrichedPins = (pins || []).map((p) => {
       let displayLabel = p.label || "";
       let quotaBytes: number | null = null;
-      const match = displayLabel.match(/\[quota:(\d+)\]/);
-      if (match) {
-        quotaBytes = parseInt(match[1], 10);
+      let maxFiles: number | null = null;
+      const qMatch = displayLabel.match(/\[quota:(\d+)\]/);
+      if (qMatch) {
+        quotaBytes = parseInt(qMatch[1], 10);
         displayLabel = displayLabel.replace(/\s*\[quota:\d+\]/, "").trim();
+      }
+      const fMatch = displayLabel.match(/\[files:(\d+)\]/);
+      if (fMatch) {
+        maxFiles = parseInt(fMatch[1], 10);
+        displayLabel = displayLabel.replace(/\s*\[files:\d+\]/, "").trim();
       }
       return {
         ...p,
         label: displayLabel,
         quota_bytes: quotaBytes,
+        max_files: maxFiles,
       };
     });
 
@@ -97,7 +105,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { pin: requestedPin, label, max_uses, expires_at, quota_bytes } = parseResult.data;
+    const { pin: requestedPin, label, max_uses, expires_at, quota_bytes, max_files } = parseResult.data;
 
     // Generate cryptographically secure 4-digit PIN if omitted
     const plaintextPin = requestedPin || crypto.randomInt(1000, 10000).toString();
@@ -110,8 +118,10 @@ export async function POST(req: NextRequest) {
     const ipHash = hashClientIp(clientIp);
     const adminClient = createAdminClient();
 
-    // Embed structured quota metadata [quota:bytes] into label if specified
-    const storedLabel = quota_bytes ? `${label} [quota:${quota_bytes}]` : label;
+    // Embed structured quota and max_files metadata into label
+    let storedLabel = label;
+    if (quota_bytes) storedLabel += ` [quota:${quota_bytes}]`;
+    if (max_files) storedLabel += ` [files:${max_files}]`;
 
     // Call atomic stored procedure
     const { data: rpcResult, error: rpcError } = await adminClient.rpc(
@@ -142,6 +152,7 @@ export async function POST(req: NextRequest) {
         plaintextPin, // Returned once to authorized admin; never persisted
         label,
         quota_bytes: quota_bytes || null,
+        max_files: max_files || null,
         max_uses: max_uses || null,
         expires_at: expires_at || null,
       },

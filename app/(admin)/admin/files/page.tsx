@@ -61,14 +61,14 @@ export default async function AdminFilesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
+        <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 text-xs font-semibold uppercase tracking-wider mb-1">
           <FileBox className="w-3.5 h-3.5" />
           <span>Storage Inspection</span>
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           Global File Audit
         </h1>
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Cross-user storage audit and compliance management. Internal storage keys are strictly stripped for zero-trust privacy.
         </p>
       </div>

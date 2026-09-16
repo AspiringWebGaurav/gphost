@@ -4,12 +4,14 @@ import { requireAdminUser, requireOwnerUser, ADMIN_EMAIL } from "@/lib/auth/sess
 import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOpRatelimit } from "@/lib/redis/ratelimit";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
+import { setUserMaxFiles } from "@/lib/storage/user-limits";
 
 export const dynamic = "force-dynamic";
 
 const adminUpdateUserSchema = z
   .object({
     quota_bytes: z.number().int().min(-1).optional(),
+    max_files: z.number().int().min(1).nullable().optional(),
     role: z.enum(["user", "admin"]).optional(),
     status: z.enum(["pending", "approved", "rejected", "revoked"]).optional(),
     can_create_permanent: z.boolean().optional(),
@@ -39,7 +41,7 @@ export async function PATCH(
       );
     }
 
-    const { quota_bytes, role, status, can_create_permanent } = parseResult.data;
+    const { quota_bytes, max_files, role, status, can_create_permanent } = parseResult.data;
 
     // Determine required authorization: modifying roles strictly requires Owner-Exclusive authority
     let adminUser;
@@ -161,19 +163,50 @@ export async function PATCH(
       );
 
       if (profileError) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "PROFILE_UPDATE_FAILED",
-            message: profileError.message,
-          },
-          { status: 400 }
-        );
+        console.warn("[Admin Users API] RPC failed, using direct profile update fallback:", profileError);
+        const updateData: {
+          role?: "user" | "admin";
+          status?: "pending" | "approved" | "rejected" | "revoked";
+          can_create_permanent?: boolean;
+          updated_at: string;
+        } = {
+          updated_at: new Date().toISOString(),
+        };
+        if (role !== undefined) updateData.role = role;
+        if (status !== undefined) updateData.status = status;
+        if (can_create_permanent !== undefined) updateData.can_create_permanent = can_create_permanent;
+
+        const { error: directErr } = await adminClient
+          .from("profiles")
+          .update(updateData)
+          .eq("id", targetUserId);
+
+        if (directErr) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "PROFILE_UPDATE_FAILED",
+              message: directErr.message,
+            },
+            { status: 400 }
+          );
+        }
       }
 
       if (role !== undefined) updatedRole = role;
       if (status !== undefined) updatedStatus = status;
       if (can_create_permanent !== undefined) updatedPermanent = can_create_permanent;
+
+      if (status === "revoked" && targetUser.email) {
+        await adminClient
+          .from("onboarding_pins")
+          .update({ is_active: false })
+          .ilike("label", `%${targetUser.email}%`);
+      }
+    }
+
+    if (max_files !== undefined) {
+      await setUserMaxFiles(targetUserId, max_files, adminUser.id);
     }
 
     return NextResponse.json({

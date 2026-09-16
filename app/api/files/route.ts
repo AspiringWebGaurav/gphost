@@ -21,6 +21,25 @@ export async function GET(req: NextRequest) {
       : "created_at";
     const sortOrder = searchParams.get("sortOrder")?.toLowerCase() === "asc" ? "asc" : "desc";
 
+    // Authoritative Lazy Reconciliation: Automatically transition past-due files to EXPIRED
+    const nowIso = new Date().toISOString();
+    await Promise.all([
+      adminClient
+        .from("files")
+        .update({ status: "EXPIRED", updated_at: nowIso })
+        .eq("user_id", user.id)
+        .in("status", ["ACTIVE", "EXPIRING"])
+        .not("expires_at", "is", null)
+        .lte("expires_at", nowIso),
+      adminClient
+        .from("share_links")
+        .update({ is_active: false, updated_at: nowIso })
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .not("expires_at", "is", null)
+        .lte("expires_at", nowIso),
+    ]);
+
     // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
     let query = adminClient
       .from("files")

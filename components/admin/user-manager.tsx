@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   Loader2,
   Crown,
+  FileBox,
+  HardDrive,
 } from "lucide-react";
 
 export interface AdminUserProfile {
@@ -67,6 +69,8 @@ export function UserManager({
   const [editCanPermanent, setEditCanPermanent] = useState(false);
   const [isUnlimitedQuota, setIsUnlimitedQuota] = useState(false);
   const [editQuotaMB, setEditQuotaMB] = useState(1024);
+  const [isUnlimitedFiles, setIsUnlimitedFiles] = useState(true);
+  const [editMaxFiles, setEditMaxFiles] = useState(10);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -91,6 +95,8 @@ export function UserManager({
         ? 1024
         : Math.round(target.quota_bytes / (1024 * 1024))
     );
+    setIsUnlimitedFiles(true);
+    setEditMaxFiles(10);
     setActionError(null);
     setActionSuccess(null);
   };
@@ -99,6 +105,48 @@ export function UserManager({
     setEditingUser(null);
     setActionError(null);
     setActionSuccess(null);
+  };
+
+  const handleQuickRevoke = async (target: AdminUserProfile) => {
+    const isTargetPermanentOwner =
+      target.email.toLowerCase() === ownerEmail.toLowerCase();
+    const isSelf = target.id === currentUserId;
+
+    if (isTargetPermanentOwner) {
+      alert("The permanent owner account cannot be revoked.");
+      return;
+    }
+    if (isSelf) {
+      alert("You cannot revoke your own administrative account.");
+      return;
+    }
+
+    if (
+      !confirm(
+        `Are you sure you want to revoke access for ${target.email}? The user will be immediately logged out and forbidden from uploading files.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users/${target.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "revoked" }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to revoke user");
+      }
+
+      setUsers((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, status: "revoked" } : u))
+      );
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to revoke user");
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -131,6 +179,7 @@ export function UserManager({
     // Build payload
     const payload: {
       quota_bytes?: number;
+      max_files?: number | null;
       role?: "user" | "admin";
       status?: "pending" | "approved" | "rejected" | "revoked";
       can_create_permanent?: boolean;
@@ -140,37 +189,39 @@ export function UserManager({
       payload.quota_bytes = newQuotaBytes;
     }
 
-    if (editStatus !== editingUser.status) {
-      if (isTargetPermanentOwner && editStatus !== "approved") {
-        setActionError("Permanent owner status cannot be modified.");
-        setIsSubmitting(false);
-        return;
-      }
-      if (isSelf && editStatus !== "approved") {
-        setActionError("Self-lockout prevented: You cannot revoke your own account.");
-        setIsSubmitting(false);
-        return;
-      }
-      payload.status = editStatus;
-    }
+    payload.max_files = isUnlimitedFiles ? null : editMaxFiles;
 
     if (editRole !== editingUser.role) {
       if (!isOwner) {
-        setActionError("Owner authority required to modify admin roles.");
+        setActionError("Only the platform owner can modify user roles.");
         setIsSubmitting(false);
         return;
       }
-      if (isTargetPermanentOwner && editRole !== "admin") {
-        setActionError("Permanent owner role cannot be demoted.");
+      if (isTargetPermanentOwner) {
+        setActionError("The permanent owner role cannot be demoted.");
         setIsSubmitting(false);
         return;
       }
-      if (isSelf && editRole !== "admin") {
-        setActionError("Self-demotion prevented: You cannot demote your own account.");
+      if (isSelf) {
+        setActionError("You cannot modify your own administrative role.");
         setIsSubmitting(false);
         return;
       }
       payload.role = editRole;
+    }
+
+    if (editStatus !== editingUser.status) {
+      if (isTargetPermanentOwner) {
+        setActionError("The permanent owner account status cannot be modified.");
+        setIsSubmitting(false);
+        return;
+      }
+      if (isSelf && editStatus !== "approved") {
+        setActionError("Self-lockout protection: You cannot revoke or reject your own account.");
+        setIsSubmitting(false);
+        return;
+      }
+      payload.status = editStatus;
     }
 
     if (editCanPermanent !== editingUser.can_create_permanent) {
@@ -178,7 +229,7 @@ export function UserManager({
     }
 
     if (Object.keys(payload).length === 0) {
-      closeEditModal();
+      setActionError("No changes were made.");
       setIsSubmitting(false);
       return;
     }
@@ -192,7 +243,7 @@ export function UserManager({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to update user profile");
+        throw new Error(data.message || data.error || "Failed to update user profile");
       }
 
       // Update local state
@@ -201,12 +252,10 @@ export function UserManager({
           if (u.id === editingUser.id) {
             return {
               ...u,
+              role: payload.role !== undefined ? payload.role : u.role,
+              status: payload.status !== undefined ? payload.status : u.status,
               quota_bytes:
-                payload.quota_bytes !== undefined
-                  ? payload.quota_bytes
-                  : u.quota_bytes,
-              role: payload.role || u.role,
-              status: payload.status || u.status,
+                payload.quota_bytes !== undefined ? payload.quota_bytes : u.quota_bytes,
               can_create_permanent:
                 payload.can_create_permanent !== undefined
                   ? payload.can_create_permanent
@@ -220,7 +269,7 @@ export function UserManager({
       setActionSuccess("User profile successfully updated.");
       setTimeout(() => {
         closeEditModal();
-      }, 1000);
+      }, 1200);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Update failed");
     } finally {
@@ -231,55 +280,55 @@ export function UserManager({
   return (
     <div className="space-y-6">
       {/* Search and Filters Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="relative max-w-sm w-full">
+          <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search by email or name..."
+            placeholder="Search email or name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-purple-500"
+            className="w-full bg-background border border-border rounded-xl pl-9 pr-4 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 transition"
           />
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-400">
-            <Filter className="w-3.5 h-3.5 text-neutral-500" />
+          <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-muted-foreground">
+            <Filter className="w-3.5 h-3.5 text-muted-foreground" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent border-none text-xs text-neutral-300 focus:outline-none cursor-pointer"
+              className="bg-transparent border-none text-xs text-foreground focus:outline-none cursor-pointer"
             >
-              <option value="all" className="bg-neutral-900">All Statuses</option>
-              <option value="approved" className="bg-neutral-900">Approved</option>
-              <option value="pending" className="bg-neutral-900">Pending</option>
-              <option value="rejected" className="bg-neutral-900">Rejected</option>
-              <option value="revoked" className="bg-neutral-900">Revoked</option>
+              <option value="all">All Statuses</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+              <option value="revoked">Revoked</option>
             </select>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-400">
-            <Shield className="w-3.5 h-3.5 text-neutral-500" />
+          <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-muted-foreground">
+            <Shield className="w-3.5 h-3.5 text-muted-foreground" />
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="bg-transparent border-none text-xs text-neutral-300 focus:outline-none cursor-pointer"
+              className="bg-transparent border-none text-xs text-foreground focus:outline-none cursor-pointer"
             >
-              <option value="all" className="bg-neutral-900">All Roles</option>
-              <option value="user" className="bg-neutral-900">User</option>
-              <option value="admin" className="bg-neutral-900">Admin</option>
+              <option value="all">All Roles</option>
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
             </select>
           </div>
         </div>
       </div>
 
       {/* Users Table */}
-      <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl overflow-hidden backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-neutral-800 bg-neutral-950/40 text-neutral-400 font-semibold">
+              <tr className="border-b border-border bg-muted/40 text-muted-foreground font-semibold">
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
@@ -289,10 +338,10 @@ export function UserManager({
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800/60 text-neutral-300">
+            <tbody className="divide-y divide-border/60 text-muted-foreground">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-neutral-500">
+                  <td colSpan={7} className="text-center py-8 text-muted-foreground">
                     No users matching criteria.
                   </td>
                 </tr>
@@ -308,10 +357,10 @@ export function UserManager({
                       : Math.min(100, Math.round((totalCommitted / u.quota_bytes) * 100));
 
                   return (
-                    <tr key={u.id} className="hover:bg-neutral-800/30 transition">
+                    <tr key={u.id} className="hover:bg-muted/40 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center font-bold text-neutral-300 overflow-hidden shrink-0 border border-neutral-700">
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-bold text-foreground overflow-hidden shrink-0 border border-border">
                             {u.avatar_url ? (
                               /* eslint-disable-next-line @next/next/no-img-element */
                               <img
@@ -320,17 +369,17 @@ export function UserManager({
                                 className="w-full h-full object-cover"
                               />
                             ) : (
-                              <User className="w-4 h-4 text-neutral-400" />
+                              <User className="w-4 h-4 text-muted-foreground" />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 font-medium text-white truncate">
+                            <div className="flex items-center gap-1.5 font-medium text-foreground truncate">
                               <span>{u.full_name || "Unnamed User"}</span>
                               {isPermanentOwner && (
-                                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                               )}
                             </div>
-                            <div className="text-[11px] text-neutral-500 truncate">
+                            <div className="text-[11px] text-muted-foreground truncate font-mono">
                               {u.email}
                             </div>
                           </div>
@@ -339,12 +388,12 @@ export function UserManager({
 
                       <td className="px-4 py-3">
                         {u.role === "admin" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
                             <Shield className="w-3 h-3" />
                             Admin
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-neutral-800 text-neutral-400">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground border border-border">
                             User
                           </span>
                         )}
@@ -352,50 +401,46 @@ export function UserManager({
 
                       <td className="px-4 py-3">
                         {u.status === "approved" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
                             <CheckCircle className="w-3 h-3" />
                             Approved
                           </span>
                         )}
                         {u.status === "pending" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
                             <Clock className="w-3 h-3" />
                             Pending
                           </span>
                         )}
                         {u.status === "rejected" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20">
                             <XCircle className="w-3 h-3" />
                             Rejected
                           </span>
                         )}
                         {u.status === "revoked" && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-neutral-800 text-neutral-400 border border-neutral-700">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground border border-border">
                             <Ban className="w-3 h-3" />
                             Revoked
                           </span>
                         )}
                       </td>
 
-                      <td className="px-4 py-3">
-                        <div className="space-y-1 max-w-[160px]">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="text-neutral-300 font-mono">
-                              {formatBytes(totalCommitted)}
-                            </span>
-                            <span className="text-neutral-500 font-mono">
-                              / {formatBytes(u.quota_bytes)}
-                            </span>
+                      <td className="px-4 py-3 font-mono text-[11px]">
+                        <div className="space-y-1 max-w-[140px]">
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>{formatBytes(totalCommitted)}</span>
+                            <span>{u.quota_bytes === -1 ? "∞" : formatBytes(u.quota_bytes)}</span>
                           </div>
                           {u.quota_bytes !== -1 && (
-                            <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                               <div
-                                className={`h-full rounded-full transition-all duration-300 ${
+                                className={`h-full rounded-full ${
                                   quotaPercent > 90
-                                    ? "bg-red-500"
-                                    : quotaPercent > 70
+                                    ? "bg-rose-500"
+                                    : quotaPercent > 75
                                     ? "bg-amber-500"
-                                    : "bg-emerald-500"
+                                    : "bg-blue-500"
                                 }`}
                                 style={{ width: `${quotaPercent}%` }}
                               />
@@ -406,24 +451,42 @@ export function UserManager({
 
                       <td className="px-4 py-3">
                         {u.can_create_permanent ? (
-                          <span className="text-emerald-400 font-medium">Enabled</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                            Allowed
+                          </span>
                         ) : (
-                          <span className="text-neutral-500">Disabled</span>
+                          <span className="text-muted-foreground">Standard</span>
                         )}
                       </td>
 
-                      <td className="px-4 py-3 text-neutral-500 font-mono text-[11px]">
+                      <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">
                         {new Date(u.created_at).toLocaleDateString()}
                       </td>
 
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => openEditModal(u)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white transition text-[11px] font-medium"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                          Manage
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {u.status !== "revoked" &&
+                            u.email.toLowerCase() !== ownerEmail.toLowerCase() &&
+                            u.id !== currentUserId && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickRevoke(u)}
+                                title="Revoke access and terminate session immediately"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 font-medium text-[11px] transition border border-rose-500/20 cursor-pointer shadow-2xs"
+                              >
+                                <Ban className="w-3 h-3" />
+                                <span>Revoke</span>
+                              </button>
+                            )}
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(u)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground font-medium text-[11px] transition border border-border cursor-pointer shadow-2xs"
+                          >
+                            <Edit2 className="w-3 h-3 text-muted-foreground" />
+                            <span>Edit</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -434,20 +497,20 @@ export function UserManager({
         </div>
       </div>
 
-      {/* Edit User Modal */}
+      {/* EDIT USER MODAL */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between p-4 border-b border-neutral-800 bg-neutral-950/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="bg-card border border-border text-card-foreground rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-border">
               <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-purple-400" />
-                <h3 className="text-sm font-semibold text-white">
-                  Manage User Account
+                <Edit2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <h3 className="text-sm font-semibold text-foreground">
+                  Administer User Account
                 </h3>
               </div>
               <button
                 onClick={closeEditModal}
-                className="text-neutral-400 hover:text-white transition"
+                className="text-muted-foreground hover:text-foreground transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -455,20 +518,20 @@ export function UserManager({
 
             <form onSubmit={handleSave} className="p-5 space-y-4 text-xs">
               {/* Target info */}
-              <div className="p-3 bg-neutral-950/60 rounded-xl border border-neutral-800/80 space-y-1">
+              <div className="p-3 bg-muted/40 rounded-xl border border-border/80 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-neutral-400 font-medium">User:</span>
-                  <span className="text-white font-semibold">
+                  <span className="text-muted-foreground font-medium">User:</span>
+                  <span className="text-foreground font-semibold">
                     {editingUser.full_name || "Unnamed"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-neutral-400 font-medium">Email:</span>
-                  <span className="text-neutral-300 font-mono">{editingUser.email}</span>
+                  <span className="text-muted-foreground font-medium">Email:</span>
+                  <span className="text-foreground font-mono">{editingUser.email}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-neutral-400 font-medium">Committed Storage:</span>
-                  <span className="text-neutral-300 font-mono">
+                  <span className="text-muted-foreground font-medium">Committed Storage:</span>
+                  <span className="text-foreground font-mono">
                     {formatBytes(
                       Number(editingUser.storage_used_bytes) +
                         Number(editingUser.reserved_bytes)
@@ -478,14 +541,14 @@ export function UserManager({
               </div>
 
               {actionError && (
-                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>{actionError}</span>
                 </div>
               )}
 
               {actionSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                   <CheckCircle className="w-4 h-4 shrink-0" />
                   <span>{actionSuccess}</span>
                 </div>
@@ -493,7 +556,7 @@ export function UserManager({
 
               {/* Status */}
               <div className="space-y-1.5">
-                <label className="text-neutral-300 font-medium">Account Status</label>
+                <label className="text-foreground font-medium">Account Status</label>
                 <select
                   value={editStatus}
                   onChange={(e) =>
@@ -505,31 +568,21 @@ export function UserManager({
                     editingUser.email.toLowerCase() === ownerEmail.toLowerCase() ||
                     editingUser.id === currentUserId
                   }
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 disabled:opacity-50 cursor-pointer"
                 >
                   <option value="approved">Approved</option>
                   <option value="pending">Pending Review</option>
                   <option value="rejected">Rejected</option>
                   <option value="revoked">Revoked</option>
                 </select>
-                {editingUser.email.toLowerCase() === ownerEmail.toLowerCase() && (
-                  <p className="text-[11px] text-amber-400">
-                    Permanent owner account status cannot be modified.
-                  </p>
-                )}
-                {editingUser.id === currentUserId && (
-                  <p className="text-[11px] text-neutral-500">
-                    Self-lockout protection: You cannot revoke your own account.
-                  </p>
-                )}
               </div>
 
               {/* Role (Owner Exclusive) */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-neutral-300 font-medium">System Role</label>
+                  <label className="text-foreground font-medium">System Role</label>
                   {!isOwner && (
-                    <span className="text-[10px] text-amber-400/90 font-medium">
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
                       Owner-Only Authority
                     </span>
                   )}
@@ -542,32 +595,59 @@ export function UserManager({
                     editingUser.email.toLowerCase() === ownerEmail.toLowerCase() ||
                     editingUser.id === currentUserId
                   }
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 disabled:opacity-50 cursor-pointer"
                 >
                   <option value="user">User (Standard Access)</option>
                   <option value="admin">Admin (Operational Authority)</option>
                 </select>
-                {!isOwner ? (
-                  <p className="text-[11px] text-neutral-500">
-                    Only the platform owner ({ownerEmail}) can promote or demote admin roles.
-                  </p>
-                ) : editingUser.email.toLowerCase() === ownerEmail.toLowerCase() ? (
-                  <p className="text-[11px] text-amber-400">
-                    Permanent owner role is immutable.
-                  </p>
-                ) : null}
+              </div>
+
+              {/* Max Active Files Limit */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-foreground font-medium flex items-center gap-1.5">
+                    <FileBox className="w-3.5 h-3.5 text-purple-500" />
+                    <span>Max Active Files Limit</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isUnlimitedFiles}
+                      onChange={(e) => setIsUnlimitedFiles(e.target.checked)}
+                      className="rounded border-border text-purple-600 focus:ring-purple-500"
+                    />
+                    <span>Unlimited Files</span>
+                  </label>
+                </div>
+
+                {!isUnlimitedFiles && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={editMaxFiles}
+                      onChange={(e) => setEditMaxFiles(Math.max(1, Number(e.target.value)))}
+                      className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 font-mono"
+                    />
+                    <span className="text-muted-foreground font-medium px-1">active files</span>
+                  </div>
+                )}
               </div>
 
               {/* Quota Management */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-neutral-300 font-medium">Storage Quota</label>
-                  <label className="flex items-center gap-1.5 text-neutral-400 cursor-pointer">
+                  <label className="text-foreground font-medium flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Storage Quota</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-muted-foreground cursor-pointer">
                     <input
                       type="checkbox"
                       checked={isUnlimitedQuota}
                       onChange={(e) => setIsUnlimitedQuota(e.target.checked)}
-                      className="rounded border-neutral-700 bg-neutral-950 text-purple-600 focus:ring-purple-500"
+                      className="rounded border-border text-purple-600 focus:ring-purple-500"
                     />
                     <span>Unlimited Quota</span>
                   </label>
@@ -581,28 +661,20 @@ export function UserManager({
                       max={1048576}
                       value={editQuotaMB}
                       onChange={(e) => setEditQuotaMB(Number(e.target.value))}
-                      className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-200 focus:outline-none focus:border-purple-500 font-mono"
+                      className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 font-mono"
                     />
-                    <span className="text-neutral-400 font-medium px-2">MB</span>
+                    <span className="text-muted-foreground font-medium px-2">MB</span>
                   </div>
                 )}
-                <p className="text-[11px] text-neutral-500">
-                  New quota must not be less than committed storage (
-                  {formatBytes(
-                    Number(editingUser.storage_used_bytes) +
-                      Number(editingUser.reserved_bytes)
-                  )}
-                  ).
-                </p>
               </div>
 
               {/* Permanent Links Permission */}
-              <div className="flex items-center justify-between p-3 bg-neutral-950/40 rounded-xl border border-neutral-800/60">
+              <div className="flex items-center justify-between p-3 bg-muted/40 rounded-xl border border-border/70">
                 <div>
-                  <div className="text-neutral-200 font-medium">
+                  <div className="text-foreground font-medium">
                     Can Create Permanent Links
                   </div>
-                  <div className="text-[11px] text-neutral-500">
+                  <div className="text-[11px] text-muted-foreground">
                     Allows selecting &quot;Never Expire&quot; on upload
                   </div>
                 </div>
@@ -610,24 +682,24 @@ export function UserManager({
                   type="checkbox"
                   checked={editCanPermanent}
                   onChange={(e) => setEditCanPermanent(e.target.checked)}
-                  className="w-4 h-4 rounded border-neutral-700 bg-neutral-950 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                  className="w-4 h-4 rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer"
                 />
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-neutral-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
                 <button
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl text-neutral-400 hover:text-white transition font-medium"
+                  className="px-4 py-2 rounded-xl text-muted-foreground hover:text-foreground transition font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium transition disabled:opacity-50 shadow-lg shadow-purple-600/20"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium transition disabled:opacity-50 shadow-sm cursor-pointer"
                 >
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>Save Changes</span>

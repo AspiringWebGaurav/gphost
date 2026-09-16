@@ -66,6 +66,28 @@ export async function GET(request: NextRequest) {
     (user.user_metadata?.picture as string | undefined) ||
     null;
 
+  // If profile does not exist yet (e.g. fresh database or purged environment), bootstrap it dynamically
+  if (!profile && user.email) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const adminClient = createAdminClient();
+    const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
+    const isOwner = user.email.toLowerCase() === adminEmail;
+    await adminClient.from("profiles").upsert({
+      id: user.id,
+      email: user.email,
+      full_name:
+        (user.user_metadata?.full_name as string) ||
+        (user.user_metadata?.name as string) ||
+        user.email.split("@")[0],
+      avatar_url: googleAvatar,
+      role: isOwner ? "admin" : "user",
+      status: isOwner ? "approved" : "pending",
+      quota_bytes: isOwner ? -1 : 5368709120,
+      can_create_permanent: isOwner,
+    });
+    profile = await getUserProfile(user.id);
+  }
+
   if (profile && googleAvatar && profile.avatar_url !== googleAvatar) {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const adminClient = createAdminClient();
@@ -78,8 +100,28 @@ export async function GET(request: NextRequest) {
 
 
 
-  // If approved (including permanent admin Gaurav Patil), route to safe dashboard destination
-  if (profile?.status === "approved") {
+  // Authoritatively check if user has an active, unredeemed Onboarding PIN issued specifically for them
+  let hasActiveIssuedPin = false;
+  if (user.email) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const adminClient = createAdminClient();
+    const nowIso = new Date().toISOString();
+    const { data: activePin } = await adminClient
+      .from("onboarding_pins")
+      .select("id")
+      .eq("is_active", true)
+      .ilike("label", `%User: ${user.email}%`)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (activePin) {
+      hasActiveIssuedPin = true;
+    }
+  }
+
+  // If approved AND no pending unredeemed PIN, route to safe dashboard destination
+  if (profile?.status === "approved" && !hasActiveIssuedPin) {
     const targetPath = getSafeRedirectUrl(next, "/dashboard");
     const response = NextResponse.redirect(new URL(targetPath, request.url));
     const cookieStore = await cookies();
@@ -100,7 +142,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  // Otherwise route to the access gate (pending / rejected / revoked holding area)
+  // Otherwise route to the access gate (pending / PIN verification / holding area)
   const gateTarget = next && next.startsWith("/access-gate") ? getSafeRedirectUrl(next, "/access-gate") : "/access-gate";
   const gateResponse = NextResponse.redirect(new URL(gateTarget, request.url));
   const cookieStore = await cookies();

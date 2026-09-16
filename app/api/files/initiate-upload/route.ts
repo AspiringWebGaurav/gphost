@@ -63,6 +63,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 4b. Active file count limit verification
+    const { getUserMaxFiles } = await import("@/lib/storage/user-limits");
+    const maxFiles = await getUserMaxFiles(user.id);
+    if (maxFiles !== null && maxFiles > 0) {
+      const adminClient = createAdminClient();
+      const { count: activeFileCount, error: countErr } = await adminClient
+        .from("files")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("status", "ACTIVE");
+
+      if (!countErr && (activeFileCount ?? 0) >= maxFiles) {
+        return NextResponse.json(
+          {
+            error: "File upload limit reached",
+            message: `Your account is limited to ${maxFiles} active file${maxFiles === 1 ? "" : "s"}. Please delete existing files or request an increase.`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // 5. Authoritative Quota Reservation in PostgreSQL
     const adminClient = createAdminClient();
     const { data: quotaReserved, error: quotaError } = await adminClient.rpc(
