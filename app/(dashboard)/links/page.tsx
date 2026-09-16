@@ -6,35 +6,6 @@ import { Link as LinkIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function LinksPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/links");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
-    redirect("/access-gate");
-  }
-
-  const adminClient = createAdminClient();
-
-  // Query user's share links with target file metadata and xurl mappings
-  const { data: rawLinks } = await adminClient
-    .from("share_links")
-    .select(
-      `id, slug, max_downloads, download_count, is_single_use, is_active, expires_at, created_at,
-       files!inner(id, sanitized_name, byte_size, user_id),
-       xurl_mappings(xurl_short_url, status)`
-    )
-    .eq("files.user_id", user.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
-
 interface RawShareLinkRow {
   id: string;
   slug: string;
@@ -45,11 +16,87 @@ interface RawShareLinkRow {
   expires_at: string | null;
   created_at: string;
   password_hash?: string | null;
-  files: { id: string; sanitized_name: string; byte_size: number; user_id: string } | { id: string; sanitized_name: string; byte_size: number; user_id: string }[];
-  xurl_mappings?: { xurl_short_url: string; status: string } | { xurl_short_url: string; status: string }[];
+  files:
+    | {
+        id: string;
+        sanitized_name: string;
+        byte_size: number;
+        user_id: string;
+        status: string;
+        expires_at: string | null;
+      }
+    | {
+        id: string;
+        sanitized_name: string;
+        byte_size: number;
+        user_id: string;
+        status: string;
+        expires_at: string | null;
+      }[];
+  xurl_mappings?:
+    | { xurl_short_url: string; status: string }
+    | { xurl_short_url: string; status: string }[];
 }
 
-  const formattedLinks: ShareLinkItem[] = (rawLinks as unknown as RawShareLinkRow[] || []).map((l: RawShareLinkRow) => {
+async function fetchActiveShareLinks(userId: string): Promise<ShareLinkItem[]> {
+  const adminClient = createAdminClient();
+  const now = Date.now();
+
+  // Query user's share links with target file metadata and xurl mappings
+  // Strictly enforce that the target file is ACTIVE and link is active
+  const { data: rawLinks } = await adminClient
+    .from("share_links")
+    .select(
+      `id, slug, max_downloads, download_count, is_single_use, is_active, expires_at, created_at, password_hash,
+       files!inner(id, sanitized_name, byte_size, user_id, status, expires_at),
+       xurl_mappings(xurl_short_url, status)`
+    )
+    .eq("files.user_id", userId)
+    .eq("files.status", "ACTIVE")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  const allRows = (rawLinks as unknown as RawShareLinkRow[] | null) || [];
+  const staleLinkIds: string[] = [];
+
+  const activeRows = allRows.filter((l) => {
+    const file = Array.isArray(l.files) ? l.files[0] : l.files;
+    if (!file || file.status !== "ACTIVE") {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+
+    // Target file expired
+    if (file.expires_at && new Date(file.expires_at).getTime() <= now) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+
+    // Share link expired
+    if (l.expires_at && new Date(l.expires_at).getTime() <= now) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+
+    // Single-use or max downloads exhausted
+    if (l.max_downloads !== null && l.download_count >= l.max_downloads) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+
+    return true;
+  });
+
+  // Proactively deactivate any stale or expired links discovered
+  if (staleLinkIds.length > 0) {
+    adminClient
+      .from("share_links")
+      .update({ is_active: false })
+      .in("id", staleLinkIds)
+      .then(() => {});
+  }
+
+  return activeRows.map((l: RawShareLinkRow) => {
     const file = Array.isArray(l.files) ? l.files[0] : l.files;
     const xurl = Array.isArray(l.xurl_mappings) ? l.xurl_mappings[0] : l.xurl_mappings;
     return {
@@ -68,6 +115,24 @@ interface RawShareLinkRow {
       xurl_status: xurl?.status || null,
     };
   });
+}
+
+export default async function LinksPage() {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    redirect("/login?next=/links");
+  }
+
+  const profile = await getUserProfile(user.id);
+  if (!profile) {
+    redirect("/login");
+  }
+
+  if (profile.status !== "approved") {
+    redirect("/access-gate");
+  }
+
+  const formattedLinks = await fetchActiveShareLinks(user.id);
 
   return (
     <div className="space-y-6 max-w-6xl w-full mx-auto">

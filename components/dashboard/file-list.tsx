@@ -20,7 +20,6 @@ import {
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
-  EXPIRY_OPTIONS,
 } from "@/lib/storage/expiry";
 
 export interface FileItem {
@@ -401,44 +400,24 @@ export function FileList({
                           )}
                         </div>
 
-                        <select
-                          value={sharePreset}
-                          onChange={(e) => setSharePreset(e.target.value)}
-                          disabled={isFileExpired}
-                          className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium disabled:cursor-not-allowed"
-                        >
-                          {shareFile.expires_at ? (
-                            <>
-                              <option
-                                value="file_expiry"
-                                className={isFileExpired ? "font-semibold text-rose-600 dark:text-rose-400" : "font-semibold text-blue-600 dark:text-blue-400"}
-                              >
-                                {isFileExpired
+                        <div className="relative">
+                          <select
+                            value="file_expiry"
+                            disabled
+                            className="w-full px-3 py-2.5 rounded-xl bg-muted/20 border border-border text-xs text-foreground font-medium cursor-not-allowed appearance-none select-none pr-9 disabled:opacity-90"
+                          >
+                            <option value="file_expiry">
+                              {shareFile.expires_at
+                                ? isFileExpired
                                   ? "File Expired (Cannot create share link)"
-                                  : `Strictly Synced with File Lifecycle (${formatExpiry(shareFile.expires_at, currentTime)}) [Default]`}
-                              </option>
-                              {!isFileExpired &&
-                                EXPIRY_OPTIONS.filter(
-                                  (opt) => opt.durationMs !== null && fileRemainingMs !== null && opt.durationMs < fileRemainingMs
-                                ).map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
-                            </>
-                          ) : (
-                            <>
-                              <option value="file_expiry" className="font-semibold text-purple-600 dark:text-purple-300">
-                                Permanent / Matches File (Never Expire)
-                              </option>
-                              {EXPIRY_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </>
-                          )}
-                        </select>
+                                  : `Strictly Synced with File Lifecycle (${formatExpiry(shareFile.expires_at, currentTime)})`
+                                : "Permanent / Matches File (Never Expire)"}
+                            </option>
+                          </select>
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground flex items-center gap-1">
+                            <Lock className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
 
                         <div className="text-[11px] text-muted-foreground pt-0.5">
                           {shareFile.expires_at ? (
@@ -454,7 +433,7 @@ export function FileList({
                               </span>
                             )
                           ) : (
-                            <span>Target file is permanent. You can select custom link retention or keep permanent.</span>
+                            <span>Target file is permanent. XURL &amp; GPHost links strictly inherit permanent retention.</span>
                           )}
                         </div>
                       </div>
@@ -750,6 +729,14 @@ export function FileList({
                           {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <LinkIcon className="w-3.5 h-3.5" />}
                           <span>{copiedXurl ? "Copied" : "Copy"}</span>
                         </button>
+                      </div>
+                    </div>
+                  ) : shareResult.xurl ? (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground">Short Link Status</label>
+                      <div className="p-2 rounded-xl bg-destructive/10 border border-destructive/20 text-[11px] text-destructive flex items-center gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>Short link creation failed (see details below).</span>
                       </div>
                     </div>
                   ) : (

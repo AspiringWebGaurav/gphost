@@ -174,6 +174,16 @@ function LoginForm() {
         </div>
       )}
 
+      {/* Idle Inactivity Notice Banner */}
+      {(searchParams.get("reason") === "idle_timeout" || searchParams.get("reason") === "timeout") && !errorMessage && (
+        <div className="w-full mt-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-amber-600 dark:text-amber-400 text-xs text-left animate-in fade-in duration-200">
+          <Timer className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+          <div className="flex-1 leading-relaxed">
+            <span className="font-semibold">Session Paused:</span> You were signed out after 30 minutes of background inactivity. Sign in to resume your active session.
+          </div>
+        </div>
+      )}
+
       {/* Primary Google Login Button */}
       <div className="w-full mt-7 space-y-3">
         <button

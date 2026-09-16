@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Link as LinkIcon,
   Copy,
@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
+import { formatTimeRemaining } from "@/lib/storage/expiry";
 
 export interface ShareLinkItem {
   id: string;
@@ -48,6 +49,16 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Real-time live countdown ticker (ticks every second)
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const copyToClipboard = (text: string, slug: string) => {
     navigator.clipboard.writeText(text);
     setCopiedSlug(slug);
@@ -60,7 +71,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
     setDeleteError(null);
 
     try {
-      // Nuclear permanent deletion via DELETE endpoint
+      // Nuclear permanent deletion of link via DELETE endpoint (preserves target file)
       const res = await fetch(`/api/share/${linkToDelete.slug}`, {
         method: "DELETE",
       });
@@ -82,7 +93,18 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
   const appUrl = typeof window !== "undefined" ? window.location.origin : "https://gphost.eu.cc";
 
-  if (links.length === 0) {
+  // Filter out expired or exhausted links dynamically
+  const visibleLinks = links.filter((link) => {
+    if (link.expires_at && new Date(link.expires_at).getTime() <= currentTime) {
+      return false;
+    }
+    if (link.max_downloads !== null && link.download_count >= link.max_downloads) {
+      return false;
+    }
+    return true;
+  });
+
+  if (visibleLinks.length === 0) {
     return (
       <div className="p-10 text-center rounded-2xl border border-border bg-card shadow-2xs text-muted-foreground">
         <LinkIcon className="w-9 h-9 mx-auto mb-2.5 opacity-30" />
@@ -95,7 +117,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   return (
     <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
       <div className="divide-y divide-border">
-        {links.map((link) => {
+        {visibleLinks.map((link) => {
           const directUrl = `${appUrl}/f/${link.slug}`;
 
           return (
@@ -140,9 +162,9 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                   </span>
 
                   <span className="text-muted-foreground flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    <span>
-                      {link.expires_at ? new Date(link.expires_at).toLocaleDateString() : "Never"}
+                    <Clock className="w-3 h-3 text-blue-500" />
+                    <span className="font-medium">
+                      {link.expires_at ? formatTimeRemaining(link.expires_at, currentTime) : "Never"}
                     </span>
                   </span>
                 </div>

@@ -32,7 +32,6 @@ const RESERVED_SLUGS = new Set([
 
 import {
   EXPIRY_PRESET_VALUES,
-  calculateExpiryDate,
 } from "@/lib/storage/expiry";
 
 const SHARE_EXPIRY_PRESETS = [...EXPIRY_PRESET_VALUES, "file_expiry"] as const;
@@ -57,26 +56,11 @@ const createShareSchema = z.object({
 });
 
 function calculateShareExpiry(
-  preset: string,
+  _preset: string,
   fileExpiresAt: string | null
 ): Date | null {
-  let candidateExpiry: Date | null = null;
-
-  if (preset === "file_expiry") {
-    candidateExpiry = fileExpiresAt ? new Date(fileExpiresAt) : null;
-  } else {
-    candidateExpiry = calculateExpiryDate(preset);
-  }
-
-  // Effective Expiry Invariant: min(file.expires_at, share.expires_at)
-  if (fileExpiresAt) {
-    const fileExpiryDate = new Date(fileExpiresAt);
-    if (!candidateExpiry || candidateExpiry > fileExpiryDate) {
-      candidateExpiry = fileExpiryDate;
-    }
-  }
-
-  return candidateExpiry;
+  // Share links & XURL links strictly inherit the lifecycle established when the file was created
+  return fileExpiresAt ? new Date(fileExpiresAt) : null;
 }
 
 function generateSecureSlug(): string {
@@ -251,6 +235,13 @@ export async function POST(req: NextRequest) {
     ).replace(/\/+$/, "");
     const shareUrl = `${canonicalBaseUrl}/f/${shareRecord.slug}`;
 
+    // Target URL passed to XURL shortener:
+    // If running on localhost, developers can optionally set XURL_TARGET_BASE_URL in .env.local
+    const xurlBaseUrl = (
+      process.env.XURL_TARGET_BASE_URL || canonicalBaseUrl
+    ).replace(/\/+$/, "");
+    const xurlTargetUrl = `${xurlBaseUrl}/f/${shareRecord.slug}`;
+
     // 8. Atomic XURL Shortening (Optional, Non-blocking) with customSlug and expiration sync
     let xurlPayload: {
       shortUrl?: string;
@@ -260,9 +251,9 @@ export async function POST(req: NextRequest) {
 
     if (shortenWithXurl) {
       try {
-        const { isCreator, mapping } = await reserveXurlMapping(shareRecord.id, shareUrl);
+        const { isCreator, mapping } = await reserveXurlMapping(shareRecord.id, xurlTargetUrl);
         if (isCreator) {
-          const shortenRes = await shortenUrl(shareUrl, {
+          const shortenRes = await shortenUrl(xurlTargetUrl, {
             customSlug: sanitizedCustomSlug || undefined,
             expiresAt: effectiveExpiry ? effectiveExpiry.toISOString() : null,
           });

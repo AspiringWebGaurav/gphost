@@ -90,6 +90,13 @@ export async function GET(request: NextRequest) {
         maxAge: SESSION_MAX_AGE_SECONDS,
       });
     });
+    // Initialize activity timestamp for idle session tracking
+    response.cookies.set("gphost_last_active", Date.now().toString(), {
+      path: "/",
+      sameSite: "lax",
+      maxAge: SESSION_MAX_AGE_SECONDS,
+      httpOnly: false,
+    });
     return response;
   }
 
@@ -103,6 +110,12 @@ export async function GET(request: NextRequest) {
       sameSite: "lax",
       maxAge: SESSION_MAX_AGE_SECONDS,
     });
+  });
+  gateResponse.cookies.set("gphost_last_active", Date.now().toString(), {
+    path: "/",
+    sameSite: "lax",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    httpOnly: false,
   });
   return gateResponse;
 }

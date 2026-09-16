@@ -38,3 +38,28 @@ export function formatPublicShareMetadata(
     max_downloads: share.max_downloads,
   };
 }
+
+export function isPreviewableImage(mimeType: string, filename: string): boolean {
+  const lowerMime = (mimeType || "").toLowerCase();
+  const lowerName = (filename || "").toLowerCase();
+  return (
+    lowerMime.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|gif|svg|bmp|ico)$/i.test(lowerName)
+  );
+}
+
+export function isPreviewablePdf(mimeType: string, filename: string): boolean {
+  const lowerMime = (mimeType || "").toLowerCase();
+  const lowerName = (filename || "").toLowerCase();
+  return (
+    lowerMime === "application/pdf" ||
+    lowerMime.includes("pdf") ||
+    /\.pdf$/i.test(lowerName)
+  );
+}
+
+export function getPreviewType(mimeType: string, filename: string): "image" | "pdf" | null {
+  if (isPreviewableImage(mimeType, filename)) return "image";
+  if (isPreviewablePdf(mimeType, filename)) return "pdf";
+  return null;
+}

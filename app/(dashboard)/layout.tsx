@@ -5,6 +5,7 @@ import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { QuotaWidget } from "@/components/dashboard/quota-widget";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { IdleSessionMonitor } from "@/components/auth/idle-session-monitor";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Layers } from "lucide-react";
 
@@ -33,6 +34,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row antialiased transition-colors duration-200">
+      <IdleSessionMonitor />
       {/* Desktop Sidebar */}
       <aside className="w-64 border-r border-border bg-card flex flex-col justify-between hidden md:flex sticky top-0 h-screen p-5 transition-colors">
         <div className="space-y-6">

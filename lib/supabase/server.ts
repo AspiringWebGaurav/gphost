@@ -1,12 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export const SESSION_MAX_AGE_SECONDS = 30 * 60; // 30-minute persistent session window
+export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7-day persistent session window
 
 /**
  * Creates a server-side Supabase client for Server Components, Server Actions,
  * and Route Handlers. Uses async cookies() adhering to Next.js 16 conventions
- * with an authoritative 30-minute persistent session window.
+ * with a persistent session window.
  */
 export async function createClient() {
   const cookieStore = await cookies();

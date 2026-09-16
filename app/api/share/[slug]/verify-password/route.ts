@@ -6,6 +6,8 @@ import { verifyTurnstileToken } from "@/lib/security/turnstile";
 import { passwordVerifyRatelimit } from "@/lib/redis/ratelimit";
 import { createUnlockToken, getUnlockCookieName } from "@/lib/security/unlock-token";
 import { getClientIp } from "@/lib/security/ip";
+import { createPresignedPreviewUrl } from "@/lib/storage/r2";
+import { getPreviewType } from "@/lib/storage/share";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +83,9 @@ export async function POST(
         password_salt,
         file:files (
           id,
+          sanitized_name,
+          r2_key,
+          mime_type,
           status,
           expires_at
         )
@@ -147,9 +152,26 @@ export async function POST(
     const unlockToken = createUnlockToken(slug, file.id, 15 * 60);
     const cookieName = getUnlockCookieName(slug);
 
+    let previewUrl: string | null = null;
+    const previewType = getPreviewType(file.mime_type, file.sanitized_name);
+    if (previewType && file.r2_key) {
+      try {
+        previewUrl = await createPresignedPreviewUrl(
+          file.r2_key,
+          file.sanitized_name,
+          600,
+          file.mime_type
+        );
+      } catch (e) {
+        console.error("Error generating preview url in verify-password:", e);
+      }
+    }
+
     const response = NextResponse.json({
       success: true,
       message: "Password verified successfully",
+      previewUrl,
+      previewType,
     });
 
     response.cookies.set({

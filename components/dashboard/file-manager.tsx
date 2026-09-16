@@ -18,12 +18,89 @@ import {
   Globe,
   Sparkles,
   AlertTriangle,
+  LayoutGrid,
+  List as ListIcon,
+  Folder,
+  FolderOpen,
+  Image as ImageIcon,
+  FileText,
+  Film,
+  Archive,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
-  EXPIRY_OPTIONS,
 } from "@/lib/storage/expiry";
+
+function getFileTypeDetails(mimeType: string, filename: string) {
+  const lowerMime = (mimeType || "").toLowerCase();
+  const lowerName = (filename || "").toLowerCase();
+
+  if (lowerMime.includes("pdf") || lowerName.endsWith(".pdf")) {
+    return {
+      type: "pdf",
+      label: "PDF",
+      icon: FileText,
+      color: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-500/10 border-rose-500/20",
+    };
+  }
+  if (lowerMime.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(lowerName)) {
+    return {
+      type: "image",
+      label: "IMAGE",
+      icon: ImageIcon,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-500/10 border-purple-500/20",
+    };
+  }
+  if (lowerMime.startsWith("video/") || lowerMime.startsWith("audio/") || /\.(mp4|mkv|webm|mov|mp3|wav|ogg)$/.test(lowerName)) {
+    return {
+      type: "media",
+      label: "MEDIA",
+      icon: Film,
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-500/10 border-sky-500/20",
+    };
+  }
+  if (
+    lowerMime.includes("zip") ||
+    lowerMime.includes("tar") ||
+    lowerMime.includes("gzip") ||
+    lowerMime.includes("compressed") ||
+    /\.(zip|tar|gz|7z|rar)$/.test(lowerName)
+  ) {
+    return {
+      type: "archive",
+      label: "ARCHIVE",
+      icon: Archive,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-500/10 border-amber-500/20",
+    };
+  }
+  if (
+    lowerMime.includes("text") ||
+    lowerMime.includes("word") ||
+    lowerMime.includes("document") ||
+    /\.(doc|docx|txt|md|csv)$/.test(lowerName)
+  ) {
+    return {
+      type: "document",
+      label: "DOC",
+      icon: FileText,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/20",
+    };
+  }
+
+  return {
+    type: "file",
+    label: "FILE",
+    icon: FileIcon,
+    color: "text-blue-600 dark:text-blue-400",
+    bg: "bg-blue-500/10 border-blue-500/20",
+  };
+}
 
 export interface SafeFileItem {
   id: string;
@@ -61,7 +138,6 @@ export function FileManager({
   initialFiles,
   initialTotalCount,
   initialTotalPages,
-  canCreatePermanent = false,
   isPremium = false,
 }: FileManagerProps) {
   const [files, setFiles] = useState<SafeFileItem[]>(initialFiles);
@@ -73,6 +149,26 @@ export function FileManager({
   const [sortBy, setSortBy] = useState<"created_at" | "byte_size" | "sanitized_name" | "expires_at">("created_at");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [loading, setLoading] = useState(false);
+
+  // Google Drive & Windows 11 View Mode: "grid" (default) or "list"
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("gphost_file_view_mode");
+        if (saved === "grid" || saved === "list") {
+          return saved;
+        }
+      } catch {}
+    }
+    return "grid";
+  });
+
+  const handleViewModeChange = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("gphost_file_view_mode", mode);
+    } catch {}
+  };
 
   // Live real-time ticker for dynamic expiration countdowns (35m -> 34m -> etc.)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -247,179 +343,470 @@ export function FileManager({
     }
   };
 
+  const FOLDERS = [
+    { id: "all", name: "All Files", count: totalCount },
+    {
+      id: "images",
+      name: "Images",
+      count: files.filter((f) => f.mime_type?.startsWith("image/")).length,
+    },
+    {
+      id: "documents",
+      name: "Documents",
+      count: files.filter(
+        (f) =>
+          f.mime_type?.includes("pdf") ||
+          f.mime_type?.includes("text") ||
+          f.mime_type?.includes("document")
+      ).length,
+    },
+    {
+      id: "media",
+      name: "Media",
+      count: files.filter(
+        (f) => f.mime_type?.startsWith("video/") || f.mime_type?.startsWith("audio/")
+      ).length,
+    },
+    {
+      id: "archives",
+      name: "Archives",
+      count: files.filter(
+        (f) =>
+          f.mime_type?.includes("zip") ||
+          f.mime_type?.includes("tar") ||
+          f.mime_type?.includes("compressed")
+      ).length,
+    },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Search and Filters Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        {/* Search Input */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search files by name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition"
-          />
-          {searchQuery && (
+    <div className="space-y-5">
+      {/* 1. Suggested Folders Section (Google Drive & Windows 11 Style) */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
+          <span className="flex items-center gap-1.5 font-semibold text-foreground">
+            <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+            <span>Suggested folders</span>
+          </span>
+          {category !== "all" && (
             <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => setCategory("all")}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
             >
-              <X className="w-3.5 h-3.5" />
+              <span>View all files</span>
+              <ChevronRight className="w-3 h-3" />
             </button>
           )}
         </div>
 
-        {/* Category Tabs */}
-        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border overflow-x-auto">
-          {["all", "images", "documents", "media", "archives"].map((cat) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+          {FOLDERS.map((f) => {
+            const isSelected = category === f.id;
+            return (
+              <button
+                key={f.id}
+                onClick={() => setCategory(f.id)}
+                className={`p-3 rounded-2xl border text-left transition-all duration-150 flex items-center gap-2.5 cursor-pointer group select-none ${
+                  isSelected
+                    ? "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
+                    : "bg-card hover:bg-muted/40 border-border text-foreground hover:border-border/80 shadow-2xs"
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                    isSelected
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  }`}
+                >
+                  {isSelected ? (
+                    <FolderOpen className="w-4 h-4" />
+                  ) : (
+                    <Folder className="w-4 h-4 fill-current/20" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold truncate">{f.name}</div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+        {/* Windows 11 Breadcrumb / Address Bar */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground font-mono select-none">
+          <span className="flex items-center gap-1 text-foreground font-medium">
+            <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+            <span>Storage</span>
+          </span>
+          <span>/</span>
+          <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize">
+            {category === "all" ? "All Files" : category}
+          </span>
+        </div>
+
+        {/* Search, Sort, and View Switcher */}
+        <div className="flex flex-wrap items-center gap-2 flex-1 sm:justify-end">
+          {/* Search Input */}
+          <div className="relative flex-1 sm:max-w-xs min-w-[180px]">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search files..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-7 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Sort Dropdown & Order Toggle */}
+          <div className="flex items-center gap-1">
+            <select
+              value={sortBy}
+              onChange={(e) =>
+                setSortBy(
+                  e.target.value as
+                    | "created_at"
+                    | "byte_size"
+                    | "sanitized_name"
+                    | "expires_at"
+                )
+              }
+              className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="created_at">Date</option>
+              <option value="byte_size">Size</option>
+              <option value="sanitized_name">Name</option>
+              <option value="expires_at">Expiry</option>
+            </select>
+
             <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize transition whitespace-nowrap ${
-                category === cat
+              type="button"
+              onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+              className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer"
+              title="Toggle sort order"
+            >
+              {sortOrder}
+            </button>
+          </div>
+
+          {/* Google Drive View Mode Switcher [ ≡ List | ⊞ Grid ] */}
+          <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border">
+            <button
+              onClick={() => handleViewModeChange("list")}
+              title="List view"
+              className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                viewMode === "list"
                   ? "bg-background text-foreground shadow-2xs font-semibold"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {cat}
+              <ListIcon className="w-3.5 h-3.5" />
             </button>
-          ))}
-        </div>
-
-        {/* Sort Dropdown & Order Toggle */}
-        <div className="flex items-center gap-2">
-          <select
-            value={sortBy}
-            onChange={(e) =>
-              setSortBy(
-                e.target.value as
-                  | "created_at"
-                  | "byte_size"
-                  | "sanitized_name"
-                  | "expires_at"
-              )
-            }
-            className="px-2.5 py-2 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500"
-          >
-            <option value="created_at">Date</option>
-            <option value="byte_size">Size</option>
-            <option value="sanitized_name">Name</option>
-            <option value="expires_at">Expiry</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-            className="px-2.5 py-2 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase"
-            title="Toggle sort order"
-          >
-            {sortOrder}
-          </button>
+            <button
+              onClick={() => handleViewModeChange("grid")}
+              title="Grid view"
+              className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                viewMode === "grid"
+                  ? "bg-background text-foreground shadow-2xs font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Files List / Table Container */}
-      <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
-        {loading ? (
-          <div className="p-10 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-            <span className="text-xs">Loading files...</span>
-          </div>
-        ) : files.length === 0 ? (
-          <div className="p-10 text-center text-muted-foreground">
-            <FileIcon className="w-9 h-9 mx-auto mb-2.5 opacity-30" />
-            <p className="text-sm font-medium text-foreground">No files found</p>
-            <p className="text-xs mt-0.5">Try a different search or upload a new file.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {files.map((file) => (
-              <div
-                key={file.id}
-                className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/40 transition group"
-              >
-                <div className="flex items-start sm:items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <FileIcon className="w-4 h-4" />
+      {/* 3. Section Title */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5 pt-1">
+        <span className="font-semibold text-foreground">
+          {category === "all" ? "Suggested files" : `${category.charAt(0).toUpperCase() + category.slice(1)} files`}
+        </span>
+        <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
+      </div>
+
+      {/* 4. Files Container (Grid or List View) */}
+      {loading ? (
+        <div className="p-12 flex flex-col items-center justify-center gap-3 text-muted-foreground rounded-2xl border border-border bg-card shadow-2xs">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+          <span className="text-xs">Loading files...</span>
+        </div>
+      ) : files.length === 0 ? (
+        <div className="p-12 text-center rounded-2xl border border-border bg-card shadow-2xs text-muted-foreground">
+          <FileIcon className="w-9 h-9 mx-auto mb-2.5 opacity-30" />
+          <p className="text-sm font-medium text-foreground">No files found</p>
+          <p className="text-xs mt-0.5">
+            {category !== "all"
+              ? `No ${category} found in this category.`
+              : "Upload files or try another search."}
+          </p>
+          {category !== "all" && (
+            <button
+              onClick={() => setCategory("all")}
+              className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
+            >
+              Back to All Files
+            </button>
+          )}
+        </div>
+      ) : viewMode === "grid" ? (
+        /* GRID / CARD VIEW (Google Drive & Windows 11 style) */
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+            {files.map((file) => {
+              const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
+              const FileTypeIcon = fileType.icon;
+              return (
+                <div
+                  key={file.id}
+                  className="rounded-2xl border border-border bg-card p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between"
+                >
+                  {/* Card Top: Type badge & Name */}
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${fileType.bg} ${fileType.color}`}>
+                        <FileTypeIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-xs font-semibold text-foreground truncate" title={file.sanitized_name}>
+                        {file.sanitized_name}
+                      </span>
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 border ${fileType.bg} ${fileType.color}`}>
+                      {fileType.label}
+                    </span>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
-                      {file.sanitized_name}
-                    </h3>
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                      <span>{formatBytes(file.byte_size)}</span>
-                      <span>&bull;</span>
-                      <span className="truncate max-w-[120px]">{file.mime_type}</span>
-                      <span>&bull;</span>
-                      <span className="inline-flex items-center gap-1 text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        {formatExpiry(file.expires_at)}
+
+                  {/* Center Visual Preview Canvas (Google Drive style tile) */}
+                  <div
+                    onClick={() => setSelectedFileForDetails(file)}
+                    className="h-28 rounded-xl bg-muted/30 hover:bg-muted/50 border border-border/60 flex flex-col items-center justify-center relative overflow-hidden transition cursor-pointer group-hover:border-border my-2"
+                  >
+                    {fileType.type === "image" ? (
+                      <div className="flex flex-col items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                        <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <ImageIcon className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">{file.mime_type.split("/")[1] || "Image"}</span>
+                      </div>
+                    ) : fileType.type === "pdf" ? (
+                      <div className="flex flex-col items-center gap-1.5 text-rose-600 dark:text-rose-400">
+                        <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-0.5 w-16">
+                          <div className="h-1 bg-rose-500/20 rounded-full w-full" />
+                          <div className="h-1 bg-rose-500/20 rounded-full w-3/4" />
+                          <div className="h-1 bg-rose-500/20 rounded-full w-1/2" />
+                        </div>
+                      </div>
+                    ) : fileType.type === "media" ? (
+                      <div className="flex flex-col items-center gap-1.5 text-sky-600 dark:text-sky-400">
+                        <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Film className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">{file.mime_type.split("/")[1] || "Media"}</span>
+                      </div>
+                    ) : fileType.type === "archive" ? (
+                      <div className="flex flex-col items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Archive className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">Compressed</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <FileTypeIcon className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">{file.mime_type}</span>
+                      </div>
+                    )}
+
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <span className="px-2 py-1 rounded-md bg-background/90 backdrop-blur-xs border border-border text-[10px] font-medium text-foreground shadow-xs">
+                        Details
                       </span>
                     </div>
                   </div>
+
+                  {/* Card Metadata */}
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 pb-2 border-b border-border/60">
+                    <span className="font-mono">{formatBytes(file.byte_size)}</span>
+                    <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
+                      <Clock className="w-3 h-3 text-amber-500" />
+                      <span>{formatExpiry(file.expires_at, currentTime)}</span>
+                    </span>
+                  </div>
+
+                  {/* Card Actions */}
+                  <div className="flex items-center justify-between gap-1.5 pt-2">
+                    <button
+                      onClick={() => setSelectedFileForDetails(file)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition text-xs flex items-center gap-1 cursor-pointer"
+                      title="View file details"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Details</span>
+                    </button>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleOpenShare(file)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                      >
+                        <Share2 className="w-3 h-3" />
+                        <span>Share</span>
+                      </button>
+
+                      <button
+                        onClick={() => setSelectedFileForDelete(file)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                        title="Delete file"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              );
+            })}
+          </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                  <button
-                    onClick={() => setSelectedFileForDetails(file)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition text-xs flex items-center gap-1"
-                    title="View file details"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Details</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleOpenShare(file)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>Share</span>
-                  </button>
-
-                  <button
-                    onClick={() => setSelectedFileForDelete(file)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition"
-                    title="Delete file"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+          {/* Pagination Bar for Grid View */}
+          {totalPages > 1 && (
+            <div className="p-3 rounded-2xl border border-border bg-card shadow-2xs flex items-center justify-between text-xs text-muted-foreground">
+              <div>
+                Page <span className="font-semibold text-foreground">{page}</span> of{" "}
+                <span className="font-semibold text-foreground">{totalPages}</span> ({totalCount} files)
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Pagination Bar (Pinned Bottom) */}
-        {totalPages > 1 && (
-          <div className="p-2.5 sm:p-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground bg-muted/20 shrink-0">
-            <div>
-              Page <span className="font-semibold text-foreground">{page}</span> of{" "}
-              <span className="font-semibold text-foreground">{totalPages}</span> ({totalCount} files)
+              <div className="flex items-center gap-1.5">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => handlePageChange(page - 1)}
+                  className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => handlePageChange(page + 1)}
+                  className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
+          )}
+        </div>
+      ) : (
+        /* LIST VIEW */
+        <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
+          <div className="divide-y divide-border">
+            {files.map((file) => {
+              const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
+              const FileTypeIcon = fileType.icon;
+              return (
+                <div
+                  key={file.id}
+                  className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/40 transition group"
+                >
+                  <div className="flex items-start sm:items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl border ${fileType.bg} ${fileType.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
+                      <FileTypeIcon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
+                        {file.sanitized_name}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                        <span className="font-mono">{formatBytes(file.byte_size)}</span>
+                        <span>&bull;</span>
+                        <span className="truncate max-w-[120px]">{file.mime_type}</span>
+                        <span>&bull;</span>
+                        <span className="inline-flex items-center gap-1 text-muted-foreground font-mono">
+                          <Clock className="w-3 h-3 text-amber-500" />
+                          {formatExpiry(file.expires_at, currentTime)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
-            <div className="flex items-center gap-1.5">
-              <button
-                disabled={page <= 1}
-                onClick={() => handlePageChange(page - 1)}
-                className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => handlePageChange(page + 1)}
-                className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                    <button
+                      onClick={() => setSelectedFileForDetails(file)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition text-xs flex items-center gap-1 cursor-pointer"
+                      title="View file details"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Details</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleOpenShare(file)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Share</span>
+                    </button>
+
+                    <button
+                      onClick={() => setSelectedFileForDelete(file)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                      title="Delete file"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
-      </div>
+
+          {/* Pagination Bar for List View */}
+          {totalPages > 1 && (
+            <div className="p-2.5 sm:p-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground bg-muted/20 shrink-0">
+              <div>
+                Page <span className="font-semibold text-foreground">{page}</span> of{" "}
+                <span className="font-semibold text-foreground">{totalPages}</span> ({totalCount} files)
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => handlePageChange(page - 1)}
+                  className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => handlePageChange(page + 1)}
+                  className="p-1 rounded-lg border border-border text-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* FILE DETAILS MODAL */}
       {selectedFileForDetails && (
@@ -731,51 +1118,24 @@ export function FileManager({
                         )}
                       </div>
 
-                      <select
-                        value={shareExpiresIn}
-                        onChange={(e) => setShareExpiresIn(e.target.value)}
-                        disabled={isFileExpired}
-                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium disabled:cursor-not-allowed"
-                      >
-                        {selectedFileForShare.expires_at ? (
-                          <>
-                            <option
-                              value="file_expiry"
-                              className={isFileExpired ? "font-semibold text-rose-600 dark:text-rose-400" : "font-semibold text-blue-600 dark:text-blue-400"}
-                            >
-                              {isFileExpired
+                      <div className="relative">
+                        <select
+                          value="file_expiry"
+                          disabled
+                          className="w-full px-3 py-2.5 rounded-xl bg-muted/20 border border-border text-xs text-foreground font-medium cursor-not-allowed appearance-none select-none pr-9 disabled:opacity-90"
+                        >
+                          <option value="file_expiry">
+                            {selectedFileForShare.expires_at
+                              ? isFileExpired
                                 ? "File Expired (Cannot create share link)"
-                                : `Strictly Synced with File Lifecycle (${formatExpiry(selectedFileForShare.expires_at, currentTime)}) [Default]`}
-                            </option>
-                            {!isFileExpired &&
-                              EXPIRY_OPTIONS.filter(
-                                (opt) => opt.durationMs !== null && fileRemainingMs !== null && opt.durationMs < fileRemainingMs
-                              ).map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                          </>
-                        ) : (
-                          <>
-                            <option value="file_expiry" className="font-semibold text-purple-600 dark:text-purple-300">
-                              Permanent / Matches File (Never Expire)
-                            </option>
-                            {EXPIRY_OPTIONS.map((opt) => {
-                              if (opt.requiresPerm && !canCreatePermanent) return null;
-                              return (
-                                <option
-                                  key={opt.value}
-                                  value={opt.value}
-                                  className={opt.value === "never" ? "text-purple-600 dark:text-purple-300 font-medium" : ""}
-                                >
-                                  {opt.label}
-                                </option>
-                              );
-                            })}
-                          </>
-                        )}
-                      </select>
+                                : `Strictly Synced with File Lifecycle (${formatExpiry(selectedFileForShare.expires_at, currentTime)})`
+                              : "Permanent / Matches File (Never Expire)"}
+                          </option>
+                        </select>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground flex items-center gap-1">
+                          <Lock className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
 
                       <div className="text-[11px] text-muted-foreground pt-0.5">
                         {selectedFileForShare.expires_at ? (
@@ -791,7 +1151,7 @@ export function FileManager({
                             </span>
                           )
                         ) : (
-                          <span>Target file is permanent. You can select custom link retention or keep permanent.</span>
+                          <span>Target file is permanent. XURL &amp; GPHost links strictly inherit permanent retention.</span>
                         )}
                       </div>
                     </div>

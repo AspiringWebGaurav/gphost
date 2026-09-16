@@ -69,6 +69,38 @@ export async function DELETE(
       );
     }
 
+    // 4.5. Nuclear purge of all associated share links and xurl mappings for this file
+    try {
+      const { data: fileShareLinks } = await adminClient
+        .from("share_links")
+        .select("id")
+        .eq("file_id", fileId);
+
+      if (fileShareLinks && fileShareLinks.length > 0) {
+        const shareIds = fileShareLinks.map((s) => s.id);
+
+        // Deactivate first immediately
+        await adminClient
+          .from("share_links")
+          .update({ is_active: false })
+          .in("id", shareIds);
+
+        // Delete associated xurl_mappings (explicitly to ensure no foreign key locks)
+        await adminClient
+          .from("xurl_mappings")
+          .delete()
+          .in("share_link_id", shareIds);
+
+        // Permanently delete the share_links rows (cascades to file_downloads)
+        await adminClient
+          .from("share_links")
+          .delete()
+          .in("id", shareIds);
+      }
+    } catch (linkPurgeErr) {
+      console.error("Error nuclear-purging share links for deleted file:", linkPurgeErr);
+    }
+
     // 5. Authoritative Physical Deletion from Cloudflare R2
     const r2Deleted = await deleteR2Object(file.r2_key);
 

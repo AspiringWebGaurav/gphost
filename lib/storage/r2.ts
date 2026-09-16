@@ -249,3 +249,29 @@ export async function createPresignedGetUrl(
   return getSignedUrl(client, command, { expiresIn: expiresInSec });
 }
 
+/**
+ * Generates a presigned GET URL with 'inline' Content-Disposition for browser previews
+ * (images, PDFs, media). Does NOT force download attachment.
+ */
+export async function createPresignedPreviewUrl(
+  key: string,
+  filename: string,
+  expiresInSec = 600,
+  mimeType?: string
+): Promise<string> {
+  const client = getR2Client();
+
+  const asciiFilename = filename.replace(/["\\]/g, "_").replace(/[^\x20-\x7E]/g, "_");
+  const encodedFilename = encodeURIComponent(filename);
+  const contentDisposition = `inline; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: key,
+    ResponseContentDisposition: contentDisposition,
+    ...(mimeType ? { ResponseContentType: mimeType } : {}),
+  });
+
+  return getSignedUrl(client, command, { expiresIn: expiresInSec });
+}
+
