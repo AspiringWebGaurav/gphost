@@ -252,9 +252,103 @@ export function PinsManager({ initialPins }: PinsManagerProps) {
         </button>
       </div>
 
-      {/* PINs Table */}
+      {/* PINs Container: Responsive Cards on Mobile (< md), Full Table on Desktop (md+) */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* MOBILE CARDS VIEW (< md) */}
+        <div className="md:hidden divide-y divide-border">
+          {pins.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-xs">
+              No onboarding PINs created yet.
+            </div>
+          ) : (
+            pins.map((pin) => {
+              const isExpired =
+                pin.expires_at && new Date(pin.expires_at) < new Date();
+              const isExhausted = pin.times_used >= pin.max_uses;
+              const isUsable = pin.is_active && !isExpired && !isExhausted;
+
+              return (
+                <div key={pin.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-foreground text-xs truncate">
+                        {pin.label || "Untitled Fast-Track PIN"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-mono">
+                        ID: {pin.id.slice(0, 8)}...
+                      </div>
+                    </div>
+
+                    <div className="shrink-0">
+                      {isUsable ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                          <CheckCircle className="w-3 h-3" />
+                          Active
+                        </span>
+                      ) : isExhausted ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                          Exhausted
+                        </span>
+                      ) : isExpired ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                          <Clock className="w-3 h-3" />
+                          Expired
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20">
+                          <Ban className="w-3 h-3" />
+                          Revoked
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Limits and Quotas strip */}
+                  <div className="p-2.5 rounded-xl bg-muted/30 border border-border/60 text-[11px] space-y-1.5 font-mono">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Quota &amp; Limit:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                          {formatQuota(pin.quota_bytes)}
+                        </span>
+                        <span>•</span>
+                        <span className="text-purple-600 dark:text-purple-400 font-semibold">
+                          {pin.max_files ? `${pin.max_files} files` : "Unlimited files"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-muted-foreground text-[10px]">
+                      <span>Usage: <strong className="text-foreground font-mono">{pin.times_used} / {pin.max_uses}</strong> uses</span>
+                      <span>Expires: {pin.expires_at ? new Date(pin.expires_at).toLocaleDateString() : "Never"}</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  {pin.is_active && !isExpired && !isExhausted ? (
+                    <div className="flex items-center justify-end pt-0.5">
+                      <button
+                        onClick={() => handleRevoke(pin.id)}
+                        disabled={revokingId === pin.id}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 text-muted-foreground font-medium text-xs transition border border-border cursor-pointer disabled:opacity-50"
+                      >
+                        {revokingId === pin.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Ban className="w-3.5 h-3.5" />
+                        )}
+                        <span>Revoke PIN</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW (hidden on mobile, block on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/40 text-muted-foreground font-semibold">

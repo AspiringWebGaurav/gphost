@@ -81,8 +81,8 @@ async function checkPlatformHealth(): Promise<PlatformHealthData> {
 
 export default async function AdminSettingsPage() {
   const { user } = await requireAdminUser();
-  const ownerEmail = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
-  const isOwner = user.email?.toLowerCase() === ownerEmail;
+  const ownerEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const isOwner = Boolean(ownerEmail && user.email?.toLowerCase() === ownerEmail);
 
   const initialHealth = isOwner ? await checkPlatformHealth() : null;
 

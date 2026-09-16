@@ -5,6 +5,7 @@ import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandLogoSymbol } from "@/components/ui/brand-logo";
 import {
   Layers,
   ShieldCheck,
@@ -141,9 +142,7 @@ function LoginForm() {
     <div className="w-full max-w-sm mx-auto flex flex-col items-center text-center">
       {/* Brand Header */}
       <div className="relative mb-4 group">
-        <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-xl shadow-blue-500/30 ring-1 ring-white/25 transition-transform duration-300 group-hover:scale-105">
-          <Layers className="w-6 h-6" />
-        </div>
+        <BrandLogoSymbol size="xl" />
         <div className="absolute -inset-2 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-500 blur-lg -z-10 opacity-60 group-hover:opacity-100 transition-opacity duration-300" />
       </div>
 

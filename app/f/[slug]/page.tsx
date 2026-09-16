@@ -6,6 +6,7 @@ import { formatPublicShareMetadata, getPreviewType } from "@/lib/storage/share";
 import { createPresignedPreviewUrl } from "@/lib/storage/r2";
 import { DownloadCard } from "@/components/share/download-card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { AlertCircle, Clock, Ban, Flame } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -261,15 +262,7 @@ function PublicShareLayout({ children }: { children: React.ReactNode }) {
 
       {/* Minimal Top Header Bar */}
       <header className="h-12 sm:h-14 w-full px-4 sm:px-8 flex items-center justify-between border-b border-border/40 shrink-0 z-30">
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-foreground/90 hover:text-foreground transition-colors cursor-pointer"
-        >
-          <div className="w-7 h-7 rounded-lg bg-blue-600/10 border border-blue-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
-            GP
-          </div>
-          <span className="font-semibold text-sm tracking-tight">GPHosting</span>
-        </Link>
+        <BrandLogo size="sm" />
 
         <div className="flex items-center gap-3">
           <ThemeToggle />

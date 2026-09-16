@@ -25,6 +25,7 @@ import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
 } from "@/lib/storage/expiry";
+import { storageEvents } from "@/lib/storage/events";
 
 export interface FileItem {
   id: string;
@@ -99,6 +100,13 @@ export function FileList({
 
   // Direct download state
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [activeDownload, setActiveDownload] = useState<{
+    id: string;
+    filename: string;
+    progress: number;
+    status: string;
+    completed: boolean;
+  } | null>(null);
 
   // Real-time live countdown ticker (ticks every second for smooth 35m -> 34m updates)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -113,24 +121,61 @@ export function FileList({
   // Direct owner download
   const handleDirectDownload = async (file: FileItem) => {
     setDownloadingId(file.id);
+    setActiveDownload({
+      id: file.id,
+      filename: file.sanitized_name,
+      progress: 30,
+      status: "Securing direct edge lease...",
+      completed: false,
+    });
+
+    const t1 = setTimeout(() => {
+      setActiveDownload((prev) =>
+        prev && prev.id === file.id
+          ? { ...prev, progress: 65, status: "Connecting to Cloudflare R2..." }
+          : prev
+      );
+    }, 150);
+
     try {
       const res = await fetch(`/api/files/${file.id}/download`);
+      clearTimeout(t1);
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        setActiveDownload(null);
         alert(errData.error || "Failed to download file");
         return;
       }
       const data = await res.json();
       if (data.downloadUrl) {
+        setActiveDownload((prev) =>
+          prev && prev.id === file.id
+            ? { ...prev, progress: 90, status: "Dispatching stream to browser..." }
+            : prev
+        );
+
         const a = document.createElement("a");
         a.href = data.downloadUrl;
         a.download = file.sanitized_name;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+
+        setActiveDownload((prev) =>
+          prev && prev.id === file.id
+            ? { ...prev, progress: 100, status: "Direct download active!", completed: true }
+            : prev
+        );
+
+        setTimeout(() => {
+          setActiveDownload((prev) => (prev && prev.id === file.id ? null : prev));
+        }, 3200);
       }
     } catch (err) {
+      clearTimeout(t1);
       console.error("Direct download failed:", err);
+      setActiveDownload(null);
       alert("Network error starting download");
     } finally {
       setDownloadingId(null);
@@ -189,8 +234,14 @@ export function FileList({
         alert(data.error || "Failed to delete file");
       } else {
         const deletedId = fileToDelete.id;
+        const deletedSize = fileToDelete.byte_size;
         setFileToDelete(null);
         setDeletedIds((prev) => new Set(prev).add(deletedId));
+        storageEvents.emit("file:lifecycle", {
+          fileId: deletedId,
+          size: deletedSize,
+          action: "deleted",
+        });
         if (onFileDeleted) onFileDeleted();
       }
     } catch (err) {
@@ -642,7 +693,7 @@ export function FileList({
                             <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
                               <span className="font-medium text-foreground">Sync:</span>
                               <span className="font-mono text-blue-600 dark:text-blue-400 truncate max-w-[170px]">
-                                gphost.eu.cc/f/{customSlug}
+                                {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{customSlug}
                               </span>
                               {shortenWithXurl && (
                                 <>
@@ -1053,6 +1104,53 @@ export function FileList({
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Active Download Progress Pill */}
+      {activeDownload && (
+        <div className="fixed bottom-6 right-6 z-50 w-80 sm:w-96 rounded-2xl bg-card/95 border border-emerald-500/30 p-4 shadow-2xl shadow-emerald-500/10 backdrop-blur-md space-y-2.5 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                {activeDownload.completed ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <Download className="w-4 h-4 animate-bounce text-emerald-500" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">
+                  {activeDownload.filename}
+                </p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
+                  {activeDownload.status}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                {activeDownload.progress}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveDownload(null)}
+                className="p-1 text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="relative w-full h-2 rounded-full bg-muted/70 dark:bg-zinc-800 p-0.5 border border-border/70 overflow-hidden">
+            <div
+              className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)] overflow-hidden"
+              style={{ width: `${Math.max(4, activeDownload.progress)}%` }}
+            >
+              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
             </div>
           </div>
         </div>

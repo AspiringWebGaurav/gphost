@@ -4,7 +4,7 @@ export const UNLOCK_TOKEN_SECRET =
   process.env.UNLOCK_TOKEN_SECRET ||
   process.env.PASSWORD_PEPPER ||
   process.env.PIN_PEPPER ||
-  "gphost_server_authoritative_unlock_token_secret_default";
+  (process.env.NODE_ENV !== "production" ? "gphost_dev_unlock_token_secret" : "");
 
 export interface UnlockTokenPayload {
   slug: string;

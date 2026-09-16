@@ -5,7 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AccessGateConsole } from "@/components/auth/access-gate-console";
-import { Layers, ShieldCheck, CheckCircle2, Lock, Clock, Shield } from "lucide-react";
+import { BrandLogo } from "@/components/ui/brand-logo";
+import { ShieldCheck, CheckCircle2, Lock, Clock, Shield } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -71,9 +72,9 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
   const initialTab = isApprovedByAdmin ? "pin" : (params?.tab === "request" ? "request" : "pin");
 
   return (
-    <div className="h-screen max-h-screen w-screen max-w-full overflow-hidden flex flex-col bg-background text-foreground relative">
-      {/* Main Split Section: Fills available viewport height with zero unnecessary scrolling */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden relative">
+    <div className="min-h-screen lg:h-screen lg:max-h-screen w-screen max-w-full lg:overflow-hidden flex flex-col bg-background text-foreground relative">
+      {/* Main Split Section */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 lg:overflow-hidden relative">
         {/* Left Column: Edge-to-edge Showcase (Visible on lg+) */}
         <div className="hidden lg:flex lg:col-span-6 xl:col-span-7 h-full flex-col justify-between p-8 xl:p-12 2xl:p-16 border-r border-border/80 bg-muted/25 dark:bg-zinc-950/50 relative overflow-hidden">
           {/* Subtle dot/grid background */}
@@ -94,12 +95,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
 
           {/* Left Top Bar: Brand */}
           <div className="flex items-center gap-3 relative z-10">
-            <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/20 ring-1 ring-white/20 transition-transform duration-200 group-hover:scale-105 shrink-0">
-                <Layers className="w-4 h-4" />
-              </div>
-              <span className="font-bold tracking-tight text-foreground text-sm">GPHosting</span>
-            </Link>
+            <BrandLogo size="sm" />
             <span className="text-muted-foreground/40">/</span>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
               <ShieldCheck className="w-3 h-3" />
@@ -217,7 +213,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
               approvalDecision={latestApprovedRequest?.rejection_reason}
               status={status as "pending" | "rejected" | "revoked"}
               initialTab={initialTab}
-              adminContactEmail={process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com"}
+              adminContactEmail={process.env.ADMIN_EMAIL || "support@gphost.eu.cc"}
             />
           </div>
 

@@ -245,11 +245,11 @@ export async function POST(
         })
         .eq("id", requestId);
 
-      // Explicitly guarantee profile stays 'pending' until PIN verification
+      // Authoritative approval: update profile status to approved
       await adminClient
         .from("profiles")
         .update({
-          status: "pending",
+          status: "approved",
           updated_at: new Date().toISOString(),
         })
         .eq("id", targetUserId);

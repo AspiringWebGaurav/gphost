@@ -5,10 +5,13 @@ import {
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { Redis } from "@upstash/redis";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local" });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SECRET_KEY;
-const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
+const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const adminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 
 if (!supabaseUrl || !supabaseKey) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SECRET_KEY in environment");
@@ -29,10 +32,13 @@ const r2Client = new S3Client({
 });
 const bucketName = process.env.R2_BUCKET_NAME || "gphosting-files";
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL.replace(/^["']|["']$/g, ""),
-  token: process.env.UPSTASH_REDIS_REST_TOKEN.replace(/^["']|["']$/g, ""),
-});
+const redisUrl = (process.env.UPSTASH_REDIS_REST_URL || "").replace(/^["']|["']$/g, "");
+const redisToken = (process.env.UPSTASH_REDIS_REST_TOKEN || "").replace(/^["']|["']$/g, "");
+
+const redis = redisUrl && redisToken ? new Redis({
+  url: redisUrl,
+  token: redisToken,
+}) : null;
 
 async function purgeR2() {
   console.log("\n--- 1. PURGING CLOUDFLARE R2 BUCKET ---");
@@ -65,6 +71,10 @@ async function purgeR2() {
 
 async function purgeRedis() {
   console.log("\n--- 2. PURGING UPSTASH REDIS ---");
+  if (!redis) {
+    console.log("  Upstash Redis not configured, skipping.");
+    return;
+  }
   try {
     const keysBefore = await redis.keys("*");
     console.log(`  Found ${keysBefore.length} keys in Redis before flush:`, keysBefore);

@@ -3,7 +3,6 @@ import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/auth/logout-button";
 import {
-  Layers,
   Zap,
   Lock,
   Globe,
@@ -13,6 +12,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { BackToTop } from "@/components/ui/back-to-top";
+import { BrandLogo, BrandLogoSymbol } from "@/components/ui/brand-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -27,12 +27,7 @@ export default async function HomePage() {
       {/* Top Navbar */}
       <header className="h-16 border-b border-border/80 bg-background/80 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-50 transition-colors duration-200">
         <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/20 ring-1 ring-white/20 transition-transform duration-200 group-hover:scale-105 shrink-0">
-              <Layers className="w-5 h-5" />
-            </div>
-            <span className="font-bold tracking-tight text-foreground text-base">GPHosting</span>
-          </Link>
+          <BrandLogo size="md" />
         </div>
 
         <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground font-medium">
@@ -279,9 +274,7 @@ export default async function HomePage() {
       <footer className="border-t border-border/80 bg-muted/30 py-6 px-6 transition-colors">
         <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4 pb-10 sm:pb-0">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-              GP
-            </div>
+            <BrandLogoSymbol size="xs" glow={false} />
             <span className="text-xs text-muted-foreground">
               &copy; {new Date().getFullYear()} GPHosting (Gaurav Patil Hosting). All rights reserved.
             </span>

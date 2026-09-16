@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 export const IP_HASH_PEPPER =
   process.env.IP_HASH_PEPPER ||
   process.env.PIN_PEPPER ||
-  "gphost_server_authoritative_ip_hash_pepper_default";
+  (process.env.NODE_ENV !== "production" ? "gphost_dev_ip_pepper" : "");
 
 /**
  * Computes a keyed HMAC-SHA256 hash of a client IP address.

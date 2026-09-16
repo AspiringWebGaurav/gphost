@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 export const PASSWORD_PEPPER =
   process.env.PASSWORD_PEPPER ||
   process.env.PIN_PEPPER ||
-  "gphost_server_authoritative_password_pepper_default";
+  (process.env.NODE_ENV !== "production" ? "gphost_dev_password_pepper" : "");
 
 /**
  * Validates that a share password is a non-empty string up to 128 characters.

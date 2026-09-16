@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Search,
   Filter,
@@ -17,7 +17,9 @@ import {
   Crown,
   FileBox,
   HardDrive,
+  RotateCw,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export interface AdminUserProfile {
   id: string;
@@ -59,6 +61,70 @@ export function UserManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+
+  // Realtime Live Synchronization on profiles table (0 polling)
+  useEffect(() => {
+    const supabase = createClient();
+    const channelName = `admin-users-live-${currentUserId}`;
+
+    const existingChannel = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "profiles",
+        },
+        (payload) => {
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Partial<AdminUserProfile>;
+            setUsers((prev) =>
+              prev.map((u) =>
+                u.id === updated.id
+                  ? {
+                      ...u,
+                      ...updated,
+                      quota_bytes: Number(updated.quota_bytes ?? u.quota_bytes),
+                      storage_used_bytes: Number(updated.storage_used_bytes ?? u.storage_used_bytes),
+                      reserved_bytes: Number(updated.reserved_bytes ?? u.reserved_bytes),
+                    }
+                  : u
+              )
+            );
+          } else if (payload.eventType === "INSERT") {
+            const inserted = payload.new as AdminUserProfile;
+            setUsers((prev) => {
+              if (prev.some((u) => u.id === inserted.id)) return prev;
+              return [
+                {
+                  ...inserted,
+                  quota_bytes: Number(inserted.quota_bytes),
+                  storage_used_bytes: Number(inserted.storage_used_bytes),
+                  reserved_bytes: Number(inserted.reserved_bytes),
+                },
+                ...prev,
+              ];
+            });
+          } else if (payload.eventType === "DELETE") {
+            const deleted = payload.old as { id: string };
+            setUsers((prev) => prev.filter((u) => u.id !== deleted.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUserId]);
 
   // Edit Modal State
   const [editingUser, setEditingUser] = useState<AdminUserProfile | null>(null);
@@ -107,45 +173,76 @@ export function UserManager({
     setActionSuccess(null);
   };
 
-  const handleQuickRevoke = async (target: AdminUserProfile) => {
+  // Full-lifecycle robust status change (Approve, Revoke, Reject, Restore)
+  const handleQuickStatusChange = async (
+    target: AdminUserProfile,
+    newStatus: "approved" | "rejected" | "revoked"
+  ) => {
     const isTargetPermanentOwner =
       target.email.toLowerCase() === ownerEmail.toLowerCase();
     const isSelf = target.id === currentUserId;
 
     if (isTargetPermanentOwner) {
-      alert("The permanent owner account cannot be revoked.");
+      alert("The permanent owner account cannot be modified.");
       return;
     }
-    if (isSelf) {
-      alert("You cannot revoke your own administrative account.");
+    if (isSelf && (newStatus === "revoked" || newStatus === "rejected")) {
+      alert("You cannot revoke or reject your own administrative account.");
       return;
     }
 
-    if (
-      !confirm(
-        `Are you sure you want to revoke access for ${target.email}? The user will be immediately logged out and forbidden from uploading files.`
-      )
-    ) {
-      return;
+    if (newStatus === "revoked") {
+      if (
+        !confirm(
+          `Are you sure you want to revoke access for ${target.email}? The user will be immediately logged out and forbidden from uploading files.`
+        )
+      ) {
+        return;
+      }
+    } else if (newStatus === "rejected") {
+      if (
+        !confirm(`Are you sure you want to reject access for ${target.email}?`)
+      ) {
+        return;
+      }
     }
+
+    const previousStatus = target.status;
+    setProcessingUserId(target.id);
+
+    // Optimistic Update (0ms instant response)
+    setUsers((prev) =>
+      prev.map((u) => (u.id === target.id ? { ...u, status: newStatus } : u))
+    );
 
     try {
       const res = await fetch(`/api/admin/users/${target.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "revoked" }),
+        body: JSON.stringify({ status: newStatus }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || data.error || "Failed to revoke user");
+        throw new Error(data.message || data.error || `Failed to update status to ${newStatus}`);
       }
 
-      setUsers((prev) =>
-        prev.map((u) => (u.id === target.id ? { ...u, status: "revoked" } : u))
+      setFeedbackToast(
+        newStatus === "approved"
+          ? `Access approved successfully for ${target.email}!`
+          : newStatus === "revoked"
+          ? `Access revoked for ${target.email}. Session terminated.`
+          : `Access rejected for ${target.email}.`
       );
+      setTimeout(() => setFeedbackToast(null), 4000);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to revoke user");
+      // Rollback on error
+      setUsers((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, status: previousStatus } : u))
+      );
+      alert(err instanceof Error ? err.message : "Failed to update user status");
+    } finally {
+      setProcessingUserId(null);
     }
   };
 
@@ -279,6 +376,23 @@ export function UserManager({
 
   return (
     <div className="space-y-6">
+      {/* Toast Feedback Notification */}
+      {feedbackToast && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>{feedbackToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedbackToast(null)}
+            className="text-muted-foreground hover:text-foreground cursor-pointer p-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Search and Filters Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative max-w-sm w-full">
@@ -323,9 +437,208 @@ export function UserManager({
         </div>
       </div>
 
-      {/* Users Table */}
+      {/* Users Container: Responsive Cards on Mobile (< md), Full Table on Desktop (md+) */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* MOBILE CARD VIEW (< md) */}
+        <div className="md:hidden divide-y divide-border">
+          {filteredUsers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-xs">
+              No users matching criteria.
+            </div>
+          ) : (
+            filteredUsers.map((u) => {
+              const isPermanentOwner =
+                u.email.toLowerCase() === ownerEmail.toLowerCase();
+              const totalCommitted =
+                Number(u.storage_used_bytes) + Number(u.reserved_bytes);
+              const quotaPercent =
+                u.quota_bytes === -1
+                  ? 0
+                  : Math.min(100, Math.round((totalCommitted / u.quota_bytes) * 100));
+
+              return (
+                <div key={u.id} className="p-4 space-y-3">
+                  {/* Top: Avatar, Name, Email, Badges */}
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center font-bold text-foreground overflow-hidden shrink-0 border border-border">
+                        {u.avatar_url ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={u.avatar_url}
+                            alt={u.email}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1 font-semibold text-foreground text-xs truncate">
+                          <span>{u.full_name || "Unnamed User"}</span>
+                          {isPermanentOwner && (
+                            <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate font-mono">
+                          {u.email}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {u.role === "admin" ? (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                          <Shield className="w-2.5 h-2.5" />
+                          Admin
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                          User
+                        </span>
+                      )}
+
+                      {u.status === "approved" && (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                          <CheckCircle className="w-2.5 h-2.5" />
+                          Approved
+                        </span>
+                      )}
+                      {u.status === "pending" && (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                          <Clock className="w-2.5 h-2.5" />
+                          Pending
+                        </span>
+                      )}
+                      {u.status === "rejected" && (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20">
+                          <XCircle className="w-2.5 h-2.5" />
+                          Rejected
+                        </span>
+                      )}
+                      {u.status === "revoked" && (
+                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                          <Ban className="w-2.5 h-2.5" />
+                          Revoked
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle: Quota Progress & Details */}
+                  <div className="p-2.5 rounded-xl bg-muted/30 border border-border/60 space-y-1.5 text-[11px]">
+                    <div className="flex items-center justify-between text-muted-foreground font-mono">
+                      <span>Committed Storage</span>
+                      <span className="font-semibold text-foreground">
+                        {formatBytes(totalCommitted)} / {u.quota_bytes === -1 ? "Unlimited" : formatBytes(u.quota_bytes)}
+                      </span>
+                    </div>
+
+                    {u.quota_bytes !== -1 && (
+                      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            quotaPercent > 90
+                              ? "bg-rose-500"
+                              : quotaPercent > 75
+                              ? "bg-amber-500"
+                              : "bg-blue-500"
+                          }`}
+                          style={{ width: `${quotaPercent}%` }}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
+                      <span>Permanent links: {u.can_create_permanent ? <strong className="text-emerald-600 dark:text-emerald-400">Allowed</strong> : "Standard"}</span>
+                      <span>Joined {new Date(u.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Actions Row */}
+                  <div className="flex items-center justify-end gap-2 pt-0.5">
+                    {u.email.toLowerCase() !== ownerEmail.toLowerCase() &&
+                      u.id !== currentUserId && (
+                        <>
+                          {u.status === "pending" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleQuickStatusChange(u, "approved")}
+                                disabled={processingUserId === u.id}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] text-emerald-600 dark:text-emerald-400 font-semibold text-xs transition border border-emerald-500/25 cursor-pointer disabled:opacity-50"
+                              >
+                                {processingUserId === u.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                                )}
+                                <span>Approve</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleQuickStatusChange(u, "rejected")}
+                                disabled={processingUserId === u.id}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 active:scale-[0.98] text-red-600 dark:text-red-400 font-medium text-xs transition border border-red-500/20 cursor-pointer disabled:opacity-50"
+                              >
+                                <XCircle className="w-3.5 h-3.5 text-red-500" />
+                                <span>Reject</span>
+                              </button>
+                            </>
+                          )}
+
+                          {u.status === "approved" && (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickStatusChange(u, "revoked")}
+                              disabled={processingUserId === u.id}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 font-medium text-xs transition border border-rose-500/20 cursor-pointer disabled:opacity-50"
+                            >
+                              {processingUserId === u.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Ban className="w-3.5 h-3.5 text-rose-500" />
+                              )}
+                              <span>Revoke</span>
+                            </button>
+                          )}
+
+                          {(u.status === "revoked" || u.status === "rejected") && (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickStatusChange(u, "approved")}
+                              disabled={processingUserId === u.id}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] text-emerald-600 dark:text-emerald-400 font-medium text-xs transition border border-emerald-500/25 cursor-pointer disabled:opacity-50"
+                            >
+                              {processingUserId === u.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RotateCw className="w-3.5 h-3.5 text-emerald-500" />
+                              )}
+                              <span>Restore</span>
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(u)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground font-medium text-xs transition border border-border cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW (hidden on mobile, block on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/40 text-muted-foreground font-semibold">
@@ -465,18 +778,77 @@ export function UserManager({
 
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {u.status !== "revoked" &&
-                            u.email.toLowerCase() !== ownerEmail.toLowerCase() &&
+                          {/* Owner / Self accounts cannot be revoked or modified via quick actions */}
+                          {u.email.toLowerCase() !== ownerEmail.toLowerCase() &&
                             u.id !== currentUserId && (
-                              <button
-                                type="button"
-                                onClick={() => handleQuickRevoke(u)}
-                                title="Revoke access and terminate session immediately"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 font-medium text-[11px] transition border border-rose-500/20 cursor-pointer shadow-2xs"
-                              >
-                                <Ban className="w-3 h-3" />
-                                <span>Revoke</span>
-                              </button>
+                              <>
+                                {/* 1. PENDING USER ACTIONS: Approve or Reject */}
+                                {u.status === "pending" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickStatusChange(u, "approved")}
+                                      disabled={processingUserId === u.id}
+                                      title="Approve user and grant access immediately"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] transition border border-emerald-500/25 cursor-pointer shadow-2xs disabled:opacity-50"
+                                    >
+                                      {processingUserId === u.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <CheckCircle className="w-3 h-3 text-emerald-500" />
+                                      )}
+                                      <span>Approve</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickStatusChange(u, "rejected")}
+                                      disabled={processingUserId === u.id}
+                                      title="Reject user request"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 active:scale-[0.98] text-red-600 dark:text-red-400 font-medium text-[11px] transition border border-red-500/20 cursor-pointer shadow-2xs disabled:opacity-50"
+                                    >
+                                      <XCircle className="w-3 h-3 text-red-500" />
+                                      <span>Reject</span>
+                                    </button>
+                                  </>
+                                )}
+
+                                {/* 2. APPROVED USER ACTIONS: Revoke */}
+                                {u.status === "approved" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickStatusChange(u, "revoked")}
+                                    disabled={processingUserId === u.id}
+                                    title="Revoke access and terminate session immediately"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 font-medium text-[11px] transition border border-rose-500/20 cursor-pointer shadow-2xs disabled:opacity-50"
+                                  >
+                                    {processingUserId === u.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Ban className="w-3 h-3 text-rose-500" />
+                                    )}
+                                    <span>Revoke</span>
+                                  </button>
+                                )}
+
+                                {/* 3. REVOKED / REJECTED USER ACTIONS: Re-activate / Restore */}
+                                {(u.status === "revoked" || u.status === "rejected") && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickStatusChange(u, "approved")}
+                                    disabled={processingUserId === u.id}
+                                    title="Re-activate access for this user"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] text-emerald-600 dark:text-emerald-400 font-medium text-[11px] transition border border-emerald-500/25 cursor-pointer shadow-2xs disabled:opacity-50"
+                                  >
+                                    {processingUserId === u.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <RotateCw className="w-3 h-3 text-emerald-500" />
+                                    )}
+                                    <span>Restore</span>
+                                  </button>
+                                )}
+                              </>
                             )}
                           <button
                             type="button"
@@ -500,8 +872,8 @@ export function UserManager({
       {/* EDIT USER MODAL */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="bg-card border border-border text-card-foreground rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between p-5 border-b border-border">
+          <div className="bg-card border border-border text-card-foreground rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
               <div className="flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <h3 className="text-sm font-semibold text-foreground">
@@ -516,7 +888,7 @@ export function UserManager({
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleSave} className="p-5 space-y-4 text-xs overflow-y-auto">
               {/* Target info */}
               <div className="p-3 bg-muted/40 rounded-xl border border-border/80 space-y-1">
                 <div className="flex items-center justify-between">

@@ -1,4 +1,9 @@
-# Environment variables & secrets
+# ==============================================================================
+# GPHOST - Comprehensive .gitignore
+# Next.js 16 (Turbopack) | TypeScript | TailwindCSS | Supabase | Vercel
+# ==============================================================================
+
+# --- Environment Variables & Secrets ---
 .env
 .env*.local
 .env.local
@@ -6,54 +11,91 @@
 .env.test.local
 .env.production.local
 .env.vault
+!.env.example
 *.pem
 *.key
 *.cert
+*.crt
+*.pfx
+*.p12
 
-# Dependencies
+# --- Dependencies & Package Managers ---
 node_modules/
 /.pnp
-.pnp.js
-.yarn/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnpm-store/
 
-# Testing & Coverage
-/coverage/
-playwright-report/
-test-results/
-blob-report/
-
-# Next.js build output & caches
+# --- Next.js Build Output & Caches ---
 /.next/
 /out/
 /build/
 /dist/
 .turbo/
 
-# Vercel
+# --- Deployment & Cloud Platforms ---
 .vercel/
+.netlify/
+.wrangler/
 
-# Debug and runtime logs
+# --- TypeScript Build Cache ---
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# --- Testing & Coverage ---
+/coverage/
+*.lcov
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# --- Debug & Runtime Logs ---
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 *.log
+.eslintcache
+*.pid
+*.seed
+*.pid.lock
+.npm
+.node_repl_history
 
-# Operating System Files
+# --- Supabase Local CLI & Caches ---
+supabase/.temp/
+supabase/.branches/
+.temp/
+**/.temp/
+
+# --- Operating System Files ---
 .DS_Store
-Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 ehthumbs.db
+Thumbs.db
+Thumbs.db:encryptable
 desktop.ini
 
-# IDE and Editor files
+# --- IDEs & Editors ---
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 *.sublime-workspace
 *.sublime-project
 
-# Agent Governance, IDE & Local Scratch
+# --- Agent Governance, IDE & Local Scratch ---
 .agent/
 .agents/
 .gemini/
@@ -61,24 +103,15 @@ scratch/
 scratch_*
 *.scratch.*
 
-# TypeScript build cache
-*.tsbuildinfo
-tsconfig.tsbuildinfo
-
-# Temporary and backup files
+# --- Temporary, Backup & Archive Files ---
 *.backup
 *.tmp
 *.bak
-*~
-.temp/
-**/.temp/
 *.zip
 *.tar.gz
 
-# Local Maintenance & Cleanup Scripts (Kept local, excluded from cloud)
+# --- Local Maintenance & Cleanup Scripts (Kept local, excluded from repo) ---
 /clean.sh
 /Makefile
 /scripts/clean.sh
-/scripts/clean.mjs
 /scripts/Makefile
-

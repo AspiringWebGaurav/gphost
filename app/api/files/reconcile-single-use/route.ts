@@ -10,17 +10,32 @@ const ReconcileSchema = z.object({
   fileId: z.string().uuid("Invalid file ID format").optional(),
 });
 
+export async function GET(req: NextRequest) {
+  return handleReconcile(req);
+}
+
 export async function POST(req: NextRequest) {
+  return handleReconcile(req);
+}
+
+async function handleReconcile(req: NextRequest) {
   try {
     // 1. Authorize: Either internal service/cron secret OR authenticated approved user/admin
     const authHeader = req.headers.get("authorization");
     const cronSecretHeader = req.headers.get("x-cron-secret");
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
     const cronSecret = process.env.CRON_SECRET;
 
+    const isCronAuth =
+      cronSecret &&
+      (cronSecretHeader === cronSecret ||
+        authHeader === `Bearer ${cronSecret}` ||
+        authHeader === cronSecret);
+
     const isServiceAuth =
-      (serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`) ||
-      (cronSecret && cronSecretHeader === cronSecret);
+      isCronAuth ||
+      (serviceRoleKey &&
+        (authHeader === `Bearer ${serviceRoleKey}` || authHeader === serviceRoleKey));
 
     let sessionUser: { id: string } | null = null;
     let isAdmin = false;

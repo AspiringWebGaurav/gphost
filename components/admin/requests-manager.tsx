@@ -403,9 +403,136 @@ export function RequestsManager({
         </div>
       </div>
 
-      {/* Requests Table */}
+      {/* Requests Container: Responsive Cards on Mobile (< md), Full Table on Desktop (md+) */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* MOBILE CARDS VIEW (< md) */}
+        <div className="md:hidden divide-y divide-border">
+          {currentList.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-xs">
+              {activeTab === "pending"
+                ? "No pending access requests awaiting review."
+                : "No access request history found."}
+            </div>
+          ) : (
+            currentList.map((req) => (
+              <div key={req.id} className="p-4 space-y-3">
+                {/* Header: Name, Email & Status */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-foreground text-xs truncate">
+                      {req.full_name || "Unnamed Applicant"}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground truncate font-mono">
+                      {req.email}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    {req.status === "pending" && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                        <Clock className="w-3 h-3" />
+                        Pending
+                      </span>
+                    )}
+                    {req.status === "approved" && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                        <CheckCircle className="w-3 h-3" />
+                        Approved
+                      </span>
+                    )}
+                    {req.status === "rejected" && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20">
+                        <XCircle className="w-3 h-3" />
+                        Rejected
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Details box */}
+                <div className="p-2.5 rounded-xl bg-muted/30 border border-border/60 text-[11px] space-y-1">
+                  <div className="text-muted-foreground">
+                    <span className="text-muted-foreground/80">Requested: </span>
+                    <span className="font-mono text-foreground">
+                      {new Date(req.requested_at).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {req.notes && (
+                    <div className="text-foreground pt-0.5">
+                      <span className="text-muted-foreground text-[10px] uppercase font-semibold block">Notes:</span>
+                      <p className="mt-0.5 leading-snug">{req.notes}</p>
+                    </div>
+                  )}
+
+                  {activeTab === "history" && req.rejection_reason && (
+                    <div className="pt-1">
+                      <span className="text-muted-foreground text-[10px] uppercase font-semibold block">Decision / PIN:</span>
+                      <span className="font-mono text-purple-700 dark:text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 font-semibold inline-block mt-0.5">
+                        {req.rejection_reason}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                {req.status === "pending" && (
+                  <div className="flex items-center justify-end gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRejectingItem(req);
+                        setRejectionReason("");
+                      }}
+                      disabled={isProcessing === req.id}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 text-muted-foreground font-medium text-xs transition border border-border cursor-pointer disabled:opacity-50"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Reject</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleOpenApproveModal(req);
+                      }}
+                      disabled={isProcessing === req.id}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>Approve &amp; Issue PIN</span>
+                    </button>
+                  </div>
+                )}
+
+                {req.status === "approved" && (
+                  <div className="flex items-center justify-end pt-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRevokeApprovedRequest(req);
+                      }}
+                      disabled={isProcessing === req.id}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 font-medium text-xs transition border border-rose-500/20 cursor-pointer disabled:opacity-50 shadow-2xs"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>Revoke Access</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW (hidden on mobile, block on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/40 text-muted-foreground font-semibold">

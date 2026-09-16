@@ -16,7 +16,7 @@ export interface UserProfile {
   updated_at: string;
 }
 
-export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com";
+export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 
 /**
  * Retrieves the currently authenticated Supabase Auth user from request cookies.

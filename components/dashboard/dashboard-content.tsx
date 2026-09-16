@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ArrowRight, UploadCloud } from "lucide-react";
 import { UploadZone } from "@/components/upload/upload-zone";
@@ -9,6 +9,8 @@ import {
   ApprovalWelcomeBanner,
   ApprovalWelcomeInfo,
 } from "@/components/dashboard/approval-welcome-banner";
+import { useStorageSync } from "@/components/storage/storage-context";
+import { storageEvents } from "@/lib/storage/events";
 
 interface DashboardContentProps {
   initialFiles: FileItem[];
@@ -32,6 +34,14 @@ export function DashboardContent({
 }: DashboardContentProps) {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
 
+  let liveStorage: ReturnType<typeof useStorageSync> | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    liveStorage = useStorageSync();
+  } catch {
+    liveStorage = null;
+  }
+
   const isAdmin = profile.role === "admin";
   const isPremium =
     isAdmin ||
@@ -39,17 +49,46 @@ export function DashboardContent({
     profile.quota_bytes === -1 ||
     profile.quota_bytes > 5368709120;
 
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     try {
-      const res = await fetch("/api/files");
+      const res = await fetch("/api/files", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setFiles(data.files);
+        setFiles(data.files || []);
       }
     } catch (err) {
       console.error("Failed to refresh dashboard data:", err);
     }
-  };
+  }, []);
+
+  // Listen to typed live storage & file events
+  useEffect(() => {
+    const unsubStorage = storageEvents.on("storage:updated", () => {
+      refreshData();
+    });
+    const unsubLifecycle = storageEvents.on("file:lifecycle", () => {
+      refreshData();
+    });
+
+    return () => {
+      unsubStorage();
+      unsubLifecycle();
+    };
+  }, [refreshData]);
+
+  const handleUploadSuccess = useCallback(() => {
+    refreshData();
+    if (liveStorage) {
+      liveStorage.broadcastStorageUpdate();
+    }
+  }, [refreshData, liveStorage]);
+
+  const handleFileDeleted = useCallback(() => {
+    refreshData();
+    if (liveStorage) {
+      liveStorage.broadcastStorageUpdate();
+    }
+  }, [refreshData, liveStorage]);
 
   return (
     <div className="space-y-4 max-w-5xl w-full mx-auto">
@@ -95,7 +134,7 @@ export function DashboardContent({
         <UploadZone
           canCreatePermanent={profile.can_create_permanent}
           isAdmin={isAdmin}
-          onUploadSuccess={refreshData}
+          onUploadSuccess={handleUploadSuccess}
           compact={true}
         />
       </div>
@@ -118,7 +157,7 @@ export function DashboardContent({
 
         <FileList
           files={files}
-          onFileDeleted={refreshData}
+          onFileDeleted={handleFileDeleted}
           hideHeader={true}
           maxHeight="max-h-[220px]"
           isPremium={isPremium}

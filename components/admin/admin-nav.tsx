@@ -17,9 +17,10 @@ import {
 
 interface AdminNavProps {
   isOwner?: boolean;
+  onNavigate?: () => void;
 }
 
-export function AdminNav({ isOwner = false }: AdminNavProps) {
+export function AdminNav({ isOwner = false, onNavigate }: AdminNavProps) {
   const pathname = usePathname();
 
   const navItems = [
@@ -46,6 +47,7 @@ export function AdminNav({ isOwner = false }: AdminNavProps) {
           <Link
             key={item.href}
             href={item.href}
+            onClick={onNavigate}
             className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition ${
               isActive
                 ? "bg-purple-500/15 text-purple-700 dark:text-purple-300 font-semibold border border-purple-500/30"
@@ -61,6 +63,7 @@ export function AdminNav({ isOwner = false }: AdminNavProps) {
       <div className="pt-4 mt-4 border-t border-border">
         <Link
           href="/dashboard"
+          onClick={onNavigate}
           className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition"
         >
           <ArrowLeft className="w-4 h-4" />

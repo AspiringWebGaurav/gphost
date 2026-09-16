@@ -229,16 +229,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Database error creating share link" }, { status: 500 });
     }
 
-    // Canonical Base URL: strictly trusted from server environment, never from untrusted Host headers
-    const canonicalBaseUrl = (
-      process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc"
+    // Dynamic Request Base URL:
+    // When running on localhost (or any preview/custom domain), dynamically detect the origin from request headers or nextUrl.
+    const forwardedProto = req.headers.get("x-forwarded-proto");
+    const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
+
+    let detectedOrigin = "";
+    if (forwardedHost) {
+      const isLocalHost =
+        forwardedHost.includes("localhost") ||
+        forwardedHost.includes("127.0.0.1") ||
+        forwardedHost.includes("::1") ||
+        forwardedHost.includes("192.168.");
+      const proto = forwardedProto || (isLocalHost ? "http" : "https");
+      detectedOrigin = `${proto}://${forwardedHost}`;
+    } else {
+      detectedOrigin = req.nextUrl.origin;
+    }
+
+    const activeOrigin = (
+      detectedOrigin || process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc"
     ).replace(/\/+$/, "");
-    const shareUrl = `${canonicalBaseUrl}/f/${shareRecord.slug}`;
+
+    // Dynamic direct share URL: matches the active user's environment (local in dev, domain in production)
+    const shareUrl = `${activeOrigin}/f/${shareRecord.slug}`;
 
     // Target URL passed to XURL shortener:
-    // If running on localhost, developers can optionally set XURL_TARGET_BASE_URL in .env.local
+    // When in localhost / private network, generate XURL with the official domain https://gphost.eu.cc.
+    // In production / custom domain, generate with the active origin.
+    const isLocal =
+      activeOrigin.includes("localhost") ||
+      activeOrigin.includes("127.0.0.1") ||
+      activeOrigin.includes("::1") ||
+      activeOrigin.includes("192.168.");
+
+    const defaultXurlBase = isLocal ? "https://gphost.eu.cc" : activeOrigin;
     const xurlBaseUrl = (
-      process.env.XURL_TARGET_BASE_URL || canonicalBaseUrl
+      process.env.XURL_TARGET_BASE_URL || defaultXurlBase
     ).replace(/\/+$/, "");
     const xurlTargetUrl = `${xurlBaseUrl}/f/${shareRecord.slug}`;
 
@@ -250,6 +277,9 @@ export async function POST(req: NextRequest) {
     } | undefined = undefined;
 
     if (shortenWithXurl) {
+      console.log(
+        `[XURL] Requesting short link for target: ${xurlTargetUrl} (customSlug: ${sanitizedCustomSlug || "none"})`
+      );
       try {
         const { isCreator, mapping } = await reserveXurlMapping(shareRecord.id, xurlTargetUrl);
         if (isCreator) {
@@ -270,6 +300,14 @@ export async function POST(req: NextRequest) {
             status: shortenRes.status,
             error: shortenRes.error,
           };
+
+          if (shortenRes.status === "active") {
+            console.log(`[XURL] Successfully created short link: ${shortenRes.shortUrl}`);
+          } else {
+            console.warn(
+              `[XURL] Short link creation not active (${shortenRes.status}): ${shortenRes.error}`
+            );
+          }
         } else if (mapping) {
           xurlPayload = {
             shortUrl: mapping.xurl_short_url ?? undefined,

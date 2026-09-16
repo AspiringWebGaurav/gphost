@@ -70,8 +70,8 @@ export async function GET(request: NextRequest) {
   if (!profile && user.email) {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const adminClient = createAdminClient();
-    const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
-    const isOwner = user.email.toLowerCase() === adminEmail;
+    const adminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const isOwner = Boolean(adminEmail && user.email.toLowerCase() === adminEmail);
     await adminClient.from("profiles").upsert({
       id: user.id,
       email: user.email,

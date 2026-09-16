@@ -22,6 +22,7 @@ import {
   Info,
   ChevronDown,
   Ban,
+  Zap,
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
 import { formatExpiryBadge } from "@/lib/storage/expiry";
@@ -98,6 +99,8 @@ export function DownloadCard({
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadPhase, setDownloadPhase] = useState("");
   const [leaseSeconds, setLeaseSeconds] = useState<number | null>(null);
   const [isSingleUseClaimed, setIsSingleUseClaimed] = useState(false);
 
@@ -164,15 +167,25 @@ export function DownloadCard({
     try {
       setClaiming(true);
       setClaimError(null);
+      setDownloadProgress(25);
+      setDownloadPhase("Verifying quota & reserving download slot...");
+
+      const t1 = setTimeout(() => {
+        setDownloadProgress((prev) => (prev < 60 ? 60 : prev));
+        setDownloadPhase("Connecting to Cloudflare R2 edge network...");
+      }, 150);
 
       const res = await fetch(`/api/share/${encodeURIComponent(slug)}/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
 
+      clearTimeout(t1);
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        setDownloadProgress(0);
+        setDownloadPhase("");
         if (res.status === 401 && data.code === "PASSWORD_REQUIRED") {
           setIsUnlocked(false);
           setUnlockError("Session expired. Please unlock the file again.");
@@ -182,6 +195,9 @@ export function DownloadCard({
         setClaiming(false);
         return;
       }
+
+      setDownloadProgress(88);
+      setDownloadPhase("Dispatching direct stream to browser...");
 
       // Download slot claimed successfully!
       setDownloadSuccess(true);
@@ -199,8 +215,14 @@ export function DownloadCard({
       a.click();
       document.body.removeChild(a);
 
-      setClaiming(false);
+      setTimeout(() => {
+        setDownloadProgress(100);
+        setDownloadPhase("Direct R2 stream initiated!");
+        setClaiming(false);
+      }, 350);
     } catch {
+      setDownloadProgress(0);
+      setDownloadPhase("");
       setClaimError("Network error requesting download. Please try again.");
       setClaiming(false);
     }
@@ -457,22 +479,85 @@ export function DownloadCard({
                 </div>
               )}
 
-              {downloadSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs space-y-1">
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Download Started</span>
+              {/* Active Download Progress Card */}
+              {(claiming || downloadSuccess) && (
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-card via-card to-card/90 border border-emerald-500/30 p-4 shadow-lg shadow-emerald-500/5 backdrop-blur-sm space-y-3 transition-all">
+                  {/* Subtle glowing corner */}
+                  <div className="absolute -top-10 -right-10 w-28 h-28 bg-emerald-500/10 rounded-full blur-xl pointer-events-none" />
+
+                  {/* Header: Status + Live percentage */}
+                  <div className="relative flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="relative w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 shadow-xs">
+                        {downloadSuccess ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                        )}
+                        {!downloadSuccess && (
+                          <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-foreground truncate">
+                          {downloadSuccess ? "Download Stream Established" : "Preparing Secure Download"}
+                        </p>
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                          {downloadPhase || (downloadSuccess ? "Direct R2 Edge Delivery" : "Connecting to CDN...")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-baseline gap-0.5 px-2.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 shadow-xs">
+                        <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                          {downloadProgress}
+                        </span>
+                        <span className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-bold">%</span>
+                      </div>
+                    </div>
                   </div>
-                  {leaseSeconds !== null && (
-                    <p className="text-[11px] font-mono text-muted-foreground">
-                      Direct link: <strong>{leaseSeconds}s</strong> remaining
-                    </p>
-                  )}
-                  {isSingleUseClaimed && (
-                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
-                      Single-use download complete. Link destroyed.
-                    </p>
-                  )}
+
+                  {/* Ultra-Crisp Shimmer Progress Bar */}
+                  <div className="relative w-full h-2.5 rounded-full bg-muted/60 dark:bg-zinc-800/80 p-0.5 border border-border/70 dark:border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)] overflow-hidden">
+                    <div
+                      className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)] overflow-hidden"
+                      style={{ width: `${Math.max(3, downloadProgress)}%` }}
+                    >
+                      {/* Glossy animated shimmer beam */}
+                      <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
+                      {/* Glowing tip cursor */}
+                      <div className="absolute right-0 top-0 bottom-0 w-1.5 bg-white rounded-full shadow-[0_0_6px_#fff]" />
+                    </div>
+                  </div>
+
+                  {/* Telemetry and lease timer */}
+                  <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground pt-0.5">
+                    <span className="text-foreground font-medium truncate max-w-[170px]">
+                      {metadata.filename}
+                    </span>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {leaseSeconds !== null && leaseSeconds > 0 ? (
+                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                          <Clock className="w-3 h-3 text-emerald-500" />
+                          <span>{leaseSeconds}s lease</span>
+                        </span>
+                      ) : isSingleUseClaimed ? (
+                        <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                          Link Burned
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          <Zap className="w-3 h-3" />
+                          <span>Cloudflare R2</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 

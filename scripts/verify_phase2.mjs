@@ -265,13 +265,13 @@ async function runVerification() {
   const hasUserProfileFn = sessionTs.includes("export async function getUserProfile");
   const hasRequireApprovedFn = sessionTs.includes("export async function requireApprovedUser");
   const hasRequireAdminFn = sessionTs.includes("export async function requireAdminUser");
-  const hasAdminEmail = sessionTs.includes("gauravpatil9262@gmail.com");
+  const hasAdminEmail = sessionTs.includes("export const ADMIN_EMAIL");
 
   record("Server Auth Guards", "getAuthenticatedUser() implemented", hasAuthUserFn ? "PASS" : "FAIL");
   record("Server Auth Guards", "getUserProfile() authoritatively queries PostgreSQL", hasUserProfileFn ? "PASS" : "FAIL");
   record("Server Auth Guards", "requireApprovedUser() enforces status === 'approved'", hasRequireApprovedFn ? "PASS" : "FAIL");
   record("Server Auth Guards", "requireAdminUser() enforces role === 'admin'", hasRequireAdminFn ? "PASS" : "FAIL");
-  record("Server Auth Guards", "Permanent admin gauravpatil9262@gmail.com defined", hasAdminEmail ? "PASS" : "FAIL");
+  record("Server Auth Guards", "Dynamic export const ADMIN_EMAIL defined", hasAdminEmail ? "PASS" : "FAIL");
 
   // -------------------------------------------------------------
   // 8. Remote Database Phase 2 Hardening (Live Tests)

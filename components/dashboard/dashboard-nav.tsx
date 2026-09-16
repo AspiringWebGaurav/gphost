@@ -15,9 +15,10 @@ import {
 
 interface DashboardNavProps {
   isAdmin?: boolean;
+  onNavigate?: () => void;
 }
 
-export function DashboardNav({ isAdmin = false }: DashboardNavProps) {
+export function DashboardNav({ isAdmin = false, onNavigate }: DashboardNavProps) {
   const pathname = usePathname();
 
   const navItems = [
@@ -38,6 +39,7 @@ export function DashboardNav({ isAdmin = false }: DashboardNavProps) {
           <Link
             key={item.href}
             href={item.href}
+            onClick={onNavigate}
             className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors ${
               isActive
                 ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold border border-blue-500/20"
@@ -54,6 +56,7 @@ export function DashboardNav({ isAdmin = false }: DashboardNavProps) {
         <div className="pt-3 mt-3 border-t border-border">
           <Link
             href="/admin"
+            onClick={onNavigate}
             className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-purple-600 dark:text-purple-300 hover:bg-purple-500/10 border border-purple-500/20 transition-colors"
           >
             <div className="flex items-center gap-3">

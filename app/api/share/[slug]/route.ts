@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { publicShareRatelimit } from "@/lib/redis/ratelimit";
 import { formatPublicShareMetadata } from "@/lib/storage/share";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
+
+    // Trigger non-blocking, debounced background lifecycle sweep
+    scheduleOpportunisticLifecycleSweep();
 
     if (!slug || typeof slug !== "string" || slug.length > 64) {
       return NextResponse.json({ error: "Invalid share slug" }, { status: 400 });

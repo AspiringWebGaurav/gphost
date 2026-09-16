@@ -4,83 +4,92 @@
 
 ![GPHosting Banner](https://img.shields.io/badge/GPHosting-Secure%20Cloud%20Storage-3b82f6?style=for-the-badge&logo=icloud&logoColor=white)
 
-**A modern, privacy-first file hosting and direct-sharing engine built with Next.js 16, Cloudflare R2, Supabase, and Upstash Redis.**
+**A high-performance, privacy-first ephemeral file hosting and direct-transit platform built with Next.js 16 (Turbopack), Cloudflare R2, Supabase, and Upstash Redis.**
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.3.5-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.2.8-blue?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/version-v0.0.1--alpha-orange?style=flat-square)](package.json)
-[![Status](https://img.shields.io/badge/status-early%20alpha%20%2F%20unstable-critical?style=flat-square)](#)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![PWA Ready](https://img.shields.io/badge/PWA-Ready-purple?style=flat-square)](public/manifest.webmanifest)
+[![License](https://img.shields.io/badge/License-Source--Available-amber.svg?style=flat-square)](LICENSE)
 
-[Live Demo](https://gphost.eu.cc) • [Features](#-key-features) • [Architecture](#-architecture) • [Getting Started](#-getting-started) • [Environment Variables](#-environment-variables)
+[Live Platform](https://gphost.eu.cc) • [Capabilities](#-core-capabilities) • [System Architecture](#-system-architecture) • [Getting Started](#-getting-started) • [License Terms](#-license--usage-terms)
 
 </div>
 
-> ⚠️ **Project Status**: `v0.0.1-alpha` — This repository is in active early development and currently considered **unstable**. APIs, database schemas, and storage interfaces are subject to breaking changes.
+---
+
+## ⚡ Core Capabilities
+
+- 🚀 **Direct Browser-to-Storage Transfers**:
+  - High-throughput direct uploads to Cloudflare R2 using presigned S3 URLs and multipart chunking (up to 1 GB) with zero server bandwidth saturation.
+  - Non-blocking client upload coordinator with real-time progress indicators, chunk verification, and automatic retries.
+
+- ⏱️ **Ephemeral Lifecycle & Burn-After-Read**:
+  - Configurable Time-to-Live (TTL) policies (`24h`, `7d`, `30d`, `90d`, or permanent for authorized users).
+  - Autonomous self-healing lifecycle: automatic background reconciliation via Next.js background workers and native Supabase pg_cron (zero external cron dependencies, 100% Vercel Hobby plan compatible).
+
+- 🔗 **Adaptive Link Sharing & Official Domain Routing**:
+  - Dynamic origin resolution: automatically serves local share routes (`http://localhost:3000/f/...`) during local testing and production routes (`https://gphost.eu.cc/f/...`) when deployed.
+  - Integrated XURL shortlink engine with automatic redirection to the official public domain for developer environments.
+
+- 🛡️ **Zero-Knowledge Security & Defense**:
+  - Cryptographic password protection with client-side hashing (PBKDF2 / Argon2id).
+  - Cloudflare Turnstile bot verification and invite PIN-gated registration access.
+  - Resilient sliding-window rate limiters with fail-open circuit breakers to prevent denial-of-service and protect quotas.
+  - Strict Content-Security-Policy (CSP) headers and sandboxed download proxy protection.
+
+- 📱 **Full 360° Branding & Progressive Web App (PWA)**:
+  - Unified vector brand identity across all touchpoints (vault geometric emblem).
+  - Complete multi-resolution favicon suite, high-DPI Apple Touch Icons, and Android maskable icons.
+  - Installable PWA manifest with standalone display configuration and automated OpenGraph social preview generation.
+
+- 🎛️ **Unified Management Console**:
+  - Real-time storage quota gauges, debounced search, category filtering, and instant preview modal.
+  - Built-in administrative dashboard for user approvals, PIN management, and storage reconciliation.
 
 ---
 
-## 🚀 Key Features
-
-- ⚡ **Direct Cloudflare R2 Transfers**: Browser-to-storage uploads via presigned S3 URLs and multi-part chunking (up to 1 GB) with zero server bandwidth bottleneck.
-- 🔒 **Privacy-First Public Share Links**:
-  - Custom link expiration (`24h`, `7d`, `30d`, `90d`, or permanent).
-  - Single-use self-destructing downloads.
-  - PBKDF2/SHA-256 password protection for private files.
-  - Nuclear link deletion with instant cascade.
-- 🛡️ **Comprehensive Security**:
-  - Cloudflare Turnstile bot verification & PIN-gated access.
-  - Zero exposure of internal storage keys, ETags, or user IDs to clients.
-  - Strict Content-Security-Policy (CSP) headers and download proxy isolation.
-- 📊 **Unified Single-Screen Dashboard**:
-  - Real-time quota tracking and tier monitoring.
-  - Instant file manager with debounced search, category filtering, and sorting.
-  - One-click share link generator and short-link integration.
-  - Interactive Yes/No confirmation dialogs for all destructive operations.
-- ⚡ **Automated Background Lifecycle**:
-  - Daily cleanup jobs for expired files and orphaned single-use links.
-  - Soft-delete grace periods with asynchronous R2 purge reconciliation.
-
----
-
-## 🏗️ Architecture
+## 🏗️ System Architecture
 
 ```mermaid
 graph TD
-    Client[Browser / User] -->|1. Request Upload Lease| NextAPI[Next.js App Router API]
-    NextAPI -->|2. Check Quota & Reserve| Supabase[(Supabase PostgreSQL)]
-    NextAPI -->|3. Generate Presigned URL| S3[Cloudflare R2 SDK]
-    NextAPI -->|4. Return Presigned URL| Client
-    Client -->|5. Direct Upload Data| R2[(Cloudflare R2 Object Storage)]
-    Client -->|6. Complete & Verify Checksum| NextAPI
-    NextAPI -->|7. Authoritative Active Record| Supabase
+    Client[Browser / Client Device] -->|1. Request Upload Lease| NextAPI[Next.js API Routes]
+    NextAPI -->|2. Verify Quota & Permissions| DB[(Supabase PostgreSQL)]
+    NextAPI -->|3. Issue Presigned Lease| StorageSDK[Cloudflare R2 Client]
+    NextAPI -->|4. Return Upload Token| Client
+    Client -->|5. Direct Multipart Upload| R2Bucket[(Cloudflare R2 Object Storage)]
+    Client -->|6. Confirm & Seal Upload| NextAPI
+    NextAPI -->|7. Activate Share Record| DB
+    NextAPI -.->|Async Cron / Webhook| Reconcile[Auto-Purge Expired & Single-Use]
 ```
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [Next.js 16 (App Router)](https://nextjs.org/)
-- **UI & Styling**: React 19, Tailwind CSS v4, Lucide Icons, Vanilla CSS Design System
-- **Database & Auth**: [Supabase](https://supabase.com/) (PostgreSQL with RLS & Stored Procedures)
-- **Object Storage**: [Cloudflare R2](https://developers.cloudflare.com/r2/) (S3-compatible, zero egress fees)
-- **Caching & Rate Limiting**: [Upstash Redis](https://upstash.com/) (Sliding window rate limiters)
-- **Bot Defense**: [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/)
+| Layer | Technology |
+| :--- | :--- |
+| **Framework** | [Next.js 16](https://nextjs.org/) (App Router, Turbopack) |
+| **Frontend** | [React 19](https://react.dev/), Tailwind CSS, Lucide Icons |
+| **Database & Auth** | [Supabase](https://supabase.com/) (PostgreSQL with RLS, Session Management) |
+| **Object Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) (Zero-egress S3 API) |
+| **Cache & Limiting** | [Upstash Redis](https://upstash.com/) (Resilient sliding-window limiters) |
+| **Bot Mitigation** | [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) |
+| **Hosting & Runtime** | [Vercel](https://vercel.com/) (Next.js Edge & Serverless; 100% Hobby & Pro compatible) |
 
 ---
 
 ## 💻 Getting Started
 
 ### Prerequisites
-- Node.js 20+ and npm / pnpm / bun
-- A Cloudflare account with an R2 bucket configured
+- Node.js 20.9.0 or higher (`npm`, `pnpm`, or `bun`)
+- A Cloudflare account with an R2 bucket
 - A Supabase project
-- An Upstash Redis database (optional for production rate limiting)
+- (Optional) An Upstash Redis instance for production rate limiting
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/gphost.git
+git clone https://github.com/AspiringWebGaurav/gphost.git
 cd gphost
 ```
 
@@ -89,64 +98,43 @@ cd gphost
 npm install
 ```
 
-### 3. Configure Environment Variables
-Copy `.env.example` to `.env.local` and populate the required keys:
+### 3. Environment Configuration
+Copy the provided `.env.example` template to `.env.local` and supply your project credentials:
 ```bash
 cp .env.example .env.local
 ```
+*(Refer to [`.env.example`](.env.example) for the documented schema of required and optional keys).*
 
-### 4. Apply Database Migrations
-Execute the SQL files located in `supabase/migrations/` inside your Supabase SQL Editor.
+### 4. Database Schema
+Execute the SQL migrations located in `supabase/migrations/` within your Supabase SQL editor to create the required tables, triggers, and Row Level Security policies.
 
-### 5. Run Development Server
+### 5. Launch Development Server
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Navigate to [http://localhost:3000](http://localhost:3000) to access the local environment.
 
 ---
 
-## 🔑 Environment Variables
+## 📜 Available Scripts
 
-```env
-# App URL
-NEXT_PUBLIC_APP_URL=https://gphost.eu.cc
-
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SECRET_KEY=your-service-role-key
-
-# Cloudflare R2
-R2_ACCOUNT_ID=your-cloudflare-account-id
-R2_ACCESS_KEY_ID=your-r2-access-key-id
-R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
-R2_BUCKET_NAME=your-bucket-name
-R2_PUBLIC_DOMAIN=your-custom-r2-domain.com
-
-# Cloudflare Turnstile
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=your-turnstile-site-key
-TURNSTILE_SECRET_KEY=your-turnstile-secret-key
-
-# Upstash Redis
-UPSTASH_REDIS_REST_URL=https://your-upstash-instance.upstash.io
-UPSTASH_REDIS_REST_TOKEN=your-upstash-token
-```
-
----
-
-## 📜 Scripts
-
-| Command | Description |
+| Command | Action |
 | :--- | :--- |
-| `npm run dev` | Starts the Next.js local development server |
-| `npm run build` | Builds the production bundle |
-| `npm run start` | Runs the built production application |
-| `npm run typecheck` | Validates TypeScript types across the codebase |
-| `npm run lint` | Lints files with ESLint rules |
+| `npm run dev` | Starts the Next.js Turbopack development server |
+| `npm run build` | Compiles an optimized production build |
+| `npm run start` | Runs the compiled production server |
+| `npm run lint` | Checks codebase against ESLint rules |
+| `npm run typecheck` | Validates TypeScript types across the project (`tsc --noEmit`) |
+| `npm run clean` | Cleans Next.js build caches and temp artifacts |
+| `npm run total-clean` | Performs a deep cleanup including `node_modules` |
 
 ---
 
-## 📄 License
+## 📄 License & Usage Terms
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is released under a **Source-Available Reference License**.
+
+- **Permitted**: You are free to view, read, clone, audit, and evaluate the source code for personal, non-commercial, educational, and security research purposes.
+- **Restrictions**: Commercial use, unauthorized public re-hosting, SaaS redistribution, reselling, or removing proprietary brand marks is strictly prohibited without prior written consent from the author.
+
+For complete legal terms, please review the [LICENSE](LICENSE) file.

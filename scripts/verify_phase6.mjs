@@ -22,7 +22,7 @@ const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 
 if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
   console.error("Missing SUPABASE credentials in .env.local");

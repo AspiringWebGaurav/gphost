@@ -31,12 +31,44 @@ function getRedisClient(customRedis?: Redis | null): Redis | null {
   return new Redis({ url, token });
 }
 
+export function isLocalOrPrivateHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase().trim();
+  if (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "::1" ||
+    h === "0.0.0.0" ||
+    h.endsWith(".localhost")
+  ) {
+    return true;
+  }
+  if (
+    h.endsWith(".local") ||
+    h.endsWith(".lan") ||
+    h.endsWith(".test") ||
+    h.endsWith(".internal")
+  ) {
+    return true;
+  }
+  // Private IPv4 ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8
+  const parts = h.split(".").map(Number);
+  if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
+    if (parts[0] === 10) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+  }
+  return false;
+}
+
 /**
  * Robust, circuit-broken, quota-protecting client for XURL (https://xurl.eu.cc/api/v1/links).
  * Strictly enforces:
  * - Bearer authorization via XURL_API_KEY
  * - Bounded retries (3 total attempts) with exponential backoff on 5xx / network errors
- * - Zero retries on 400, 401, 403, 409
+ * - Zero retries on 400, 401, 403
+ * - Automatic graceful fallback on 409 (custom slug already taken) to auto-generated slug
+ * - Localhost/private IP detection with zero-latency dev mode simulation
  * - Upstash Redis 24h circuit breaker on 403 quota exhaustion
  * - Upstash Redis 60s cooldown on 429 rate limits
  * - Non-blocking: never throws unhandled errors
@@ -47,8 +79,9 @@ export async function shortenUrl(
   options?: ShortenUrlOptions | Redis | null
 ): Promise<XurlShortenResult> {
   // 1. Basic URL validation
+  let parsed: URL;
   try {
-    const parsed = new URL(targetUrl);
+    parsed = new URL(targetUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return {
         success: false,
@@ -100,6 +133,36 @@ export async function shortenUrl(
     } catch (redisErr) {
       console.warn("[XURL] Redis circuit breaker check warning (proceeding):", redisErr);
     }
+  }
+
+  // 3. Localhost & Private Network Address Handling
+  const isLocal = isLocalOrPrivateHostname(parsed.hostname);
+  if (isLocal) {
+    if (process.env.XURL_DEV_MOCK === "true") {
+      const derivedSlug =
+        customSlug ||
+        (parsed.pathname.startsWith("/f/")
+          ? parsed.pathname.replace(/^\/f\//, "")
+          : `dev-${Math.random().toString(36).slice(2, 8)}`);
+      const mockShortUrl = `https://xurl.eu.cc/${derivedSlug}`;
+      console.log(
+        `[XURL Dev Mock] Localhost target detected (${targetUrl}). Created development shortlink: ${mockShortUrl}`
+      );
+      return {
+        success: true,
+        status: "active",
+        shortUrl: mockShortUrl,
+        xurlId: `mock_${derivedSlug}`,
+        attempts: 1,
+      };
+    }
+
+    // Default on localhost: generate with the official domain https://gphost.eu.cc
+    const officialTargetUrl = `https://gphost.eu.cc${parsed.pathname}${parsed.search}`;
+    console.log(
+      `[XURL] Localhost target detected (${targetUrl}). Generating live short link with official domain: ${officialTargetUrl}`
+    );
+    return shortenUrl(officialTargetUrl, { ...options, customRedis });
   }
 
   const baseUrl = (process.env.XURL_API_URL || "https://xurl.eu.cc/api/v1").replace(/\/+$/, "");
@@ -209,7 +272,25 @@ export async function shortenUrl(
         };
       }
 
-      // Non-retryable client errors: 400 (e.g. unresolvable DNS), 401 (bad key), 409 (conflict)
+      // HTTP 409: Conflict (e.g. custom slug already taken on XURL)
+      // Gracefully fall back to an auto-generated slug on XURL so creation does not fail
+      if (status === 409) {
+        if (requestBody.customSlug) {
+          console.warn(
+            `[XURL] Custom slug "${requestBody.customSlug}" is already taken on xurl.eu.cc. Retrying with auto-generated slug.`
+          );
+          delete requestBody.customSlug;
+          continue;
+        }
+        return {
+          success: false,
+          status: "failed",
+          error: `XURL client error (${status}): ${errorMsg}`,
+          attempts: attempt,
+        };
+      }
+
+      // Non-retryable client errors: 400 (e.g. unresolvable DNS), 401 (bad key)
       if (status >= 400 && status < 500) {
         return {
           success: false,

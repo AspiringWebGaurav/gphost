@@ -29,11 +29,13 @@ import {
   RotateCw,
   Download,
   AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
 } from "@/lib/storage/expiry";
+import { storageEvents } from "@/lib/storage/events";
 
 function getFileTypeDetails(mimeType: string, filename: string) {
   const lowerMime = (mimeType || "").toLowerCase();
@@ -229,27 +231,71 @@ export function FileManager({
 
   // Direct Download State
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [activeDownload, setActiveDownload] = useState<{
+    id: string;
+    filename: string;
+    progress: number;
+    status: string;
+    completed: boolean;
+  } | null>(null);
 
   const handleDirectDownload = async (file: SafeFileItem) => {
     setDownloadingId(file.id);
+    setActiveDownload({
+      id: file.id,
+      filename: file.sanitized_name,
+      progress: 30,
+      status: "Securing direct edge lease...",
+      completed: false,
+    });
+
+    const t1 = setTimeout(() => {
+      setActiveDownload((prev) =>
+        prev && prev.id === file.id
+          ? { ...prev, progress: 65, status: "Connecting to Cloudflare R2..." }
+          : prev
+      );
+    }, 150);
+
     try {
       const res = await fetch(`/api/files/${file.id}/download`);
+      clearTimeout(t1);
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        setActiveDownload(null);
         alert(errData.error || "Failed to download file");
         return;
       }
       const data = await res.json();
       if (data.downloadUrl) {
+        setActiveDownload((prev) =>
+          prev && prev.id === file.id
+            ? { ...prev, progress: 90, status: "Dispatching stream to browser..." }
+            : prev
+        );
+
         const a = document.createElement("a");
         a.href = data.downloadUrl;
         a.download = file.sanitized_name;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+
+        setActiveDownload((prev) =>
+          prev && prev.id === file.id
+            ? { ...prev, progress: 100, status: "Direct download active!", completed: true }
+            : prev
+        );
+
+        setTimeout(() => {
+          setActiveDownload((prev) => (prev && prev.id === file.id ? null : prev));
+        }, 3200);
       }
     } catch (err) {
+      clearTimeout(t1);
       console.error("Direct download failed:", err);
+      setActiveDownload(null);
       alert("Network error starting download");
     } finally {
       setDownloadingId(null);
@@ -337,9 +383,15 @@ export function FileManager({
         method: "DELETE",
       });
       if (res.ok) {
-        // Refresh page
-        fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+        const deletedId = selectedFileForDelete.id;
+        const deletedSize = selectedFileForDelete.byte_size;
         setSelectedFileForDelete(null);
+        fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+        storageEvents.emit("file:lifecycle", {
+          fileId: deletedId,
+          size: deletedSize,
+          action: "deleted",
+        });
       }
     } catch (err) {
       console.error("Failed to delete file:", err);
@@ -519,9 +571,9 @@ export function FileManager({
         </div>
 
         {/* Search, Sort, and View Switcher */}
-        <div className="flex flex-wrap items-center gap-2 flex-1 sm:justify-end">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 sm:justify-end">
           {/* Search Input */}
-          <div className="relative flex-1 sm:max-w-xs min-w-[180px]">
+          <div className="relative w-full sm:max-w-xs">
             <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -540,61 +592,63 @@ export function FileManager({
             )}
           </div>
 
-          {/* Sort Dropdown & Order Toggle */}
-          <div className="flex items-center gap-1">
-            <select
-              value={sortBy}
-              onChange={(e) =>
-                setSortBy(
-                  e.target.value as
-                    | "created_at"
-                    | "byte_size"
-                    | "sanitized_name"
-                    | "expires_at"
-                )
-              }
-              className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer"
-            >
-              <option value="created_at">Date</option>
-              <option value="byte_size">Size</option>
-              <option value="sanitized_name">Name</option>
-              <option value="expires_at">Expiry</option>
-            </select>
+          <div className="flex items-center justify-between sm:justify-end gap-2">
+            {/* Sort Dropdown & Order Toggle */}
+            <div className="flex items-center gap-1">
+              <select
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(
+                    e.target.value as
+                      | "created_at"
+                      | "byte_size"
+                      | "sanitized_name"
+                      | "expires_at"
+                  )
+                }
+                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="created_at">Date</option>
+                <option value="byte_size">Size</option>
+                <option value="sanitized_name">Name</option>
+                <option value="expires_at">Expiry</option>
+              </select>
 
-            <button
-              type="button"
-              onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-              className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer"
-              title="Toggle sort order"
-            >
-              {sortOrder}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+                className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer"
+                title="Toggle sort order"
+              >
+                {sortOrder}
+              </button>
+            </div>
 
-          {/* Google Drive View Mode Switcher [ ≡ List | ⊞ Grid ] */}
-          <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border">
-            <button
-              onClick={() => handleViewModeChange("list")}
-              title="List view"
-              className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                viewMode === "list"
-                  ? "bg-background text-foreground shadow-2xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ListIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => handleViewModeChange("grid")}
-              title="Grid view"
-              className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                viewMode === "grid"
-                  ? "bg-background text-foreground shadow-2xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
+            {/* Google Drive View Mode Switcher [ ≡ List | ⊞ Grid ] */}
+            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border">
+              <button
+                onClick={() => handleViewModeChange("list")}
+                title="List view"
+                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                  viewMode === "list"
+                    ? "bg-background text-foreground shadow-2xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ListIcon className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleViewModeChange("grid")}
+                title="Grid view"
+                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                  viewMode === "grid"
+                    ? "bg-background text-foreground shadow-2xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -961,7 +1015,7 @@ export function FileManager({
       {/* FILE DETAILS MODAL */}
       {selectedFileForDetails && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-card border border-border p-6 shadow-2xl relative space-y-5">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl bg-card border border-border p-5 sm:p-6 shadow-2xl relative space-y-5">
             <div className="flex items-center justify-between border-b border-border pb-4">
               <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                 <Info className="w-4 h-4 text-blue-500" />
@@ -1209,6 +1263,14 @@ export function FileManager({
                         </button>
                       </div>
                     </div>
+                  ) : (shareResult.xurl || (shareResult as { share?: { xurl?: unknown } }).share?.xurl) ? (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground">Short Link Status</label>
+                      <div className="p-2 rounded-xl bg-destructive/10 border border-destructive/20 text-[11px] text-destructive flex items-center gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>Short link creation failed (see details below).</span>
+                      </div>
+                    </div>
                   ) : (
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium text-foreground">Short Link Status</label>
@@ -1219,6 +1281,22 @@ export function FileManager({
                     </div>
                   )}
                 </div>
+
+                {/* XURL Non-Active Status Notice */}
+                {(shareResult.xurl || (shareResult as { share?: { xurl?: { status?: string; error?: string } } }).share?.xurl) &&
+                  (shareResult.xurl?.status || (shareResult as { share?: { xurl?: { status?: string } } }).share?.xurl?.status) !== "active" && (
+                    <div className="p-2.5 rounded-xl bg-muted/60 border border-border text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-1.5 font-medium text-foreground">
+                        <span>Shortener:</span>
+                        <span className="uppercase font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground">
+                          {shareResult.xurl?.status || (shareResult as { share?: { xurl?: { status?: string } } }).share?.xurl?.status}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-muted-foreground">
+                        {shareResult.xurl?.error || (shareResult as { share?: { xurl?: { error?: string } } }).share?.xurl?.error || "Shortlink pending. Direct link works normally."}
+                      </p>
+                    </div>
+                  )}
 
                 <div className="pt-2 border-t border-border flex justify-end">
                   <button
@@ -1357,7 +1435,7 @@ export function FileManager({
                             <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
                               <span className="font-medium text-foreground">Sync:</span>
                               <span className="font-mono text-blue-600 dark:text-blue-400 truncate max-w-[170px]">
-                                gphost.eu.cc/f/{shareCustomSlug}
+                                {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{shareCustomSlug}
                               </span>
                               {shareEnableXurl && (
                                 <>
@@ -1633,6 +1711,53 @@ export function FileManager({
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Active Download Progress Pill */}
+      {activeDownload && (
+        <div className="fixed bottom-6 right-6 z-50 w-80 sm:w-96 rounded-2xl bg-card/95 border border-emerald-500/30 p-4 shadow-2xl shadow-emerald-500/10 backdrop-blur-md space-y-2.5 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                {activeDownload.completed ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <Download className="w-4 h-4 animate-bounce text-emerald-500" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">
+                  {activeDownload.filename}
+                </p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
+                  {activeDownload.status}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                {activeDownload.progress}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveDownload(null)}
+                className="p-1 text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="relative w-full h-2 rounded-full bg-muted/70 dark:bg-zinc-800 p-0.5 border border-border/70 overflow-hidden">
+            <div
+              className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)] overflow-hidden"
+              style={{ width: `${Math.max(4, activeDownload.progress)}%` }}
+            >
+              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
             </div>
           </div>
         </div>

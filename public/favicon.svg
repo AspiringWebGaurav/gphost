@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="gphost-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#2563eb" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#gphost-grad)" filter="url(#shadow)" />
+  <g stroke="#ffffff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M16 6.5L6 11.5L16 16.5L26 11.5L16 6.5Z" />
+    <path d="M6 16.5L16 21.5L26 16.5" />
+    <path d="M6 21.5L16 26.5L26 21.5" />
+  </g>
+</svg>

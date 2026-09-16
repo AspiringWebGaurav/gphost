@@ -9,8 +9,10 @@ import {
   AlertCircle,
   Clock,
   Loader2,
+  Zap,
 } from "lucide-react";
 import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
+import { storageEvents } from "@/lib/storage/events";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -35,6 +37,9 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>("30d");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState<number>(0);
+  const [uploadSpeed, setUploadSpeed] = useState<string>("");
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const [statusText, setStatusText] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successFile, setSuccessFile] = useState<{ id: string; filename: string; size: number } | null>(null);
@@ -43,11 +48,15 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const isCancelledRef = useRef<boolean>(false);
+  const startTimeRef = useRef<number>(0);
 
   const handleFileChange = (file: File) => {
     setErrorMsg(null);
     setSuccessFile(null);
     setProgress(0);
+    setUploadedBytes(0);
+    setUploadSpeed("");
+    setEtaSeconds(null);
 
     if (file.size > 1073741824) {
       setErrorMsg("File exceeds the maximum allowed size of 1 GB.");
@@ -89,6 +98,9 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
     setUploading(true);
     setProgress(0);
+    setUploadedBytes(0);
+    setUploadSpeed("");
+    setEtaSeconds(null);
     setErrorMsg(null);
     setSuccessFile(null);
     setStatusText("Reserving quota and initiating upload...");
@@ -119,15 +131,30 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       if (uploadType === "single") {
         // Direct Single-Part Upload via XMLHttpRequest
-        setStatusText("Uploading directly to R2...");
+        setStatusText("Uploading directly to Cloudflare R2 edge...");
+        startTimeRef.current = Date.now();
+        setUploadedBytes(0);
+        setUploadSpeed("");
+        setEtaSeconds(null);
+
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhrRef.current = xhr;
 
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-              const pct = Math.round((e.loaded / e.total) * 90);
+              const pct = Math.min(95, Math.round((e.loaded / e.total) * 92));
               setProgress(pct);
+              setUploadedBytes(e.loaded);
+
+              const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
+              if (elapsedSec > 0.25) {
+                const speed = e.loaded / elapsedSec;
+                setUploadSpeed(`${formatBytes(speed)}/s`);
+                const remainingBytes = Math.max(0, e.total - e.loaded);
+                const eta = speed > 0 ? Math.ceil(remainingBytes / speed) : 0;
+                setEtaSeconds(eta);
+              }
             }
           };
 
@@ -154,7 +181,12 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         });
       } else {
         // Multipart Upload Flow (>= 100 MB)
-        setStatusText("Uploading multipart chunks to R2...");
+        setStatusText("Preparing multipart chunks for Cloudflare R2...");
+        startTimeRef.current = Date.now();
+        setUploadedBytes(0);
+        setUploadSpeed("");
+        setEtaSeconds(null);
+
         const totalParts = Math.ceil(selectedFile.size / MULTIPART_PART_SIZE);
         const uploadedParts: { partNumber: number; eTag: string }[] = [];
 
@@ -167,7 +199,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
           const end = Math.min(start + MULTIPART_PART_SIZE, selectedFile.size);
           const chunk = selectedFile.slice(start, end);
 
-          setStatusText(`Signing part ${i} of ${totalParts}...`);
+          setStatusText(`Uploading chunk ${i} of ${totalParts} to R2 edge...`);
           const signRes = await fetch("/api/files/multipart/sign-part", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -211,12 +243,23 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             eTag: rawEtag.replace(/^"|"$/g, ""),
           });
 
-          const pct = Math.round((i / totalParts) * 85);
+          const currentUploaded = end;
+          setUploadedBytes(currentUploaded);
+          const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
+          if (elapsedSec > 0.4) {
+            const speed = currentUploaded / elapsedSec;
+            setUploadSpeed(`${formatBytes(speed)}/s`);
+            const remainingBytes = Math.max(0, selectedFile.size - currentUploaded);
+            const eta = speed > 0 ? Math.ceil(remainingBytes / speed) : 0;
+            setEtaSeconds(eta);
+          }
+
+          const pct = Math.round((i / totalParts) * 88);
           setProgress(pct);
         }
 
         // Finalize Multipart Parts
-        setStatusText("Assembling multipart upload on R2...");
+        setStatusText("Assembling and verifying multipart chunks on R2...");
         const compPartsRes = await fetch("/api/files/multipart/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -250,6 +293,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       const completedData = await completeRes.json();
       setProgress(100);
+      setUploadedBytes(selectedFile.size);
+      setEtaSeconds(0);
       setStatusText("Upload complete and verified!");
       setSuccessFile({
         id: fileId,
@@ -257,6 +302,14 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         size: completedData.file.byte_size || selectedFile.size,
       });
       setSelectedFile(null);
+
+      const fileSize = completedData.file.byte_size || selectedFile.size;
+      storageEvents.emit("file:lifecycle", {
+        fileId,
+        filename: completedData.file.sanitized_name || selectedFile.name,
+        size: fileSize,
+        action: "created",
+      });
 
       if (onUploadSuccess) {
         onUploadSuccess();
@@ -333,7 +386,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-between sm:justify-end">
             {/* Expiry Selector */}
             <div className="flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground">
               <Clock className="w-3.5 h-3.5 text-muted-foreground" />
@@ -380,17 +433,45 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       {/* Uploading In-Progress Status Bar */}
       {uploading && (
-        <div className="p-4 rounded-xl bg-card border border-blue-500/30 space-y-3 shadow-sm">
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>{statusText}</span>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-card via-card to-card/90 border border-blue-500/30 p-4 sm:p-5 shadow-lg shadow-blue-500/5 backdrop-blur-sm space-y-3.5 transition-all">
+          {/* Subtle ambient corner glow */}
+          <div className="absolute -top-12 -right-12 w-36 h-36 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+
+          {/* Header Row: Stage description + Percentage + Cancel */}
+          <div className="relative flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/25 flex items-center justify-center text-blue-500 dark:text-blue-400 shrink-0 shadow-xs">
+                <UploadCloud className="w-4 h-4 animate-pulse" />
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
+                  <span className="truncate">{selectedFile?.name || "Uploading file..."}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                    ({formatBytes(selectedFile?.size || 0)})
+                  </span>
+                </p>
+                <div className="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
+                  <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                  <span className="truncate">{statusText}</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-foreground">{progress}%</span>
+
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="flex items-baseline gap-0.5 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/25 shadow-xs">
+                <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                  {progress}
+                </span>
+                <span className="text-[10px] text-blue-600/70 dark:text-blue-400/70 font-bold">%</span>
+              </div>
               <button
+                type="button"
                 onClick={cancelUpload}
-                className="text-muted-foreground hover:text-red-500 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
                 title="Cancel Upload"
               >
                 <X className="w-4 h-4" />
@@ -398,11 +479,45 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             </div>
           </div>
 
-          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+          {/* Ultra-Crisp Multi-Layer Shimmer Progress Bar */}
+          <div className="relative w-full h-2.5 sm:h-3 rounded-full bg-muted/60 dark:bg-zinc-800/80 p-0.5 border border-border/70 dark:border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)] overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-200"
-              style={{ width: `${progress}%` }}
-            />
+              className="relative h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_12px_rgba(59,130,246,0.5)] overflow-hidden"
+              style={{ width: `${Math.max(2, progress)}%` }}
+            >
+              {/* Animated Glossy Shimmer Beam */}
+              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
+              {/* Glowing Tip */}
+              <div className="absolute right-0 top-0 bottom-0 w-1.5 bg-white rounded-full shadow-[0_0_6px_#fff]" />
+            </div>
+          </div>
+
+          {/* Bottom Telemetry Bar: Bytes transferred + Speed + ETA */}
+          <div className="flex flex-wrap items-center justify-between gap-y-1.5 text-[11px] font-mono text-muted-foreground pt-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-foreground font-semibold">{formatBytes(uploadedBytes)}</span>
+              <span>/</span>
+              <span>{formatBytes(selectedFile?.size || 0)}</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {uploadSpeed && (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                  <Zap className="w-3 h-3 text-emerald-500 fill-emerald-500/30" />
+                  <span>{uploadSpeed}</span>
+                </span>
+              )}
+              {etaSeconds !== null && etaSeconds > 0 && progress < 100 ? (
+                <span className="text-muted-foreground">
+                  ~{etaSeconds < 60 ? `${etaSeconds}s` : `${Math.ceil(etaSeconds / 60)}m`} left
+                </span>
+              ) : progress === 100 ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Synced</span>
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       )}

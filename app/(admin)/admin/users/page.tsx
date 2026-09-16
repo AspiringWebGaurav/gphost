@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 export default async function AdminUsersPage() {
   const { user } = await requireAdminUser();
   const adminClient = createAdminClient();
-  const ownerEmail = (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
-  const isOwner = user.email?.toLowerCase() === ownerEmail;
+  const ownerEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const isOwner = Boolean(ownerEmail && user.email?.toLowerCase() === ownerEmail);
 
   // Fetch all profiles
   const { data: profiles, error } = await adminClient

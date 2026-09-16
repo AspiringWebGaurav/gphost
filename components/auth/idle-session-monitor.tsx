@@ -143,13 +143,20 @@ export function IdleSessionMonitor() {
     checkRevocationStatus();
 
     // 1. Supabase Realtime Listener for Immediate Revocation (<500ms response)
+    let isCancelled = false;
     const supabase = createClient();
     let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
 
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
+      if (!user || isCancelled) return;
+      const channelName = `user-profile-guard-${user.id}`;
+      // Remove any pre-existing channel with this topic to avoid duplicate callback collisions
+      const existing = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+      if (existing) {
+        supabase.removeChannel(existing);
+      }
       realtimeChannel = supabase
-        .channel(`user-profile-guard-${user.id}`)
+        .channel(channelName)
         .on(
           "postgres_changes",
           {
@@ -159,6 +166,7 @@ export function IdleSessionMonitor() {
             filter: `id=eq.${user.id}`,
           },
           (payload) => {
+            if (isCancelled) return;
             const newStatus = (payload.new as { status?: string })?.status;
             if (newStatus === "revoked" || newStatus === "rejected") {
               handleRevocationLogout();
@@ -221,6 +229,7 @@ export function IdleSessionMonitor() {
     }, TOKEN_REFRESH_INTERVAL_MS);
 
     return () => {
+      isCancelled = true;
       activityEvents.forEach((ev) => {
         window.removeEventListener(ev, onActivity);
       });

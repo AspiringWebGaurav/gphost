@@ -60,6 +60,7 @@ export function FilePreviewViewer({
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [leaseSeconds, setLeaseSeconds] = useState<number | null>(null);
   const [isSingleUseClaimed, setIsSingleUseClaimed] = useState(false);
 
@@ -73,20 +74,28 @@ export function FilePreviewViewer({
     try {
       setClaiming(true);
       setClaimError(null);
+      setDownloadProgress(30);
+
+      const t1 = setTimeout(() => {
+        setDownloadProgress((prev) => (prev < 65 ? 65 : prev));
+      }, 150);
 
       const res = await fetch(`/api/share/${encodeURIComponent(slug)}/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
 
+      clearTimeout(t1);
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        setDownloadProgress(0);
         setClaimError(data.error || "Failed to claim download slot");
         setClaiming(false);
         return;
       }
 
+      setDownloadProgress(90);
       setDownloadSuccess(true);
       setLeaseSeconds(data.expires_in_seconds || 90);
 
@@ -102,8 +111,12 @@ export function FilePreviewViewer({
       a.click();
       document.body.removeChild(a);
 
-      setClaiming(false);
+      setTimeout(() => {
+        setDownloadProgress(100);
+        setClaiming(false);
+      }, 300);
     } catch {
+      setDownloadProgress(0);
       setClaimError("Network error starting download. Please try again.");
       setClaiming(false);
     }
@@ -261,10 +274,36 @@ export function FilePreviewViewer({
         </div>
       )}
 
-      {downloadSuccess && (
-        <div className="bg-emerald-500/10 border-b border-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-4 py-2 text-xs flex items-center justify-center gap-3">
-          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-          <span>Download started! Direct link valid for {leaseSeconds ?? 90}s.</span>
+      {(claiming || downloadSuccess) && (
+        <div className="bg-background/95 border-b border-border/80 px-4 py-2.5 shadow-xs transition-all">
+          <div className="max-w-xl mx-auto space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                {downloadSuccess ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                ) : (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
+                )}
+                <span>
+                  {downloadSuccess
+                    ? `Direct download active! Lease valid for ${leaseSeconds ?? 90}s`
+                    : "Connecting to Cloudflare R2 edge network..."}
+                </span>
+              </div>
+              <span className="font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                {downloadProgress}%
+              </span>
+            </div>
+
+            <div className="relative w-full h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(16,185,129,0.5)] overflow-hidden"
+                style={{ width: `${Math.max(4, downloadProgress)}%` }}
+              >
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

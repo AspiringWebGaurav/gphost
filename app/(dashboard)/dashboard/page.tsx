@@ -64,10 +64,10 @@ export default async function DashboardPage() {
       .maybeSingle(),
   ]);
 
-  // Only display the Admin Approval Welcome Banner to regular users with an approved access request
+  const configuredAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
   const isOwnerOrAdmin =
     profile.role === "admin" ||
-    profile.email.toLowerCase() === (process.env.ADMIN_EMAIL || "gauravpatil9262@gmail.com").toLowerCase();
+    Boolean(configuredAdminEmail && profile.email.toLowerCase() === configuredAdminEmail);
 
   const welcomeInfo =
     !isOwnerOrAdmin && approvedRequest

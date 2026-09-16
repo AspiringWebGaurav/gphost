@@ -197,11 +197,34 @@ export async function PATCH(
       if (status !== undefined) updatedStatus = status;
       if (can_create_permanent !== undefined) updatedPermanent = can_create_permanent;
 
-      if (status === "revoked" && targetUser.email) {
+      if (status === "approved") {
+        await adminClient
+          .from("access_requests")
+          .update({
+            status: "approved",
+            reviewed_by: adminUser.id,
+            reviewed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", targetUserId)
+          .eq("status", "pending");
+      } else if ((status === "revoked" || status === "rejected") && targetUser.email) {
         await adminClient
           .from("onboarding_pins")
           .update({ is_active: false })
           .ilike("label", `%${targetUser.email}%`);
+
+        await adminClient
+          .from("access_requests")
+          .update({
+            status: "rejected",
+            reviewed_by: adminUser.id,
+            reviewed_at: new Date().toISOString(),
+            rejection_reason: `User ${status} by administrator`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", targetUserId)
+          .eq("status", "pending");
       }
     }
 

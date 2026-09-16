@@ -8,6 +8,8 @@ import { IdleSessionMonitor } from "@/components/auth/idle-session-monitor";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ShieldAlert, Crown } from "lucide-react";
 
+import { MobileAdminNav } from "@/components/admin/mobile-admin-nav";
+
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({
@@ -67,12 +69,15 @@ export default async function AdminLayout({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Navbar */}
-        <header className="h-16 border-b border-border bg-background/80 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-40 transition-colors">
-          <div className="flex items-center gap-3 md:hidden">
-            <div className="w-7 h-7 rounded-lg bg-purple-600 flex items-center justify-center text-white">
-              <ShieldAlert className="w-4 h-4" />
-            </div>
-            <span className="font-bold text-foreground text-sm">GPHost Admin</span>
+        <header className="h-14 md:h-16 border-b border-border bg-background/80 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40 transition-colors">
+          <div className="flex items-center gap-2.5 md:hidden">
+            <MobileAdminNav isOwner={isOwner} email={profile.email} />
+            <Link href="/admin" className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-purple-600 flex items-center justify-center text-white shadow-xs">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <span className="font-bold text-foreground text-sm">GPHost Admin</span>
+            </Link>
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-xs">
@@ -86,17 +91,17 @@ export default async function AdminLayout({
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <ThemeToggle />
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20">
+            <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20">
               Admin Mode
             </span>
-            <LogoutButton variant="outline" />
+            <LogoutButton variant="outline" className="hidden sm:inline-flex" />
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto">
+        {/* Page Content with Mobile Safe-Bottom Padding */}
+        <main className="flex-1 p-3.5 sm:p-6 md:p-8 pb-20 md:pb-8 max-w-7xl w-full mx-auto">
           {children}
         </main>
       </div>

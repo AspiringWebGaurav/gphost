@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,9 @@ export async function GET(req: NextRequest) {
   try {
     const { user, profile } = await requireApprovedUser();
     const adminClient = createAdminClient();
+
+    // Trigger non-blocking, debounced background lifecycle sweep (Vercel Hobby / self-healing)
+    scheduleOpportunisticLifecycleSweep();
 
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);

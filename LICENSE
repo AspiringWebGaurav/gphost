@@ -1,0 +1,35 @@
+GPHosting Source-Available Reference License
+Version 1.0 (September 2026)
+
+Copyright (c) 2026 GPHosting Contributors / Authors. All rights reserved.
+
+This software and associated documentation files (the "Software") are provided under a source-available, read-only reference license. By accessing, downloading, viewing, or referencing the Software, you agree to be bound by the terms and conditions set forth below.
+
+==============================================================================
+1. PERMITTED USES (READ-ONLY & AUDIT)
+==============================================================================
+Permission is hereby granted, free of charge, to any person obtaining a copy of this Software, to:
+a. Read, inspect, review, and study the source code for educational, research, personal learning, and independent security auditing purposes.
+b. Clone or download a local copy solely for private, non-commercial code inspection and architectural evaluation.
+
+==============================================================================
+2. RESTRICTIONS & PROHIBITIONS
+==============================================================================
+Except as expressly permitted in Section 1, all rights are strictly reserved. Under no circumstances may you:
+a. Commercial Exploitation: Sell, resell, lease, rent, license, sublicense, charge for, or otherwise commercially exploit the Software, its source code, built artifacts, or derivative works.
+b. Public Re-hosting & SaaS Operations: Deploy, publicly host, or operate a public, commercial, or competing file hosting, sharing, storage, or transit service utilizing this Software or derivative works without prior express written authorization from the copyright holder.
+c. Redistribution & Public Forking: Publicly redistribute, publish, mirror, or broadcast the source code, modified versions, or compiled bundles without explicit written permission.
+d. Proprietary Branding & Assets: The names "GPHosting", "GPHost", associated logos, emblems, visual themes, favicons, and trademarks remain the exclusive intellectual property of the author and may not be used in connection with any derivative service.
+e. Notice Preservation: You may not remove, modify, or obscure any copyright notices, author attributions, or license declarations from any portion of the Software.
+
+==============================================================================
+3. CONTRIBUTIONS
+==============================================================================
+Any suggestions, improvements, or pull requests submitted to this repository are provided voluntarily. By submitting contributions, you grant the copyright holder a perpetual, irrevocable, worldwide, royalty-free license to use, incorporate, and license those contributions under these terms or any successor license.
+
+==============================================================================
+4. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
+==============================================================================
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, ACCURACY, AND NON-INFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, LOSS OF USE, DATA, PROFITS, OR BUSINESS INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE OF OR INABILITY TO USE THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

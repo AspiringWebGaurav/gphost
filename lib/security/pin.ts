@@ -1,7 +1,10 @@
 import { argon2id } from "hash-wasm";
 import crypto from "node:crypto";
 
-export const PIN_PEPPER = process.env.PIN_PEPPER || process.env.PASSWORD_PEPPER || "gphost_server_authoritative_pin_pepper_default";
+export const PIN_PEPPER =
+  process.env.PIN_PEPPER ||
+  process.env.PASSWORD_PEPPER ||
+  (process.env.NODE_ENV !== "production" ? "gphost_dev_pin_pepper" : "");
 
 /**
  * Validates that an onboarding PIN is strictly 4 decimal digits.
