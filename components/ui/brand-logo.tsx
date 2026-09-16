@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface BrandLogoProps {
@@ -42,15 +43,11 @@ export function BrandLogoSymbol({
       )}
     >
       {/* 360° Geometric Layered Vault Emblem */}
-      <svg
-        className={cn("text-white fill-none stroke-current stroke-[2.2] stroke-linecap-round stroke-linejoin-round", icon)}
-        viewBox="0 0 24 24"
+      <Layers
+        className={cn("text-white shrink-0", icon)}
+        strokeWidth={2.4}
         aria-hidden="true"
-      >
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
+      />
     </div>
   );
 }

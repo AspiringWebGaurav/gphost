@@ -81,7 +81,7 @@ export async function GET() {
     let switchyyStatus = "unknown";
     if (switchyyConfigured) {
       try {
-        const res = await fetch("https://switchyy.eu.cc/switchy.js", { method: "HEAD", signal: AbortSignal.timeout(3000) });
+        const res = await fetch("https://switchyy.eu.cc/switchy.js", { method: "HEAD", signal: AbortSignal.timeout(6000) });
         switchyyStatus = res.ok ? "connected" : "unreachable";
       } catch {
         switchyyStatus = "unreachable";

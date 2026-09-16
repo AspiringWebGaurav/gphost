@@ -199,7 +199,9 @@ export async function shortenUrl(
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(8000), // 8s bounded timeout
+        signal: AbortSignal.timeout(
+          parseInt(process.env.XURL_TIMEOUT_MS || "15000", 10) || 15000
+        ), // 15s bounded timeout to accommodate upstream cold starts
       });
 
       // HTTP 201 Created or 200 OK
