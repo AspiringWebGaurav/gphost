@@ -91,5 +91,9 @@ CREATE POLICY "Users can delete their own API keys"
     FOR DELETE
     USING (user_id = auth.uid());
 
+-- Grant table access to API roles (PostgREST roles)
+GRANT ALL ON TABLE public.file_events TO postgres, anon, authenticated, service_role;
+GRANT ALL ON TABLE public.user_api_keys TO postgres, anon, authenticated, service_role;
+
 -- Reload PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
