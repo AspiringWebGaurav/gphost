@@ -10,6 +10,7 @@ import {
   HelpCircle,
   CheckCircle2,
   UploadCloud,
+  Sparkles,
 } from "lucide-react";
 import { BackToTop } from "@/components/ui/back-to-top";
 import { BrandLogo, BrandLogoSymbol } from "@/components/ui/brand-logo";
@@ -50,15 +51,30 @@ export default async function HomePage() {
               <Link href="#features" className="hover:text-foreground transition-colors duration-150">
                 Features
               </Link>
-              <Link href="/developers" className="hover:text-foreground transition-colors duration-150">
-                How it Works
+              <Link
+                href="/developers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-foreground transition-colors duration-150"
+              >
+                How to Use
               </Link>
             </>
           )}
-          <Link href="/privacy" className="hover:text-foreground transition-colors duration-150">
+          <Link
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground transition-colors duration-150"
+          >
             Privacy
           </Link>
-          <Link href="/terms" className="hover:text-foreground transition-colors duration-150">
+          <Link
+            href="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground transition-colors duration-150"
+          >
             Terms
           </Link>
         </nav>
@@ -158,9 +174,32 @@ export default async function HomePage() {
               </h1>
 
               {/* Subtitle in simple, clear words */}
-              <p className="text-base sm:text-lg text-muted-foreground max-w-2xl leading-relaxed mb-10">
+              <p className="text-base sm:text-lg text-muted-foreground max-w-2xl leading-relaxed mb-6">
                 Upload files up to 1 GB in seconds. Share them with self-destructing links, password protection, and automatic expiration. No tracking, no hassle.
               </p>
+
+              {/* Simple "What is the Middleman?" Explainer Card */}
+              <div className="w-full max-w-2xl mx-auto mb-8 p-4 sm:p-5 rounded-2xl bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/20 text-left transition-all">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1.5 text-xs sm:text-sm">
+                    <div className="font-bold text-foreground flex items-center gap-2">
+                      <span>What does &ldquo;Without the middleman&rdquo; mean?</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        In Simple Words
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      On regular file hosts, your file travels to <span className="font-medium text-foreground">their servers first</span> — they can scan, buffer, inspect, or slow it down.
+                    </p>
+                    <p className="text-muted-foreground leading-relaxed">
+                      With <strong>GPHost</strong>, your browser connects <span className="font-semibold text-emerald-600 dark:text-emerald-400">directly</span> to ultra-fast Cloudflare edge storage. Our website server never touches, reads, or holds your file in between. It flies straight from your device to the secure vault. <strong>Faster. Cheaper. 100% Private.</strong>
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-3.5 w-full sm:w-auto">
@@ -174,10 +213,12 @@ export default async function HomePage() {
 
                 <Link
                   href="/developers"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 h-12 rounded-xl text-sm font-medium bg-muted/60 hover:bg-muted text-foreground border border-border transition-colors duration-150 shrink-0"
                 >
                   <HelpCircle className="w-4 h-4 text-muted-foreground" />
-                  <span>How it Works</span>
+                  <span>How to Use</span>
                 </Link>
               </div>
             </>

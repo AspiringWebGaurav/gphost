@@ -231,14 +231,14 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
         </div>
 
         <div className="flex items-center gap-4 sm:gap-6 font-medium">
-          <Link href="/terms" target="_blank" className="hover:text-foreground transition-colors">
+          <Link href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
             Terms of Service
           </Link>
-          <Link href="/privacy" target="_blank" className="hover:text-foreground transition-colors">
+          <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
             Privacy Policy
           </Link>
-          <Link href="/developers" target="_blank" className="hidden sm:inline hover:text-foreground transition-colors">
-            How it Works
+          <Link href="/developers" target="_blank" rel="noopener noreferrer" className="hidden sm:inline hover:text-foreground transition-colors">
+            How to Use
           </Link>
         </div>
       </footer>

@@ -561,14 +561,14 @@ export default function LoginPage() {
 
         {/* Right footer: Legal & Access Links */}
         <div className="flex items-center gap-4 sm:gap-6 font-medium">
-          <Link href="/terms" className="hover:text-foreground transition-colors">
+          <Link href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
             Terms of Service
           </Link>
-          <Link href="/privacy" className="hover:text-foreground transition-colors">
+          <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
             Privacy Policy
           </Link>
-          <Link href="/developers" className="hidden md:inline hover:text-foreground transition-colors">
-            API &amp; Docs
+          <Link href="/developers" target="_blank" rel="noopener noreferrer" className="hidden md:inline hover:text-foreground transition-colors">
+            How to Use
           </Link>
         </div>
       </footer>
