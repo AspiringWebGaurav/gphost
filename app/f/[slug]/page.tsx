@@ -376,7 +376,7 @@ function PublicShareLayout({ children }: { children: React.ReactNode }) {
   const currentYear = new Date().getFullYear();
 
   return (
-    <div className="min-h-dvh lg:h-dvh w-screen bg-background text-foreground flex flex-col antialiased selection:bg-blue-500/20 selection:text-blue-500 relative overflow-x-hidden">
+    <div className="min-h-dvh lg:h-dvh w-full max-w-full bg-background text-foreground flex flex-col antialiased selection:bg-blue-500/20 selection:text-blue-500 relative overflow-x-hidden">
       {/* Subtle ambient lighting */}
       <div
         className="pointer-events-none fixed -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-blue-500/5 dark:bg-blue-500/10 blur-[140px]"

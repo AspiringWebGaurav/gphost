@@ -1370,7 +1370,7 @@ export function FileManager({
                   <button
                     type="button"
                     onClick={() => setShowQrCode(!showQrCode)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer w-full sm:w-auto ${
                       showQrCode
                         ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
                         : "bg-background hover:bg-muted text-foreground border-border hover:border-blue-500/40 shadow-2xs"
@@ -1401,7 +1401,7 @@ export function FileManager({
                       <p className="text-[11px] text-muted-foreground leading-relaxed">
                         Point your mobile phone camera at this QR code to instantly open or download this file on mobile. Computed 100% in your browser without any network delays.
                       </p>
-                      <div className="text-[10.5px] font-mono text-blue-600 dark:text-blue-400 truncate max-w-sm">
+                      <div className="text-[10.5px] font-mono text-blue-600 dark:text-blue-400 truncate max-w-[250px] sm:max-w-sm">
                         {shareResult.shareUrl}
                       </div>
                     </div>
@@ -1524,7 +1524,7 @@ export function FileManager({
                         <input
                           readOnly
                           value={shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || ""}
-                          className="flex-1 px-3 py-2 rounded-xl bg-muted/40 border border-border text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-muted/40 border border-border text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <button
                           onClick={() => {
@@ -1579,7 +1579,7 @@ export function FileManager({
                           <input
                             readOnly
                             value={shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || ""}
-                            className="flex-1 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-purple-500"
+                            className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-purple-500"
                           />
                           <button
                             onClick={() => {
@@ -1643,7 +1643,7 @@ export function FileManager({
                           <input
                             readOnly
                             value={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl || ""}
-                            className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all focus:outline-none"
+                            className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all focus:outline-none"
                           />
                           <button
                             onClick={() => {

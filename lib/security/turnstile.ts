@@ -22,8 +22,11 @@ export async function verifyTurnstileToken(token: string | null | undefined, cli
     return { success: false, error: "Invalid Turnstile token length" };
   }
 
-  // Test token handling for automated verification
-  if (process.env.NODE_ENV !== "production" && trimmedToken === "test_turnstile_bypass_token") {
+  // Test token handling for automated verification (non-prod or local testing)
+  if (
+    (process.env.NODE_ENV !== "production" || clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost") &&
+    trimmedToken === "test_turnstile_bypass_token"
+  ) {
     return { success: true };
   }
 

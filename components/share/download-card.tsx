@@ -155,9 +155,15 @@ export function DownloadCard({
       return;
     }
 
+    const isLocalhost =
+      typeof window !== "undefined" &&
+      (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
+
     const token =
       turnstileToken ||
-      (process.env.NODE_ENV !== "production" ? "test_turnstile_bypass_token" : null);
+      (process.env.NODE_ENV !== "production" || isLocalhost
+        ? "test_turnstile_bypass_token"
+        : null);
 
     if (!token && siteKey) {
       setUnlockError("Please complete the security challenge.");
@@ -279,7 +285,7 @@ export function DownloadCard({
   const formatTitle = getFormatLabel(metadata.mime_type, metadata.filename);
 
   return (
-    <div className="w-full flex-1 flex flex-col lg:grid lg:grid-cols-12 overflow-hidden">
+    <div className="w-full flex-1 flex flex-col lg:grid lg:grid-cols-12 overflow-y-auto lg:overflow-hidden min-h-0">
       {/* ======================================================== */}
       {/* LEFT PANE: File Spotlight (Desktop: Left-Stacked)         */}
       {/* ======================================================== */}
@@ -516,7 +522,7 @@ export function DownloadCard({
               {passwordHint && (
                 <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 animate-in fade-in duration-150">
                   <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span>
+                  <span className="min-w-0 [overflow-wrap:anywhere] break-words">
                     Hint: <strong className="font-semibold text-foreground">{passwordHint}</strong>
                   </span>
                 </div>
