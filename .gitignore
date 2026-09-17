@@ -47,7 +47,7 @@ node_modules/
 *.tsbuildinfo
 tsconfig.tsbuildinfo
 
-# --- Testing & Coverage ---
+# --- Testing, Playwright & E2E Suites ---
 /coverage/
 *.lcov
 .nyc_output/
@@ -55,6 +55,8 @@ playwright-report/
 test-results/
 blob-report/
 .playwright/
+playwright.config.ts
+tests/
 *benchmark-results*.json
 benchmark-results.json
 
@@ -105,6 +107,9 @@ desktop.ini
 scratch/
 scratch_*
 *.scratch.*
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 
 # --- Temporary, Backup & Archive Files ---
 *.backup

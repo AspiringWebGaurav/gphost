@@ -51,7 +51,7 @@ export default async function DashboardPage() {
       .from("files")
       .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at")
       .eq("user_id", user.id)
-      .not("status", "in", '("DELETE_PENDING","DELETE_FAILED","PURGED")')
+      .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
       .order("created_at", { ascending: false })
       .limit(10),
     adminClient

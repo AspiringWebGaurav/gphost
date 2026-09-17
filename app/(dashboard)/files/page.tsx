@@ -38,7 +38,7 @@ export default async function FilesPage() {
       { count: "exact" }
     )
     .eq("user_id", user.id)
-    .not("status", "in", '("DELETE_PENDING","DELETE_FAILED","PURGED")')
+    .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
     .order("created_at", { ascending: false })
     .range(0, 19);
 

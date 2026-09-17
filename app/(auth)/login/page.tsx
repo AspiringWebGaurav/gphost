@@ -22,6 +22,48 @@ import {
   Sparkles,
 } from "lucide-react";
 
+function formatAuthError(raw: string | null): string | null {
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+
+  // Cancelled by user
+  if (lower.includes("access_denied") || lower.includes("denied") || lower.includes("cancel")) {
+    return "Google sign-in was cancelled. You can try again whenever you're ready.";
+  }
+
+  // PKCE code verifier / state mismatch / SSR instructions
+  if (
+    lower.includes("code verifier") ||
+    lower.includes("pkce") ||
+    lower.includes("bad_oauth_state") ||
+    lower.includes("@supabase/ssr") ||
+    lower.includes("ssr frameworks")
+  ) {
+    return "Your sign-in session expired or was interrupted. Please click 'Continue with Google' to sign in.";
+  }
+
+  // Stale refresh token or expired session
+  if (lower.includes("refresh_token") || lower.includes("refresh token") || lower.includes("jwt")) {
+    return "Your session has ended. Please sign in again with Google.";
+  }
+
+  // Rate limiting
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("too many authentication attempts")
+  ) {
+    return "Too many sign-in attempts. Please wait a moment before trying again.";
+  }
+
+  // Missing code
+  if (lower.includes("missing authentication code")) {
+    return "Sign-in was interrupted. Please click 'Continue with Google' to sign in.";
+  }
+
+  return raw;
+}
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const rawError = searchParams.get("error");
@@ -37,15 +79,21 @@ function LoginForm() {
     () => mode === "request" || tab === "request"
   );
 
-  // Declarative error message without cascading setState in effects
+  // Clean up error query param from browser address bar without reload
+  useEffect(() => {
+    if (rawError && typeof window !== "undefined") {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("error");
+      cleanUrl.searchParams.delete("error_description");
+      window.history.replaceState({}, "", cleanUrl.pathname + cleanUrl.search);
+    }
+  }, [rawError]);
+
+  // Human-friendly declarative error message without raw developer jargon
   const errorMessage =
-    clientError ||
+    formatAuthError(clientError) ||
     (rawError && rawError !== dismissedRawError
-      ? rawError.includes("access_denied") ||
-        rawError.toLowerCase().includes("denied") ||
-        rawError.toLowerCase().includes("cancel")
-        ? "Google sign-in was cancelled. You can try again whenever you're ready."
-        : rawError
+      ? formatAuthError(rawError)
       : null);
 
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);

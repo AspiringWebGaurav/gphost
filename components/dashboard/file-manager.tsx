@@ -33,8 +33,17 @@ import {
   Flame,
   Zap,
   Activity,
+  ExternalLink,
+  EyeOff,
+  MessageSquare,
+  Lightbulb,
+  QrCode,
+  Send,
+  Mail,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import {
   formatTimeRemaining,
 } from "@/lib/storage/expiry";
@@ -204,11 +213,18 @@ export function FileManager({
   const [shareMaxDownloads, setShareMaxDownloads] = useState<string>("");
   const [shareIsSingleUse, setShareIsSingleUse] = useState<boolean>(false);
   const [shareBurnAfterPreview, setShareBurnAfterPreview] = useState<boolean>(false);
+  const [shareDirectDownload, setShareDirectDownload] = useState<boolean>(false);
+  const [shareDisablePreview, setShareDisablePreview] = useState<boolean>(false);
+  const [shareRecipientNote, setShareRecipientNote] = useState<string>("");
+  const [showRecipientNote, setShowRecipientNote] = useState<boolean>(false);
   const [sharePassword, setSharePassword] = useState<string>("");
+  const [sharePasswordHint, setSharePasswordHint] = useState<string>("");
   const [shareCustomSlug, setShareCustomSlug] = useState<string>("");
   const [shareEnableXurl, setShareEnableXurl] = useState<boolean>(true);
   const [creatingShare, setCreatingShare] = useState<boolean>(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [showQrCode, setShowQrCode] = useState<boolean>(false);
+  const [copiedMarkdown, setCopiedMarkdown] = useState<boolean>(false);
 
   const handleOpenShare = (file: SafeFileItem) => {
     setSelectedFileForShare(file);
@@ -219,15 +235,31 @@ export function FileManager({
     setShareMaxDownloads("");
     setShareIsSingleUse(false);
     setShareBurnAfterPreview(false);
+    setShareDirectDownload(false);
+    setShareDisablePreview(false);
+    setShareRecipientNote("");
+    setShowRecipientNote(false);
     setSharePassword("");
+    setSharePasswordHint("");
     setShareEnableXurl(true);
+    setShowQrCode(false);
     setCopiedRaw(false);
+    setCopiedDirect(false);
+    setCopiedXurl(false);
+    setCopiedMarkdown(false);
   };
   const [shareResult, setShareResult] = useState<{
     slug?: string;
     shareUrl: string;
     rawUrl?: string;
     expires_at?: string | null;
+    max_downloads?: number | null;
+    is_single_use?: boolean;
+    burn_after_preview?: boolean;
+    direct_download?: boolean;
+    disable_preview?: boolean;
+    recipient_note?: string | null;
+    password_hint?: string | null;
     is_custom_slug?: boolean;
     is_premium?: boolean;
     xurl?: { shortUrl?: string; status: string; error?: string };
@@ -462,7 +494,11 @@ export function FileManager({
         maxDownloads: maxDownloadsNum,
         isSingleUse: shareIsSingleUse,
         burnAfterPreview: shareBurnAfterPreview,
+        directDownload: shareDirectDownload,
+        disablePreview: shareDisablePreview,
+        recipientNote: shareRecipientNote.trim() || undefined,
         password: sharePassword.trim() || undefined,
+        passwordHint: sharePassword.trim() && sharePasswordHint.trim() ? sharePasswordHint.trim() : undefined,
         shortenWithXurl: shareEnableXurl,
         enableXurl: shareEnableXurl,
       };
@@ -489,6 +525,13 @@ export function FileManager({
         shareUrl: shareData.shareUrl || data.shareUrl || "",
         rawUrl: shareData.rawUrl || data.rawUrl || "",
         expires_at: shareData.expires_at || data.expires_at,
+        max_downloads: shareData.max_downloads,
+        is_single_use: shareData.is_single_use,
+        burn_after_preview: shareData.burn_after_preview,
+        direct_download: shareData.direct_download,
+        disable_preview: shareData.disable_preview,
+        recipient_note: shareData.recipient_note,
+        password_hint: shareData.password_hint,
         is_custom_slug: shareData.is_custom_slug || data.is_custom_slug,
         is_premium: shareData.is_premium || data.is_premium,
         xurl: shareData.xurl || data.xurl,
@@ -1216,16 +1259,16 @@ export function FileManager({
         const isFileExpired = fileRemainingMs !== null && fileRemainingMs <= 0;
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl lg:max-w-3xl rounded-2xl bg-card border border-border p-5 md:p-6 shadow-2xl relative space-y-4 max-h-[94vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-border pb-3.5">
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+            <div className="w-full max-w-4xl xl:max-w-5xl rounded-2xl bg-card border border-border p-4 sm:p-5 md:p-6 shadow-2xl relative space-y-3 sm:space-y-3.5 max-h-[95vh] overflow-y-auto transition-all">
+              <div className="flex items-center justify-between border-b border-border pb-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
                     <Share2 className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-foreground">Share File</h3>
-                    <p className="text-[11px] text-muted-foreground">Configure custom link, access restrictions, and strict expiry sync</p>
+                    <h3 className="text-sm font-bold text-foreground">Create Share Link</h3>
+                    <p className="text-[11px] text-muted-foreground">Customize your link, add protection, and choose delivery options.</p>
                   </div>
                 </div>
                 <button
@@ -1237,7 +1280,7 @@ export function FileManager({
               </div>
 
               {/* Compact File & Plan Status Strip with Realtime Expiration Ticker */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-muted/40 border border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 px-3 rounded-xl bg-muted/40 border border-border">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-background border border-border/80 text-blue-500 flex items-center justify-center shrink-0">
                     <FileIcon className="w-4 h-4" />
@@ -1285,154 +1328,374 @@ export function FileManager({
             </div>
 
             {shareResult ? (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                   <Check className="w-4 h-4 shrink-0" />
                   <span>Share link active! Anyone with this link can access the file within the expiration window.</span>
                 </div>
 
-                {/* Synced Expiration & Metadata Card */}
-                <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                {/* Realtime Stats & QR Code Action Strip */}
+                <div className="p-3 rounded-xl bg-muted/40 border border-border flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
                       <Clock className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Synced Expiration:</span>
+                      <span>Expires:</span>
+                      <strong className="text-foreground font-mono font-semibold">
+                        {formatExpiry(shareResult.expires_at || null, currentTime)}
+                      </strong>
                     </span>
-                    <span className="font-semibold text-foreground font-mono">
-                      {formatExpiry(shareResult.expires_at || null, currentTime)}
+                    <span className="text-muted-foreground/40">•</span>
+                    <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                      <Download className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Limit:</span>
+                      <strong className="text-foreground font-mono font-semibold">
+                        {shareResult.is_single_use
+                          ? "1 (Single-Use)"
+                          : shareResult.max_downloads
+                          ? `${shareResult.max_downloads} max`
+                          : "Unlimited"}
+                      </strong>
                     </span>
+                    {shareResult.direct_download && (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span className="text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1">
+                          <Zap className="w-3 h-3" />
+                          <span>Direct Download Mode</span>
+                        </span>
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/60">
-                    <span>Target &amp; Short Link Sync:</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                      <Check className="w-3 h-3" />
-                      <span>Strict Backend Immutability Verified</span>
-                    </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowQrCode(!showQrCode)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                      showQrCode
+                        ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
+                        : "bg-background hover:bg-muted text-foreground border-border hover:border-blue-500/40 shadow-2xs"
+                    }`}
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>{showQrCode ? "Hide QR Code" : "Show QR Code"}</span>
+                  </button>
+                </div>
+
+                {/* Instant Client-Side Bug-Free SVG QR Code */}
+                {showQrCode && (
+                  <div className="p-4 rounded-2xl bg-card border border-border shadow-xs flex flex-col sm:flex-row items-center gap-4 animate-in fade-in duration-200">
+                    <div className="p-3 bg-white rounded-xl shadow-xs border border-neutral-200 shrink-0">
+                      <QRCodeSVG
+                        value={shareResult.shareUrl}
+                        size={130}
+                        level="M"
+                        includeMargin={false}
+                        className="w-[120px] h-[120px]"
+                      />
+                    </div>
+                    <div className="space-y-1.5 text-center sm:text-left min-w-0">
+                      <div className="flex items-center justify-center sm:justify-start gap-1.5 text-xs font-semibold text-foreground">
+                        <QrCode className="w-4 h-4 text-blue-500" />
+                        <span>Instant Mobile QR Code</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Point your mobile phone camera at this QR code to instantly open or download this file on mobile. Computed 100% in your browser without any network delays.
+                      </p>
+                      <div className="text-[10.5px] font-mono text-blue-600 dark:text-blue-400 truncate max-w-sm">
+                        {shareResult.shareUrl}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 1-Click Instant Social & Chat Share Bar */}
+                <div className="p-3 rounded-xl bg-muted/20 border border-border/80 space-y-2">
+                  <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Send className="w-3 h-3 text-blue-500" />
+                    <span>1-Click Instant Sharing</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* WhatsApp */}
+                    <a
+                      href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                        `Download "${selectedFileForShare.sanitized_name}" securely on GPHost: ${shareResult.shareUrl}`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 text-xs font-medium transition cursor-pointer"
+                      title="Share via WhatsApp"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span>WhatsApp</span>
+                    </a>
+
+                    {/* Telegram */}
+                    <a
+                      href={`https://t.me/share/url?url=${encodeURIComponent(
+                        shareResult.shareUrl
+                      )}&text=${encodeURIComponent(
+                        `Download "${selectedFileForShare.sanitized_name}" securely on GPHost`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/25 text-xs font-medium transition cursor-pointer"
+                      title="Share via Telegram"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-sky-500" />
+                      <span>Telegram</span>
+                    </a>
+
+                    {/* Email */}
+                    <a
+                      href={`mailto:?subject=${encodeURIComponent(
+                        `Download: ${selectedFileForShare.sanitized_name}`
+                      )}&body=${encodeURIComponent(
+                        `Hi,\n\nI have shared "${selectedFileForShare.sanitized_name}" with you via GPHost.\n\nYou can access or download it here:\n${shareResult.shareUrl}\n\nThis link will automatically expire based on the security settings.\n`
+                      )}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-medium transition cursor-pointer"
+                      title="Share via Email"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span>Email</span>
+                    </a>
+
+                    {/* Copy Discord / Markdown */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(
+                          `[${selectedFileForShare.sanitized_name}](${shareResult.shareUrl})`
+                        );
+                        setCopiedMarkdown(true);
+                        setTimeout(() => setCopiedMarkdown(false), 2000);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-medium transition cursor-pointer"
+                      title="Copy Markdown link formatted for Discord or GitHub"
+                    >
+                      {copiedMarkdown ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                      )}
+                      <span>{copiedMarkdown ? "Copied Markdown!" : "Discord / Markdown"}</span>
+                    </button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Direct Link */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <label className="text-xs font-medium text-foreground">Direct Link</label>
-                        {shareResult.is_custom_slug && (
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                            Custom Slug
-                          </span>
-                        )}
+                  {/* Direct Link (Interactive Preview Page) */}
+                  <div className="space-y-2 p-3.5 rounded-xl bg-card border border-border/90 hover:border-blue-500/40 shadow-xs transition-colors flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                            <span>Direct Link</span>
+                            <InfoTooltip
+                              variant="info"
+                              title="Direct Share Page (Interactive Preview)"
+                              content="The rich landing page for human recipients. Includes in-browser media players (video streaming, PDF viewer, image gallery, audio player), file size, download button, view analytics, and rich Discord/WhatsApp link previews."
+                            />
+                          </label>
+                          {shareResult.is_custom_slug && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                              Custom Slug
+                              <InfoTooltip
+                                title="Custom Vanity Alias"
+                                content="A memorable, customized URL path chosen by you (e.g. /f/my-project-deck) instead of an auto-generated random string."
+                              />
+                            </span>
+                          )}
+                        </div>
+                        <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20 font-mono">
+                          Primary Link
+                          <InfoTooltip
+                            title="Primary Sharing URL"
+                            content="The standard share link to send to clients, team members, or friends via chat apps and email."
+                          />
+                        </span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono">Primary Link</span>
+                      <p className="text-[11px] text-muted-foreground leading-snug mb-2">
+                        Interactive web page with rich media preview &amp; download controls.
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        readOnly
-                        value={shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || ""}
-                        className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-foreground font-mono select-all"
-                      />
-                      <button
-                        onClick={() => {
-                          const url = shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || "";
-                          if (url) {
-                            navigator.clipboard.writeText(url);
-                            setCopiedDirect(true);
-                            setTimeout(() => setCopiedDirect(false), 2000);
-                          }
-                        }}
-                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
-                      >
-                        {copiedDirect ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedDirect ? "Copied" : "Copy"}</span>
-                      </button>
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || ""}
+                          className="flex-1 px-3 py-2 rounded-xl bg-muted/40 border border-border text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <button
+                          onClick={() => {
+                            const url = shareResult.shareUrl || (shareResult as { share?: { shareUrl?: string } }).share?.shareUrl || "";
+                            if (url) {
+                              navigator.clipboard.writeText(url);
+                              setCopiedDirect(true);
+                              setTimeout(() => setCopiedDirect(false), 2000);
+                            }
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                        >
+                          {copiedDirect ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedDirect ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Direct Raw / CDN Asset URL */}
                   {(shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl) && (
-                    <div className="space-y-1.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                          <label className="text-xs font-semibold text-purple-700 dark:text-purple-300">
-                            Direct Raw / CDN Asset URL
-                          </label>
+                    <div className="space-y-2 p-3.5 rounded-xl bg-purple-500/8 border border-purple-500/25 hover:border-purple-500/40 shadow-xs transition-colors flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                            <label className="text-xs font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                              <span>Direct Raw / CDN URL</span>
+                              <InfoTooltip
+                                variant="purple"
+                                title="Direct Raw / CDN Hotlink"
+                                content="Pure asset streaming with zero HTML wrapper or website branding. Streams raw binary bytes directly from Cloudflare R2 edge servers with instant edge caching. Perfect for markdown images ![](url), HTML <img> tags, video players, and software downloads."
+                              />
+                            </label>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                            0 Vercel Egress
+                            <InfoTooltip
+                              variant="purple"
+                              title="Zero Vercel Egress (No Bandwidth Cost)"
+                              content="Zero bandwidth cost on your Vercel hosting bill! All file downloads stream directly from Cloudflare R2's global edge network without passing through your Vercel serverless compute."
+                            />
+                          </span>
                         </div>
-                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium">0 Vercel Egress</span>
+                        <p className="text-[11px] text-muted-foreground leading-snug mb-2">
+                          Permanent hotlink to embed directly in Discord, GitHub READMEs, or blogs.
+                        </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          readOnly
-                          value={shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || ""}
-                          className="flex-1 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all"
-                        />
-                        <button
-                          onClick={() => {
-                            const rUrl = shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || "";
-                            if (rUrl) {
-                              navigator.clipboard.writeText(rUrl);
-                              setCopiedRaw(true);
-                              setTimeout(() => setCopiedRaw(false), 2000);
-                            }
-                          }}
-                          className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
-                        >
-                          {copiedRaw ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedRaw ? "Copied" : "Copy"}</span>
-                        </button>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            readOnly
+                            value={shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || ""}
+                            className="flex-1 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          />
+                          <button
+                            onClick={() => {
+                              const rUrl = shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || "";
+                              if (rUrl) {
+                                navigator.clipboard.writeText(rUrl);
+                                setCopiedRaw(true);
+                                setTimeout(() => setCopiedRaw(false), 2000);
+                              }
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                          >
+                            {copiedRaw ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedRaw ? "Copied" : "Copy"}</span>
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-muted-foreground">
-                        Permanent raw link to embed directly in Discord, GitHub READMEs, or blogs. Streams straight from Cloudflare R2 edge with zero server load.
-                      </p>
                     </div>
                   )}
 
                   {/* XURL Shortlink */}
                   {(shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl) ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <label className="text-xs font-medium text-foreground">Short Link</label>
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                            Synced
-                          </span>
+                    <div className="space-y-2 p-3.5 rounded-xl bg-card border border-border/90 hover:border-indigo-500/40 shadow-xs transition-colors flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Globe className="w-3.5 h-3.5 text-blue-500" />
+                            <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                              <span>XURL Short Link</span>
+                              <InfoTooltip
+                                variant="info"
+                                title="XURL (3rd-Party Vanity Shortlink)"
+                                content="An ultra-short vanity link powered by the external 3rd-party service XURL (https://xurl.eu.cc), automatically synchronized with your file share. Ideal for SMS, Twitter/X, and printed QR codes."
+                              />
+                            </label>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wide">
+                              3rd-Party
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                              Synced
+                            </span>
+                          </div>
+                          <a
+                            href="https://xurl.eu.cc"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 font-medium transition cursor-pointer"
+                            title="Visit live XURL website"
+                          >
+                            <span>xurl.eu.cc</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
                         </div>
-                        <span className="text-[10px] text-blue-500 font-mono">xurl.eu.cc</span>
+                        <p className="text-[11px] text-muted-foreground leading-snug mb-2">
+                          Compact vanity redirect URL powered by third-party partner XURL.
+                        </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          readOnly
-                          value={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl || ""}
-                          className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all"
-                        />
-                        <button
-                          onClick={() => {
-                            const shortUrl = shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl;
-                            if (shortUrl) {
-                              navigator.clipboard.writeText(shortUrl);
-                              setCopiedXurl(true);
-                              setTimeout(() => setCopiedXurl(false), 2000);
-                            }
-                          }}
-                          className="px-3 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium flex items-center gap-1.5 border border-border transition cursor-pointer shrink-0"
-                        >
-                          {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedXurl ? "Copied" : "Copy"}</span>
-                        </button>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            readOnly
+                            value={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl || ""}
+                            className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs text-blue-600 dark:text-blue-400 font-mono select-all focus:outline-none"
+                          />
+                          <button
+                            onClick={() => {
+                              const shortUrl = shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl;
+                              if (shortUrl) {
+                                navigator.clipboard.writeText(shortUrl);
+                                setCopiedXurl(true);
+                                setTimeout(() => setCopiedXurl(false), 2000);
+                              }
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold flex items-center gap-1.5 border border-border transition cursor-pointer shrink-0"
+                          >
+                            {copiedXurl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedXurl ? "Copied" : "Copy"}</span>
+                          </button>
+                          <a
+                            href={shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition cursor-pointer shrink-0"
+                            title="Open short link in new tab"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
                       </div>
                     </div>
                   ) : (shareResult.xurl || (shareResult as { share?: { xurl?: unknown } }).share?.xurl) ? (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-foreground">Short Link Status</label>
-                      <div className="p-2 rounded-xl bg-destructive/10 border border-destructive/20 text-[11px] text-destructive flex items-center gap-2">
+                    <div className="space-y-1.5 p-3 rounded-xl bg-destructive/8 border border-destructive/20 text-xs">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        <span>Short Link Status</span>
+                        <InfoTooltip
+                          variant="amber"
+                          title="Shortlink Registration Status"
+                          content="Indicates whether the external XURL service was able to create the shortened vanity alias."
+                        />
+                      </label>
+                      <div className="flex items-center gap-2 text-[11px] text-destructive">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                        <span>Short link creation failed (see details below).</span>
+                        <span>Short link creation failed (see audit logs for details).</span>
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-foreground">Short Link Status</label>
-                      <div className="p-2 rounded-xl bg-muted/20 border border-border text-[11px] text-muted-foreground flex items-center gap-2">
+                    <div className="space-y-1.5 p-3 rounded-xl bg-muted/20 border border-border text-xs">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        <span>Short Link Status</span>
+                        <InfoTooltip
+                          title="Shortlink Configuration"
+                          content="Short links can be toggled on during share generation to automatically create an xurl.eu.cc vanity alias."
+                        />
+                      </label>
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                         <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         <span>Short link was not requested for this share.</span>
                       </div>
@@ -1466,56 +1729,54 @@ export function FileManager({
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleCreateShare} className="space-y-4">
+              <form onSubmit={handleCreateShare} className="space-y-3 sm:space-y-3.5">
                 {/* Expired File Warning Banner */}
                 {isFileExpired && (
-                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 flex items-start gap-2.5 animate-in fade-in duration-200">
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 flex items-start gap-2 animate-in fade-in duration-200">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <div className="space-y-0.5 text-xs">
-                      <div className="font-semibold">File Has Expired — Share Link Creation Locked</div>
+                      <div className="font-semibold">File Has Expired</div>
                       <div className="text-[11px] text-rose-600/90 dark:text-rose-400/90">
-                        This file has reached the end of its retention lifecycle. Share links cannot be created for expired files.
+                        This file has expired, so new share links cannot be created.
                       </div>
                     </div>
                   </div>
                 )}
 
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${isFileExpired ? "opacity-45 pointer-events-none select-none" : ""}`}>
-                  {/* Left Column: Link Settings */}
-                  <div className="space-y-3.5">
-                    {/* Expiry Selector strictly synchronized with file upload */}
+                <div className={`space-y-3.5 ${isFileExpired ? "opacity-45 pointer-events-none select-none" : ""}`}>
+                  {/* Section 1: 4 Core Settings in Balanced 2x2 Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {/* Expiry Selector */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                        <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-blue-500" />
                           <span>Link Expiration</span>
+                          <InfoTooltip
+                            title="Automatic Expiration"
+                            content="This link stays active as long as the file does. When the file expires, this link automatically closes."
+                          />
                         </label>
                         {selectedFileForShare.expires_at && !isFileExpired && (
-                          <span className="text-[10px] font-mono font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                             <Check className="w-3 h-3" />
-                            <span>Strict Sync</span>
-                          </span>
-                        )}
-                        {selectedFileForShare.expires_at && isFileExpired && (
-                          <span className="text-[10px] font-mono font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" />
-                            <span>Expired</span>
+                            <span>Auto-expires</span>
                           </span>
                         )}
                       </div>
 
-                      <div className="relative">
+                      <div className="relative group">
                         <select
                           value="file_expiry"
                           disabled
-                          className="w-full px-3 py-2.5 rounded-xl bg-muted/20 border border-border text-xs text-foreground font-medium cursor-not-allowed appearance-none select-none pr-9 disabled:opacity-90"
+                          className="w-full h-10 px-3.5 rounded-xl bg-muted/30 border border-border/80 hover:border-border text-xs sm:text-[13px] text-foreground/90 font-medium cursor-not-allowed appearance-none select-none pr-9 disabled:opacity-90 transition-all duration-200"
                         >
                           <option value="file_expiry">
                             {selectedFileForShare.expires_at
                               ? isFileExpired
-                                ? "File Expired (Cannot create share link)"
-                                : `Strictly Synced with File Lifecycle (${formatExpiry(selectedFileForShare.expires_at, currentTime)})`
-                              : "Permanent / Matches File (Never Expire)"}
+                                ? "File Expired"
+                                : `Same as file (expires in ${formatExpiry(selectedFileForShare.expires_at, currentTime)})`
+                              : "Permanent (Never expires)"}
                           </option>
                         </select>
                         <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground flex items-center gap-1">
@@ -1523,197 +1784,410 @@ export function FileManager({
                         </div>
                       </div>
 
-                      <div className="text-[11px] text-muted-foreground pt-0.5">
-                        {selectedFileForShare.expires_at ? (
-                          isFileExpired ? (
-                            <span className="text-rose-600 dark:text-rose-400 font-medium flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                              <span>Target file has expired. Sharing is locked.</span>
-                            </span>
-                          ) : (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                              <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span>XURL &amp; GPHost links strictly expire in {formatExpiry(selectedFileForShare.expires_at, currentTime)}.</span>
-                            </span>
-                          )
-                        ) : (
-                          <span>Target file is permanent. XURL &amp; GPHost links strictly inherit permanent retention.</span>
-                        )}
-                      </div>
+                      <p className="text-[11px] text-muted-foreground/75 truncate">
+                        {selectedFileForShare.expires_at
+                          ? isFileExpired
+                            ? "Target file has expired. Sharing is locked."
+                            : `Link will automatically expire in ${formatExpiry(selectedFileForShare.expires_at, currentTime)}.`
+                          : "Permanent file — link will never expire."}
+                      </p>
                     </div>
 
-                    {/* Custom Slug Option */}
+                    {/* Password Protection */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                          <span>Custom Link Slug</span>
+                        <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                          <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span>Password Protection</span>
+                          <span className="text-[10.5px] font-normal text-muted-foreground">(Optional)</span>
+                          <InfoTooltip
+                            title="Password Protection"
+                            content="Require visitors to enter a password before viewing or downloading this file. Leave blank for a public link."
+                          />
+                        </label>
+                        <span className="text-[10px] font-medium text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md border border-border/60">
+                          Encrypted
+                        </span>
+                      </div>
+                      <input
+                        type="password"
+                        placeholder="Leave blank for public access"
+                        value={sharePassword}
+                        onChange={(e) => setSharePassword(e.target.value)}
+                        maxLength={128}
+                        className="w-full h-10 px-3.5 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-xs sm:text-[13px] text-foreground font-sans placeholder:font-sans placeholder:text-muted-foreground/50 placeholder:font-normal transition-all duration-200 shadow-2xs hover:shadow-xs focus:shadow-xs"
+                      />
+
+                      {/* Smooth Accordion: Password Hint (Appears when password is typed) */}
+                      {sharePassword.length > 0 && (
+                        <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-150 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                              <Lightbulb className="w-3 h-3 text-amber-500" />
+                              <span>Password Hint (Optional)</span>
+                            </label>
+                            <span className="text-[10px] text-muted-foreground">Shown to recipient</span>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="e.g. Office Wi-Fi password, project code name"
+                            value={sharePasswordHint}
+                            onChange={(e) => setSharePasswordHint(e.target.value)}
+                            maxLength={100}
+                            className="w-full h-8 px-3 rounded-lg bg-background/90 hover:bg-background border border-border/80 hover:border-amber-500/50 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 focus:outline-none text-xs text-foreground placeholder:text-muted-foreground/50 transition-all font-sans"
+                          />
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-muted-foreground/75 truncate">
+                        Visitors must enter this password to view or download.
+                      </p>
+                    </div>
+
+                    {/* Custom Link Name */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                          <span>Custom Link Name</span>
                           {isPremium ? (
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 tracking-wider">
                               PRO
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-1">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-0.5">
                               <Lock className="w-2.5 h-2.5" />
-                              <span>PRO ONLY</span>
+                              <span>PRO</span>
                             </span>
                           )}
+                          <InfoTooltip
+                            title="Custom Link Name"
+                            content="Choose a clean, memorable address for your link (e.g. gphost.eu.cc/f/project-deck) instead of random letters."
+                          />
                         </label>
-                        <span className="text-[10px] text-muted-foreground">
-                          {isPremium ? "Letters, numbers, dashes" : "Upgrade to unlock"}
+                        <span className="text-[10.5px] text-muted-foreground">
+                          {isPremium ? "letters, numbers, dashes" : "Upgrade to unlock"}
                         </span>
                       </div>
 
                       {isPremium ? (
                         <div className="space-y-1">
-                          <div className="flex items-center rounded-xl bg-background border border-border focus-within:border-blue-500 transition overflow-hidden">
-                            <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                          <div className="flex items-center h-10 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200 shadow-2xs hover:shadow-xs focus-within:shadow-xs overflow-hidden group">
+                            <span className="h-full flex items-center px-3 bg-muted/40 group-hover:bg-muted/60 text-xs text-muted-foreground font-mono font-medium border-r border-border/80 group-hover:border-blue-500/30 group-focus-within:border-blue-500/40 select-none transition-colors duration-200">
                               /f/
                             </span>
                             <input
                               type="text"
-                              placeholder="my-custom-slug"
+                              placeholder="e.g. my-project-files"
                               value={shareCustomSlug}
                               onChange={(e) =>
                                 setShareCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
                               }
                               maxLength={48}
-                              className="w-full px-3 py-2 text-xs text-foreground bg-transparent focus:outline-none font-mono placeholder:text-muted-foreground"
+                              className="w-full h-full px-3 text-xs sm:text-[13px] text-foreground font-mono tracking-tight font-medium bg-transparent focus:outline-none placeholder:text-muted-foreground/50 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
                             />
                             {shareCustomSlug && (
                               <button
                                 type="button"
                                 onClick={() => setShareCustomSlug("")}
-                                className="p-1.5 mr-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                                className="p-1 mr-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg cursor-pointer transition-colors"
+                                aria-label="Clear custom slug"
                               >
-                                <X className="w-3 h-3" />
+                                <X className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
                           {shareCustomSlug && (
-                            <div className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
-                              <span className="font-medium text-foreground">Sync:</span>
-                              <span className="font-mono text-blue-600 dark:text-blue-400 truncate max-w-[170px]">
+                            <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 truncate">
+                              <span className="font-medium text-foreground">Your link:</span>
+                              <span className="font-mono text-blue-600 dark:text-blue-400 font-medium truncate">
                                 {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{shareCustomSlug}
                               </span>
-                              {shareEnableXurl && (
-                                <>
-                                  <span className="text-muted-foreground">&bull;</span>
-                                  <span className="font-mono text-indigo-500 dark:text-indigo-400 truncate max-w-[140px]">
-                                    xurl.eu.cc/{shareCustomSlug}
-                                  </span>
-                                </>
-                              )}
                             </div>
                           )}
                         </div>
                       ) : (
-                        <div className="flex items-center rounded-xl bg-muted/20 border border-border overflow-hidden opacity-60 cursor-not-allowed">
-                          <span className="px-3 py-2 bg-muted/40 text-[11px] text-muted-foreground border-r border-border font-mono select-none">
+                        <div className="flex items-center h-10 rounded-xl bg-muted/20 border border-border/70 overflow-hidden opacity-60 cursor-not-allowed">
+                          <span className="h-full flex items-center px-3 bg-muted/40 text-xs text-muted-foreground border-r border-border/70 font-mono select-none">
                             /f/
                           </span>
                           <input
                             type="text"
                             disabled
-                            placeholder="Upgrade to Premium to set custom slugs"
-                            className="w-full px-3 py-2 text-xs text-muted-foreground bg-transparent focus:outline-none font-mono cursor-not-allowed"
+                            placeholder="Upgrade to Premium to set custom names"
+                            className="w-full h-full px-3 text-xs text-muted-foreground bg-transparent focus:outline-none font-sans cursor-not-allowed placeholder:font-sans"
                           />
                         </div>
                       )}
                     </div>
 
-                    {/* Max Downloads (Strict Backend Enforcement) */}
+                    {/* Download Limit */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs text-muted-foreground font-medium">Max Downloads (Optional)</label>
-                        <span className="text-[10px] text-muted-foreground font-mono">
+                        <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                          <span>Download Limit</span>
+                          <span className="text-[10.5px] font-normal text-muted-foreground">(Optional)</span>
+                          <InfoTooltip
+                            title="Download Limit"
+                            content="Set how many times this file can be downloaded before the link turns off. Leave blank if anyone can download it without limits."
+                          />
+                        </label>
+                        <span className="text-[10.5px] text-muted-foreground font-mono font-medium">
                           {shareIsSingleUse ? "Single-Use: 1" : shareMaxDownloads ? `${shareMaxDownloads} max` : "Unlimited"}
                         </span>
                       </div>
                       <input
                         type="number"
                         min="1"
-                        placeholder={shareIsSingleUse ? "1 (Single-Use Link Locked)" : "Unlimited (e.g. 5, 10, 50)"}
+                        placeholder={shareIsSingleUse ? "1 (Single-Use Link Locked)" : "No limit (e.g. 5, 10, 50)"}
                         value={shareIsSingleUse ? "1" : shareMaxDownloads}
                         onChange={(e) => setShareMaxDownloads(e.target.value)}
                         disabled={shareIsSingleUse}
-                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
+                        className="w-full h-10 px-3.5 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-xs sm:text-[13px] text-foreground font-mono font-medium tracking-tight placeholder:font-sans placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border/80 disabled:hover:bg-background/80 disabled:hover:shadow-none transition-all duration-200 shadow-2xs hover:shadow-xs focus:shadow-xs"
                       />
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground/75 truncate">
                         {shareIsSingleUse ? (
                           <span className="text-amber-600 dark:text-amber-400 font-medium">
-                            Strictly immutable: link destroys itself immediately after first download.
+                            Locked to 1 download (Single-Use enabled).
                           </span>
                         ) : (
-                          <span>Owner can set a download limit enforced by backend database locks, or leave empty for unlimited.</span>
+                          <span>Leave empty for unlimited downloads, or enter a number.</span>
                         )}
                       </p>
                     </div>
                   </div>
 
-                  {/* Right Column: Security & Sync Options */}
-                  <div className="space-y-3.5">
-                    {/* Password Protection */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
-                        <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span>Password (Optional)</span>
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Set a password for this link"
-                        value={sharePassword}
-                        onChange={(e) => setSharePassword(e.target.value)}
-                        maxLength={128}
-                        className="w-full px-3 py-2.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-
-                    {/* Single Use Toggle */}
-                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
-                      <div>
-                        <div className="text-xs font-medium text-foreground">Single-Use Link</div>
-                        <div className="text-[11px] text-muted-foreground">Expires automatically after 1st download</div>
+                  {/* Private Note / Memo for Recipient (Optional Expander) */}
+                  <div className="pt-0.5">
+                    {!showRecipientNote ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowRecipientNote(true)}
+                        className="text-[11.5px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 flex items-center gap-1.5 transition cursor-pointer hover:underline"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>+ Add private note or message for recipient (Optional)</span>
+                      </button>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/80 space-y-1.5 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                            <span>Private Note for Recipient</span>
+                            <span className="text-[10px] text-muted-foreground font-normal">
+                              (Shown as memo banner on download page)
+                            </span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowRecipientNote(false);
+                              setShareRecipientNote("");
+                            }}
+                            className="text-[10.5px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="e.g. Here is the revised draft for review — please keep confidential."
+                          value={shareRecipientNote}
+                          onChange={(e) => setShareRecipientNote(e.target.value)}
+                          maxLength={280}
+                          className="w-full h-9 px-3 rounded-lg bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 focus:outline-none text-xs text-foreground placeholder:text-muted-foreground/50 transition-all font-sans"
+                        />
+                        <div className="flex justify-between items-center text-[10px] text-muted-foreground">
+                          <span>Recipient sees this above the file name.</span>
+                          <span>{shareRecipientNote.length}/280</span>
+                        </div>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={shareIsSingleUse}
-                        onChange={(e) => setShareIsSingleUse(e.target.checked)}
-                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
+                    )}
+                  </div>
+
+                  {/* Section 2: 5 Delivery & Security Feature Cards in Balanced Responsive Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 pt-0.5">
+                    {/* Card 1: One-Time Download */}
+                    <label className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all duration-200 cursor-pointer select-none group relative overflow-hidden ${
+                      shareIsSingleUse
+                        ? "bg-blue-500/[0.08] border-blue-500/60 ring-1 ring-blue-500/30 shadow-xs"
+                        : "bg-muted/30 hover:bg-muted/60 border-border/80 hover:border-blue-500/50 hover:shadow-xs"
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            <span>One-Time</span>
+                            <InfoTooltip
+                              title="One-Time Download"
+                              content="The link works for exactly 1 download, then automatically deletes itself forever."
+                            />
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={shareIsSingleUse}
+                            onChange={(e) => setShareIsSingleUse(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0 transition-transform duration-200 group-hover:scale-110"
+                          />
+                        </div>
+                        <div className="inline-flex">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/80">
+                            Burn after 1
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/85 leading-snug">
+                          Deletes link after 1 successful download.
+                        </p>
+                      </div>
                     </label>
 
-                    {/* Burn on Preview Toggle */}
-                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
-                      <div>
-                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                          <Flame className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Burn on Preview</span>
+                    {/* Card 2: Disappearing Link (Self-Destruct) */}
+                    <label className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all duration-200 cursor-pointer select-none group relative overflow-hidden ${
+                      shareBurnAfterPreview
+                        ? "bg-rose-500/[0.08] border-rose-500/60 ring-1 ring-rose-500/30 shadow-xs"
+                        : "bg-muted/30 hover:bg-muted/60 border-border/80 hover:border-rose-500/50 hover:shadow-xs"
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">
+                            <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span>Self-Destruct</span>
+                            <InfoTooltip
+                              variant="purple"
+                              title="Disappearing Share Link (60s Burn)"
+                              content="When recipient opens the link, a 60-second countdown begins, after which this share link is destroyed. Your original file in storage is 100% untouched."
+                            />
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={shareBurnAfterPreview}
+                            onChange={(e) => setShareBurnAfterPreview(e.target.checked)}
+                            className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer accent-rose-600 shrink-0 transition-transform duration-200 group-hover:scale-110"
+                          />
                         </div>
-                        <div className="text-[11px] text-muted-foreground">Destroys itself 60s after first preview</div>
+                        <div className="inline-flex">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                            Burns Link (60s)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/85 leading-snug">
+                          Deletes 60s after first open. File is safe.
+                        </p>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={shareBurnAfterPreview}
-                        onChange={(e) => setShareBurnAfterPreview(e.target.checked)}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
-                      />
                     </label>
 
-                    {/* XURL Toggle */}
-                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
-                      <div>
-                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                          <Globe className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Shorten &amp; Sync Link</span>
+                    {/* Card 3: Direct Download Mode */}
+                    <label className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all duration-200 cursor-pointer select-none group relative overflow-hidden ${
+                      shareDirectDownload
+                        ? "bg-purple-500/[0.08] border-purple-500/60 ring-1 ring-purple-500/30 shadow-xs"
+                        : "bg-muted/30 hover:bg-muted/60 border-border/80 hover:border-purple-500/50 hover:shadow-xs"
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                            <Zap className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                            <span>Direct Download</span>
+                            <InfoTooltip
+                              variant="purple"
+                              title="Direct Download Mode"
+                              content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading via HTTP 302 directly to Cloudflare R2 (0 Vercel bandwidth used)."
+                            />
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={shareDirectDownload}
+                            onChange={(e) => setShareDirectDownload(e.target.checked)}
+                            className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer accent-purple-600 shrink-0 transition-transform duration-200 group-hover:scale-110"
+                          />
                         </div>
-                        <div className="text-[11px] text-muted-foreground">Creates clean synchronized xurl.eu.cc short link (synced expiry)</div>
+                        <div className="inline-flex">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                            Zero Egress • Instant
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/85 leading-snug">
+                          Bypasses preview. Directly triggers download.
+                        </p>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={shareEnableXurl}
-                        onChange={(e) => setShareEnableXurl(e.target.checked)}
-                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
+                    </label>
+
+                    {/* Card 4: Disable In-Browser Preview */}
+                    <label className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all duration-200 cursor-pointer select-none group relative overflow-hidden ${
+                      shareDisablePreview
+                        ? "bg-amber-500/[0.08] border-amber-500/60 ring-1 ring-amber-500/30 shadow-xs"
+                        : "bg-muted/30 hover:bg-muted/60 border-border/80 hover:border-amber-500/50 hover:shadow-xs"
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                            <EyeOff className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>Disable Preview</span>
+                            <InfoTooltip
+                              variant="amber"
+                              title="Disable In-Browser Preview"
+                              content="Suppresses embedded video streaming, audio players, image previews, and PDF viewers. Requires recipient to click Download to inspect the file."
+                            />
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={shareDisablePreview}
+                            onChange={(e) => setShareDisablePreview(e.target.checked)}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 shrink-0 transition-transform duration-200 group-hover:scale-110"
+                          />
+                        </div>
+                        <div className="inline-flex">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Force Download
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/85 leading-snug">
+                          Hides in-browser media players and streaming.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Card 5: Shorten with XURL (3rd-Party) */}
+                    <label className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all duration-200 cursor-pointer select-none group relative overflow-hidden ${
+                      shareEnableXurl
+                        ? "bg-blue-500/[0.08] border-blue-500/60 ring-1 ring-blue-500/30 shadow-xs"
+                        : "bg-muted/30 hover:bg-muted/60 border-border/80 hover:border-blue-500/50 hover:shadow-xs"
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span>XURL Shortlink</span>
+                            <InfoTooltip
+                              variant="info"
+                              title="XURL (3rd-Party URL Shortener Integration)"
+                              content="XURL (https://xurl.eu.cc) is an external third-party URL shortening service integrated with GPHost. Enabling this creates an extra-compact, easy-to-share link (e.g. xurl.eu.cc/abc) that redirects to your file. GPHost automatically syncs expiration with XURL so the short link closes when your file expires."
+                            />
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={shareEnableXurl}
+                            onChange={(e) => setShareEnableXurl(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0 transition-transform duration-200 group-hover:scale-110"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25 uppercase tracking-wider">
+                            3rd-Party
+                          </span>
+                          <a
+                            href="https://xurl.eu.cc"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition cursor-pointer px-1.5 py-0.5 rounded hover:bg-blue-500/10"
+                            title="Visit xurl.eu.cc in new tab"
+                          >
+                            <span>xurl.eu.cc</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/85 leading-snug">
+                          Creates vanity shortlink synced with file expiry.
+                        </p>
+                      </div>
                     </label>
                   </div>
                 </div>
@@ -1724,37 +2198,37 @@ export function FileManager({
                   </div>
                 )}
 
-                <div className="pt-3 border-t border-border flex items-center justify-between">
+                <div className="pt-2.5 border-t border-border flex items-center justify-between">
                   <p className="text-[11px] text-muted-foreground hidden sm:block">
                     {isFileExpired
                       ? "Expired files cannot have share links generated."
-                      : "Share links inherit synchronized lifecycle with target files."}
+                      : "Links automatically close when the file expires."}
                   </p>
-                  <div className="flex items-center gap-2 ml-auto">
+                  <div className="flex items-center gap-2.5 ml-auto">
                     <button
                       type="button"
                       onClick={() => setSelectedFileForShare(null)}
-                      className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-muted/60 hover:bg-muted text-xs font-medium text-foreground hover:text-foreground border border-border/60 hover:border-border transition-all duration-150 cursor-pointer shadow-2xs active:scale-[0.98]"
                     >
                       {isFileExpired ? "Close" : "Cancel"}
                     </button>
                     <button
                       type="submit"
                       disabled={creatingShare || isFileExpired}
-                      className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
+                      className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-semibold transition-all duration-150 shadow-sm ${
                         isFileExpired
                           ? "bg-muted text-muted-foreground cursor-not-allowed border border-border"
-                          : "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50"
+                          : "bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white hover:shadow-md hover:shadow-blue-500/20 active:scale-[0.98] cursor-pointer"
                       }`}
                     >
                       {creatingShare && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       {isFileExpired ? (
                         <>
                           <Lock className="w-3.5 h-3.5" />
-                          <span>Sharing Locked (File Expired)</span>
+                          <span>Sharing Locked (Expired)</span>
                         </>
                       ) : (
-                        <span>Create Link</span>
+                        <span>Create Share Link</span>
                       )}
                     </button>
                   </div>

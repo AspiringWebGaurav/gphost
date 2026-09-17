@@ -77,8 +77,14 @@ export default async function DashboardLayout({
           <DashboardNav isAdmin={isAdmin} />
         </div>
 
-        {/* Quota Widget at bottom of sidebar */}
-        <div className="pt-4 border-t border-border">
+        {/* Bottom Sidebar: Sign Out above Storage Quota Widget */}
+        <div className="pt-3 border-t border-border space-y-3">
+          <LogoutButton
+            variant="sidebar"
+            userEmail={profile.email}
+            className="w-full"
+          />
+
           <QuotaWidget
             quotaBytes={profile.quota_bytes}
             storageUsedBytes={profile.storage_used_bytes}
@@ -138,7 +144,6 @@ export default async function DashboardLayout({
               {isAdmin ? "Admin" : "Standard"}
             </span>
             <ThemeToggle />
-            <LogoutButton variant="outline" className="hidden sm:inline-flex" />
           </div>
         </header>
 

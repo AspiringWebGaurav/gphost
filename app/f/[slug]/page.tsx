@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPublicShareMetadata, getPreviewType } from "@/lib/storage/share";
@@ -8,6 +8,7 @@ import { DownloadCard } from "@/components/share/download-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { AlertCircle, Clock, Ban, Flame } from "lucide-react";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,10 @@ interface PublicShareRecord {
   burn_after_preview?: boolean;
   first_previewed_at?: string | null;
   preview_count?: number | null;
+  direct_download?: boolean;
+  disable_preview?: boolean;
+  recipient_note?: string | null;
+  password_hint?: string | null;
   expires_at: string | null;
   max_downloads: number | null;
   download_count: number;
@@ -114,6 +119,10 @@ interface PublicShareRecord {
       burn_after_preview,
       first_previewed_at,
       preview_count,
+      direct_download,
+      disable_preview,
+      recipient_note,
+      password_hint,
       expires_at,
       max_downloads,
       download_count,
@@ -132,7 +141,16 @@ interface PublicShareRecord {
     .eq("slug", slug)
     .single();
 
-  if (shareErr && (shareErr.code === "PGRST204" || shareErr.message?.includes("burn_after_preview"))) {
+  if (
+    shareErr &&
+    (shareErr.code === "PGRST204" ||
+      shareErr.code === "42703" ||
+      shareErr.message?.includes("burn_after_preview") ||
+      shareErr.message?.includes("direct_download") ||
+      shareErr.message?.includes("disable_preview") ||
+      shareErr.message?.includes("recipient_note") ||
+      shareErr.message?.includes("password_hint"))
+  ) {
     const { data: fallbackShare } = await adminClient
       .from("share_links")
       .select(`
@@ -159,13 +177,46 @@ interface PublicShareRecord {
       .single();
 
     share = fallbackShare
-      ? { ...fallbackShare, burn_after_preview: false, first_previewed_at: null, preview_count: 0 }
+      ? {
+          ...fallbackShare,
+          burn_after_preview: false,
+          first_previewed_at: null,
+          preview_count: 0,
+          direct_download: false,
+          disable_preview: false,
+          recipient_note: null,
+          password_hint: null,
+        }
       : null;
   } else if (shareWithBurn) {
     share = {
       ...shareWithBurn,
       burn_after_preview: Boolean(shareWithBurn.burn_after_preview),
+      direct_download: Boolean(shareWithBurn.direct_download),
+      disable_preview: Boolean(shareWithBurn.disable_preview),
+      recipient_note: shareWithBurn.recipient_note || null,
+      password_hint: shareWithBurn.password_hint || null,
     };
+  }
+
+  // If new schema fields are empty or fallback was used, check Redis for cached enhancements
+  if (share && (!share.recipient_note && !share.password_hint && !share.direct_download && !share.disable_preview)) {
+    try {
+      const cached = await redis.get<{
+        direct_download?: boolean;
+        disable_preview?: boolean;
+        recipient_note?: string | null;
+        password_hint?: string | null;
+      }>(`share_enhancements:${slug}`);
+      if (cached) {
+        if (cached.direct_download !== undefined) share.direct_download = cached.direct_download;
+        if (cached.disable_preview !== undefined) share.disable_preview = cached.disable_preview;
+        if (cached.recipient_note !== undefined) share.recipient_note = cached.recipient_note;
+        if (cached.password_hint !== undefined) share.password_hint = cached.password_hint;
+      }
+    } catch {
+      // Non-blocking Redis fallback
+    }
   }
 
   if (!share || !share.file) {
@@ -281,8 +332,13 @@ interface PublicShareRecord {
   const publicMetadata = formatPublicShareMetadata(file, share);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 
-  // Generate initial preview URL if file is an image or PDF and not password protected
-  const previewType = getPreviewType(file.mime_type, file.sanitized_name);
+  // Direct Download Mode: If direct download is enabled and not password protected, 302-redirect immediately to /raw/[slug]
+  if (share.direct_download && !share.password_hash) {
+    redirect(`/raw/${slug}`);
+  }
+
+  // Generate initial preview URL if file is an image or PDF, preview is not disabled, and not password protected
+  const previewType = share.disable_preview ? null : getPreviewType(file.mime_type, file.sanitized_name);
   let initialPreviewUrl: string | null = null;
 
   if (previewType && !share.password_hash && file.r2_key) {
@@ -307,6 +363,10 @@ interface PublicShareRecord {
         siteKey={siteKey}
         initialPreviewUrl={initialPreviewUrl}
         initialPreviewType={previewType}
+        directDownload={Boolean(share.direct_download)}
+        disablePreview={Boolean(share.disable_preview)}
+        recipientNote={share.recipient_note || null}
+        passwordHint={share.password_hint || null}
       />
     </PublicShareLayout>
   );

@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteR2Object } from "@/lib/storage/r2";
+import { deleteR2Object, abortR2MultipartUpload } from "@/lib/storage/r2";
 
 // Minimum interval between opportunistic lifecycle sweeps (default: 5 minutes)
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -15,6 +15,7 @@ export async function executeLifecycleSweep(): Promise<{
   singleUseReconciled: number;
   expiredFilesPurged: number;
   expiredLinksDeactivated: number;
+  abandonedUploadsPruned: number;
 }> {
   const adminClient = createAdminClient();
   const nowIso = new Date().toISOString();
@@ -22,6 +23,7 @@ export async function executeLifecycleSweep(): Promise<{
   let singleUseCount = 0;
   let expiredFilesCount = 0;
   let expiredLinksCount = 0;
+  let abandonedUploadsCount = 0;
 
   try {
     // 1. Deactivate expired share links
@@ -154,6 +156,57 @@ export async function executeLifecycleSweep(): Promise<{
         expiredFilesCount++;
       }
     }
+
+    // 4. Prune abandoned UPLOADING records older than 15 minutes and release reserved quota
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: abandonedUploads } = await adminClient
+      .from("files")
+      .select("id, r2_key, user_id, byte_size, is_multipart, r2_upload_id")
+      .eq("status", "UPLOADING")
+      .lte("created_at", fifteenMinutesAgo)
+      .limit(50);
+
+    if (abandonedUploads && abandonedUploads.length > 0) {
+      for (const file of abandonedUploads) {
+        // Release reserved quota
+        if (file.byte_size > 0 && file.user_id) {
+          try {
+            await adminClient.rpc("release_quota_reservation", {
+              p_user_id: file.user_id,
+              p_reserved_bytes: file.byte_size,
+            });
+          } catch (e) {
+            console.error("[Lifecycle Sweep] Failed to release quota for abandoned upload:", e);
+          }
+        }
+
+        // Abort multipart if applicable
+        if (file.is_multipart && file.r2_upload_id && file.r2_key) {
+          try {
+            await abortR2MultipartUpload(file.r2_key, file.r2_upload_id);
+          } catch {
+            // Ignore abort error
+          }
+        }
+
+        // Delete physical R2 object if any exists
+        if (file.r2_key) {
+          try {
+            await deleteR2Object(file.r2_key);
+          } catch {
+            // Ignore if object doesn't exist
+          }
+        }
+
+        // Permanently delete the abandoned upload placeholder
+        await adminClient
+          .from("files")
+          .delete()
+          .eq("id", file.id);
+
+        abandonedUploadsCount++;
+      }
+    }
   } catch (err) {
     console.error("[Lifecycle Sweep] Error during opportunistic sweep:", err);
   }
@@ -162,6 +215,7 @@ export async function executeLifecycleSweep(): Promise<{
     singleUseReconciled: singleUseCount,
     expiredFilesPurged: expiredFilesCount,
     expiredLinksDeactivated: expiredLinksCount,
+    abandonedUploadsPruned: abandonedUploadsCount,
   };
 }
 

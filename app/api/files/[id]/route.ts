@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object } from "@/lib/storage/r2";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -69,11 +70,11 @@ export async function DELETE(
       );
     }
 
-    // 4.5. Nuclear purge of all associated share links and xurl mappings for this file
+    // 4.5. Nuclear purge of all associated share links, xurl mappings, and Redis caches for this file
     try {
       const { data: fileShareLinks } = await adminClient
         .from("share_links")
-        .select("id")
+        .select("id, slug")
         .eq("file_id", fileId);
 
       if (fileShareLinks && fileShareLinks.length > 0) {
@@ -97,6 +98,22 @@ export async function DELETE(
           .delete()
           .in("id", shareIds);
       }
+
+      // Invalidate all Redis caches for file & associated shares
+      const delPromises: Promise<unknown>[] = [redis.del(`analytics:${fileId}`)];
+      if (fileShareLinks) {
+        for (const s of fileShareLinks) {
+          if (s.slug) {
+            delPromises.push(
+              redis.del(`share:slug:${s.slug}`),
+              redis.del(`share:pub:${s.slug}`),
+              redis.del(`raw:meta:${s.slug}`),
+              redis.del(`share_enhancements:${s.slug}`)
+            );
+          }
+        }
+      }
+      await Promise.all(delPromises);
     } catch (linkPurgeErr) {
       console.error("Error nuclear-purging share links for deleted file:", linkPurgeErr);
     }

@@ -54,7 +54,7 @@ export default function PrivacyPage() {
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-500" />
-              <span>2. No Middleman Snooping (Direct Architecture)</span>
+              <span>2. Direct-to-Storage Architecture &amp; Privacy</span>
             </h2>
             <p>
               Unlike traditional cloud hosts where files pass through central company servers that can buffer, scan, or index your content, GPHosting streams files <strong>directly</strong> between your browser and high-speed Cloudflare storage. Our application servers never inspect, read, or hold your file contents in memory.

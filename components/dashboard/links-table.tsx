@@ -10,6 +10,7 @@ import {
   Flame,
   Clock,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { formatTimeRemaining } from "@/lib/storage/expiry";
@@ -171,9 +172,22 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
                 {/* XURL Alias if active */}
                 {link.xurl_short_url && (
-                  <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-blue-600 dark:text-blue-400 pt-1">
                     <Globe className="w-3.5 h-3.5" />
                     <span className="font-mono text-[11px]">{link.xurl_short_url}</span>
+                    <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-blue-500/10 border border-blue-500/20 uppercase tracking-wide">
+                      3rd-Party
+                    </span>
+                    <a
+                      href="https://xurl.eu.cc"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+                      title="Visit live XURL website"
+                    >
+                      <span>xurl.eu.cc</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
                   </div>
                 )}
               </div>

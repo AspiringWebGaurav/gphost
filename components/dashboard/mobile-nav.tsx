@@ -150,8 +150,14 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
               <DashboardNav isAdmin={isAdmin} onNavigate={closeDrawer} />
             </div>
 
-            {/* Bottom: Quota Widget & Actions */}
-            <div className="space-y-4 pt-4 border-t border-border">
+            {/* Bottom: Sign Out + Quota Widget & Theme */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <LogoutButton
+                variant="sidebar"
+                userEmail={profile.email}
+                className="w-full"
+              />
+
               <QuotaWidget
                 quotaBytes={profile.quota_bytes}
                 storageUsedBytes={profile.storage_used_bytes}
@@ -160,8 +166,8 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
               />
 
               <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">Interface Theme</span>
                 <ThemeToggle />
-                <LogoutButton variant="outline" className="h-8 text-xs px-2.5 rounded-xl" />
               </div>
             </div>
           </div>

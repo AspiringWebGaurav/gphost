@@ -57,11 +57,19 @@ export default async function AdminLayout({
           <AdminNav isOwner={isOwner} />
         </div>
 
-        {/* Admin Footer Status */}
-        <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs">
-          <div className="text-purple-700 dark:text-purple-300 font-medium text-[11px] mb-0.5">Control Panel</div>
-          <div className="text-muted-foreground text-[10px] leading-tight">
-            Protected by PostgreSQL row locks &amp; security policies.
+        {/* Admin Footer Controls: Sign Out + Control Panel Card */}
+        <div className="pt-3 border-t border-border space-y-3">
+          <LogoutButton
+            variant="sidebar"
+            userEmail={profile.email}
+            className="w-full"
+          />
+
+          <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs">
+            <div className="text-purple-700 dark:text-purple-300 font-medium text-[11px] mb-0.5">Control Panel</div>
+            <div className="text-muted-foreground text-[10px] leading-tight">
+              Protected by PostgreSQL row locks &amp; security policies.
+            </div>
           </div>
         </div>
       </aside>
@@ -96,7 +104,6 @@ export default async function AdminLayout({
             <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20">
               Admin Mode
             </span>
-            <LogoutButton variant="outline" className="hidden sm:inline-flex" />
           </div>
         </header>
 

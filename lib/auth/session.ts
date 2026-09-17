@@ -24,14 +24,19 @@ export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
  * Memoized per-request via React cache() to prevent redundant auth calls.
  */
 export const getAuthenticatedUser = cache(async () => {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
 
-  if (error || !user) {
+    if (error || !user) {
+      return null;
+    }
+
+    return user;
+  } catch {
+    // If refresh token is expired, invalid, or purged, gracefully treat as unauthenticated
     return null;
   }
-
-  return user;
 });
 
 /**

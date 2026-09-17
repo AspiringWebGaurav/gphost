@@ -58,6 +58,15 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+  const url = request.nextUrl.clone();
+  const { pathname } = url;
+
+  // IMPORTANT: For OAuth callback & verification routes, bypass middleware session manipulation.
+  // The route handler specifically exchanges the PKCE code for a session using the incoming code verifier cookie.
+  if (pathname.startsWith("/auth/callback") || pathname.startsWith("/auth/confirm")) {
+    return supabaseResponse;
+  }
+
   if (!supabaseUrl || !supabaseKey) {
     return supabaseResponse;
   }
@@ -96,13 +105,50 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // Refresh auth session
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const url = request.nextUrl.clone();
-  const { pathname } = url;
+  // Refresh auth session safely
+  let user = null;
+  try {
+    const userRes = await supabase.auth.getUser();
+    if (userRes.error) {
+      // If refresh token is invalid/purged, clear stale cookies so errors do not repeat
+      const err = userRes.error as { status?: number; message?: string; code?: string };
+      if (
+        err.status === 400 ||
+        err.code === "refresh_token_not_found" ||
+        err.message?.includes("Refresh Token")
+      ) {
+        request.cookies.getAll().forEach((c) => {
+          // Strictly protect PKCE code verifier cookies
+          if (c.name.includes("code-verifier") || c.name.includes("code_verifier")) {
+            return;
+          }
+          if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+            supabaseResponse.cookies.delete(c.name);
+          }
+        });
+      }
+    } else {
+      user = userRes.data?.user ?? null;
+    }
+  } catch (err: unknown) {
+    // Catch AuthApiError gracefully and purge invalid cookies
+    const authErr = err as { code?: string; status?: number; message?: string };
+    if (
+      authErr?.code === "refresh_token_not_found" ||
+      authErr?.status === 400 ||
+      authErr?.message?.includes("Refresh Token")
+    ) {
+      request.cookies.getAll().forEach((c) => {
+        // Strictly protect PKCE code verifier cookies
+        if (c.name.includes("code-verifier") || c.name.includes("code_verifier")) {
+          return;
+        }
+        if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+          supabaseResponse.cookies.delete(c.name);
+        }
+      });
+    }
+  }
 
   const isProtectedPath =
     pathname.startsWith("/dashboard") ||
@@ -188,6 +234,9 @@ export async function proxy(request: NextRequest) {
     const res = redirectWithCsp(url);
     res.cookies.delete("gphost_last_active");
     request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.includes("code-verifier") || cookie.name.includes("code_verifier")) {
+        return;
+      }
       if (cookie.name.startsWith("sb-")) {
         res.cookies.delete(cookie.name);
       }

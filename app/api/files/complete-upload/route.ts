@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -135,20 +135,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Insert Audit Log
-    await adminClient.from("audit_logs").insert({
-      actor_id: user.id,
-      event_type: "FILE_UPLOAD_COMPLETED",
-      resource_type: "file",
-      resource_id: fileId,
-      ip_hash: "server_authoritative",
-      metadata: {
-        filename: file.sanitized_name,
-        byte_size: verifiedSize,
-        is_multipart: file.is_multipart,
-        expiry_preset: file.expiry_preset,
-      },
-    });
+    // 7. Insert Audit Log (Non-blocking via after())
+    try {
+      after(async () => {
+        await adminClient.from("audit_logs").insert({
+          actor_id: user.id,
+          event_type: "FILE_UPLOAD_COMPLETED",
+          resource_type: "file",
+          resource_id: fileId,
+          ip_hash: "server_authoritative",
+          metadata: {
+            filename: file.sanitized_name,
+            byte_size: verifiedSize,
+            is_multipart: file.is_multipart,
+            expiry_preset: file.expiry_preset,
+          },
+        });
+      });
+    } catch {
+      // Fallback non-blocking async execution
+      void (async () => {
+        try {
+          await adminClient.from("audit_logs").insert({
+            actor_id: user.id,
+            event_type: "FILE_UPLOAD_COMPLETED",
+            resource_type: "file",
+            resource_id: fileId,
+            ip_hash: "server_authoritative",
+            metadata: {
+              filename: file.sanitized_name,
+              byte_size: verifiedSize,
+              is_multipart: file.is_multipart,
+              expiry_preset: file.expiry_preset,
+            },
+          });
+        } catch {}
+      })();
+    }
 
     return NextResponse.json({
       success: true,

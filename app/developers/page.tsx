@@ -10,7 +10,8 @@ import {
   Archive,
   Terminal,
   ShieldCheck,
-  CheckCircle2,
+  Activity,
+  Clock,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -45,10 +46,10 @@ export default function HowItWorksPage() {
         </div>
 
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground mb-3">
-          How to Host &amp; Share Files on GPHost
+          How to Upload &amp; Share Files on GPHost
         </h1>
         <p className="text-base text-muted-foreground max-w-2xl leading-relaxed mb-10">
-          No complicated technical words. Whether you are a student sharing school projects, a creator hosting pictures, or just sending a private video to a friend — here is how it works.
+          No complicated technical jargon. Whether you are a student sharing school projects, a creator hosting pictures, or sending private videos to friends — here is everything you can do.
         </p>
 
         <div className="space-y-12">
@@ -57,7 +58,7 @@ export default function HowItWorksPage() {
           {/* ========================================================================= */}
           <section className="space-y-6">
             <h2 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
-              <span>1. Host Anything in 3 Easy Steps</span>
+              <span>1. Upload Anything in 3 Easy Steps</span>
             </h2>
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -72,7 +73,7 @@ export default function HowItWorksPage() {
                     <span>Drop Your File</span>
                   </h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Drag and drop any file up to 1 GB — photos, videos, homework PDFs, music, or code archives.
+                    Drag and drop any file up to 1 GB — photos, videos, homework PDFs, music, or code archives. Fast cloud transfer with zero wait.
                   </p>
                 </div>
               </div>
@@ -88,7 +89,7 @@ export default function HowItWorksPage() {
                     <span>Choose Your Rules</span>
                   </h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Set a password, choose when it expires, or turn on <strong>Burn on Preview</strong> so it self-destructs after viewing.
+                    Set a password, pick an expiry date, or turn on <strong>Burn on Preview</strong> so your file deletes immediately after viewing.
                   </p>
                 </div>
               </div>
@@ -104,7 +105,7 @@ export default function HowItWorksPage() {
                     <span>Share the Link</span>
                   </h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Copy your secret link and paste it into Discord, WhatsApp, or Email. Your friend downloads it at full speed!
+                    Copy your link and paste it into Discord, WhatsApp, or Email. Your friend previews or downloads it at top internet speed!
                   </p>
                 </div>
               </div>
@@ -112,100 +113,162 @@ export default function HowItWorksPage() {
           </section>
 
           {/* ========================================================================= */}
-          {/* SECTION 2: What is the Middleman? */}
+          {/* SECTION 2: After-Upload Services */}
           {/* ========================================================================= */}
-          <section className="space-y-4 p-6 sm:p-7 rounded-2xl bg-muted/40 border border-border">
-            <div className="flex items-center gap-2 font-bold text-foreground text-lg">
-              <Sparkles className="w-5 h-5 text-blue-500" />
-              <span>What Does &ldquo;Without the Middleman&rdquo; Mean?</span>
+          <section className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-blue-500" />
+                <span>2. Services You Get After Uploading</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                Once your file is uploaded, you have a complete toolkit of sharing and security options:
+              </p>
             </div>
 
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-              Most websites act like a slow, nosy middleman. Here is how GPHost is completely different:
-            </p>
-
-            <div className="grid gap-4 sm:grid-cols-2 pt-2">
-              {/* Old Way */}
-              <div className="p-4 rounded-xl bg-card border border-rose-500/20 text-xs space-y-2">
-                <div className="font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-                  <span>❌ Old Slow Way (With Middleman)</span>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Service 1: Instant Share Links */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-500">
+                      <Share2 className="w-4 h-4" />
+                    </div>
+                    <span>Instant Share Links</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    Generates a clean web page where your friends can preview images, watch videos in-browser, or download the original file with one click.
+                  </p>
                 </div>
-                <p className="text-muted-foreground leading-relaxed">
-                  Your file first uploads to a company server. The server reads it, stores temporary copies, scans your data, and bottlenecks your upload speed.
-                </p>
+                <div className="pt-2 text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+                  Clean URLs for Discord &amp; WhatsApp
+                </div>
               </div>
 
-              {/* GPHost Way */}
-              <div className="p-4 rounded-xl bg-card border border-emerald-500/30 text-xs space-y-2">
-                <div className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>⚡ GPHost Way (Direct &amp; Private)</span>
+              {/* Service 2: Direct Raw CDN Hotlinks */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
+                      <Globe className="w-4 h-4" />
+                    </div>
+                    <span>Direct Raw CDN Links</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    Gives you a pure <code>/raw/[slug]</code> link. Perfect for showing pictures on your website, embedding video streams, or linking in GitHub READMEs.
+                  </p>
                 </div>
-                <p className="text-muted-foreground leading-relaxed">
-                  Your browser connects <strong>directly</strong> to Cloudflare high-speed edge storage. Our web server never touches, reads, or buffers your file. It flies straight to the storage vault at maximum internet speed.
-                </p>
+                <div className="pt-2 text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+                  Zero landing page, direct asset stream
+                </div>
+              </div>
+
+              {/* Service 3: Smart Burner */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
+                      <Flame className="w-4 h-4" />
+                    </div>
+                    <span>Smart Burner (Self-Destruct)</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    Like a disappearing message! Enable &ldquo;Burn on Preview&rdquo; and a 60-second countdown begins as soon as opened. Once expired, the file is gone forever.
+                  </p>
+                </div>
+                <div className="pt-2 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  Automatic irreversible deletion
+                </div>
+              </div>
+
+              {/* Service 4: Password Protection */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <span>Password Protection</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    Lock any download link with your own secret passphrase. Anyone opening the link must enter the password to view or download the file.
+                  </p>
+                </div>
+                <div className="pt-2 text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                  Private PIN or custom passphrase
+                </div>
+              </div>
+
+              {/* Service 5: Custom Expiration */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-500">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <span>Auto-Expiry Timers</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    Choose when your file should automatically expire (10 minutes, 1 hour, 1 day, 7 days, 30 days, or permanent). Automatically cleans up storage.
+                  </p>
+                </div>
+                <div className="pt-2 text-[11px] text-purple-600 dark:text-purple-400 font-medium">
+                  Automatic space management
+                </div>
+              </div>
+
+              {/* Service 6: Real-Time Edge Analytics */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                    <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <span>Live Edge Analytics</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                    See how many times your link was viewed and downloaded in real-time, plus geographic country distribution so you know who accessed it.
+                  </p>
+                </div>
+                <div className="pt-2 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  Real-time download counts &amp; locations
+                </div>
               </div>
             </div>
           </section>
 
           {/* ========================================================================= */}
-          {/* SECTION 3: Powerful Features Explained Simply */}
+          {/* SECTION 3: Advanced Privacy & Multi-File ZIP */}
           {/* ========================================================================= */}
           <section className="space-y-6">
             <h2 className="text-2xl font-bold tracking-tight text-foreground">
-              2. Cool Features You Get
+              3. Extra Tools: Bundling &amp; Encryption
             </h2>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              {/* Feature A: Smart Burner */}
-              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
-                  <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
-                    <Flame className="w-4 h-4" />
-                  </div>
-                  <span>Smart Burner (Self-Destruct)</span>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Like a disappearing message! Turn on &ldquo;Burn on Preview&rdquo; and as soon as your friend views the file, a 60-second self-destruct timer starts. Once the timer hits zero, the file is deleted forever.
-                </p>
-              </div>
-
-              {/* Feature B: Zero-Trust Encryption */}
+              {/* Tool A: Zero-Trust Encryption */}
               <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
                 <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
                   <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
                     <ShieldCheck className="w-4 h-4" />
                   </div>
-                  <span>End-to-End Encryption</span>
+                  <span>Client-Side Zero-Trust Encryption</span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Your computer locks your file with a 256-bit military-grade key inside your own browser before it ever leaves your machine. The secret key stays in your link. Even the server owner cannot open your file!
+                  Your computer encrypts your file with AES-GCM 256 inside your browser before uploading. The secret key stays in the URL hash and is never sent to the server.
                 </p>
               </div>
 
-              {/* Feature C: Direct Raw CDN Link */}
-              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
-                  <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-500">
-                    <Globe className="w-4 h-4" />
-                  </div>
-                  <span>Direct Raw / CDN Links</span>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Need to show an image on your personal website, in a Discord embed, or on a GitHub README? GPHost gives you a clean <code>/raw/[slug]</code> link that displays the image or file directly without any download page.
-                </p>
-              </div>
-
-              {/* Feature D: 1-Click ZIP Download */}
+              {/* Tool B: 1-Click ZIP Download */}
               <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
                 <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
                   <div className="p-1.5 rounded-lg bg-teal-500/10 text-teal-500">
                     <Archive className="w-4 h-4" />
                   </div>
-                  <span>Batch Multi-File ZIP</span>
+                  <span>Batch Multi-File ZIP Download</span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Sharing multiple school slides, homework PDFs, or vacation photos? The recipient can click one button to download everything bundled together in a ZIP file, created right in their browser.
+                  Sharing multiple pictures, homework documents, or project files? Select them in your file list and download everything as a single ZIP file with zero server lag.
                 </p>
               </div>
             </div>

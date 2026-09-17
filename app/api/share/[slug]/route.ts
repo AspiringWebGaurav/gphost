@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { publicShareRatelimit } from "@/lib/redis/ratelimit";
-import { formatPublicShareMetadata } from "@/lib/storage/share";
+import { formatPublicShareMetadata, PublicShareMetadata } from "@/lib/storage/share";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,14 @@ export async function GET(
         { status: 429 }
       );
     }
+
+    // 1b. Fast Redis Cache lookup (30s TTL)
+    try {
+      const cached = await redis.get<PublicShareMetadata>(`share:pub:${slug}`);
+      if (cached) {
+        return NextResponse.json(cached);
+      }
+    } catch {}
 
     // 2. Authoritative PostgreSQL lookup
     const adminClient = createAdminClient();
@@ -101,7 +110,11 @@ export async function GET(
 
     // 6. Strict Public Allow-List Metadata Return
     // Zero internal IDs, R2 keys, user emails, ETags, token hashes, or salts!
-    return NextResponse.json(formatPublicShareMetadata(file, share));
+    const publicMeta = formatPublicShareMetadata(file, share);
+    try {
+      await redis.set(`share:pub:${slug}`, publicMeta, { ex: 30 });
+    } catch {}
+    return NextResponse.json(publicMeta);
   } catch (err) {
     console.error("Error reading public share metadata:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -180,6 +193,16 @@ export async function DELETE(
       .from("share_links")
       .delete()
       .eq("id", share.id);
+
+    // Purge all ephemeral Redis keys associated with this slug
+    try {
+      await Promise.all([
+        redis.del(`share:slug:${slug}`),
+        redis.del(`share:pub:${slug}`),
+        redis.del(`raw:meta:${slug}`),
+        redis.del(`share_enhancements:${slug}`),
+      ]);
+    } catch {}
 
     if (deleteError) {
       console.error("Error permanently deleting share link:", deleteError);

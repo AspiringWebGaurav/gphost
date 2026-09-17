@@ -11,10 +11,13 @@ import {
   Loader2,
   Zap,
   ShieldCheck,
+  Copy,
+  Check,
 } from "lucide-react";
 import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
 import { generateE2EKey, encryptBuffer } from "@/lib/crypto/e2e";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -43,6 +46,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [uploadSpeed, setUploadSpeed] = useState<string>("");
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const [statusText, setStatusText] = useState<string>("");
+  const [copiedKey, setCopiedKey] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [enableZeroTrust, setEnableZeroTrust] = useState<boolean>(false);
   const [successFile, setSuccessFile] = useState<{ id: string; filename: string; size: number; e2eKeyFragment?: string } | null>(null);
@@ -429,81 +433,123 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       {/* Selected File Details & Controls */}
       {selectedFile && !uploading && (
-        <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
-              <FileIcon className="w-5 h-5" />
+        <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col gap-3.5 transition-all">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+                <FileIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate max-w-xs sm:max-w-md">
+                  {selectedFile.name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatBytes(selectedFile.size)} •{" "}
+                  {selectedFile.size >= MULTIPART_THRESHOLD ? "Multipart" : "Direct Upload"}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground truncate max-w-xs sm:max-w-md">
-                {selectedFile.name}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {formatBytes(selectedFile.size)} •{" "}
-                {selectedFile.size >= MULTIPART_THRESHOLD ? "Multipart" : "Direct Upload"}
-              </p>
-            </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-between sm:justify-end">
-            {/* Expiry Selector */}
-            <div className="flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground">
-              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-              <select
-                value={expiryPreset}
-                onChange={(e) => setExpiryPreset(e.target.value as ExpiryPreset)}
-                className="bg-transparent border-none focus:outline-none text-xs text-foreground cursor-pointer"
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-between sm:justify-end">
+              {/* Expiry Selector */}
+              <div className="flex items-center gap-1.5 bg-muted/40 hover:bg-muted/60 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground transition-colors">
+                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                <select
+                  value={expiryPreset}
+                  onChange={(e) => setExpiryPreset(e.target.value as ExpiryPreset)}
+                  className="bg-transparent border-none focus:outline-none text-xs text-foreground cursor-pointer"
+                  aria-label="File expiration preset"
+                >
+                  {EXPIRY_OPTIONS.map((opt) => {
+                    if (opt.requiresPerm && !isAdmin && !canCreatePermanent) {
+                      return null;
+                    }
+                    return (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        className={`bg-card text-foreground ${
+                          opt.value === "never" ? "text-purple-600 dark:text-purple-300 font-medium" : ""
+                        }`}
+                      >
+                        {opt.label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Zero-Trust E2E Toggle */}
+              <div
+                className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all border ${
+                  enableZeroTrust
+                    ? "bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:text-emerald-300 shadow-xs"
+                    : "bg-muted/40 hover:bg-muted/70 border-border text-foreground"
+                }`}
               >
-                {EXPIRY_OPTIONS.map((opt) => {
-                  if (opt.requiresPerm && !isAdmin && !canCreatePermanent) {
-                    return null;
-                  }
-                  return (
-                    <option
-                      key={opt.value}
-                      value={opt.value}
-                      className={`bg-card text-foreground ${
-                        opt.value === "never" ? "text-purple-600 dark:text-purple-300 font-medium" : ""
-                      }`}
-                    >
-                      {opt.label}
-                    </option>
-                  );
-                })}
-              </select>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={enableZeroTrust}
+                    onChange={(e) => setEnableZeroTrust(e.target.checked)}
+                    className="rounded border-border text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer accent-emerald-600"
+                  />
+                  <ShieldCheck
+                    className={`w-3.5 h-3.5 transition-colors ${
+                      enableZeroTrust ? "text-emerald-500" : "text-muted-foreground"
+                    }`}
+                  />
+                  <span className={enableZeroTrust ? "font-semibold text-emerald-700 dark:text-emerald-300" : "text-foreground"}>
+                    <span className="hidden sm:inline">End-to-End </span>Encrypt
+                  </span>
+                  {enableZeroTrust && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      Zero-Trust
+                    </span>
+                  )}
+                </label>
+                <InfoTooltip
+                  variant="emerald"
+                  title="What is End-to-End (Zero-Trust) Encryption?"
+                  content="When checked, your file is encrypted with 256-bit AES-GCM directly inside your browser BEFORE uploading. The decryption key is attached ONLY to your link (#key=...) and is NEVER sent to or stored on our servers. Even GPHost cannot view or read your file."
+                />
+              </div>
+
+              <button
+                onClick={() => setSelectedFile(null)}
+                className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                Clear
+              </button>
+
+              <button
+                onClick={startUpload}
+                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
+              >
+                Upload
+              </button>
             </div>
-
-            {/* Zero-Trust E2E Toggle */}
-            <label
-              title="Client-Side Zero-Trust Encryption: Encrypts the file using AES-GCM 256 in your browser before uploading to R2. The secret key is only stored in your link's URL hash fragment and is never sent to the server."
-              className="flex items-center gap-1.5 bg-muted/40 hover:bg-muted/70 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground cursor-pointer select-none transition-colors"
-            >
-              <input
-                type="checkbox"
-                checked={enableZeroTrust}
-                onChange={(e) => setEnableZeroTrust(e.target.checked)}
-                className="rounded border-border text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
-              />
-              <ShieldCheck className={`w-3.5 h-3.5 ${enableZeroTrust ? "text-emerald-500" : "text-muted-foreground"}`} />
-              <span className={enableZeroTrust ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
-                E2E Encrypt
-              </span>
-            </label>
-
-            <button
-              onClick={() => setSelectedFile(null)}
-              className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              Clear
-            </button>
-
-            <button
-              onClick={startUpload}
-              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
-            >
-              Upload
-            </button>
           </div>
+
+          {/* Zero-Trust Active Banner Info */}
+          {enableZeroTrust && (
+            <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-900 dark:text-emerald-200 animate-in fade-in slide-in-from-top-1 duration-200">
+              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <div className="space-y-0.5 min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                    Zero-Knowledge Encryption Active
+                  </span>
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold">
+                    AES-GCM-256
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Your file will be encrypted locally in your browser before uploading. The decryption key will be placed strictly in the share link fragment (<code className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">#key=...</code>) and is never transmitted to our servers. Only people with the full link can open it.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -614,44 +660,100 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       {/* Success Notification */}
       {successFile && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 text-emerald-600 dark:text-emerald-400 text-xs">
+        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-4 text-xs shadow-xs animate-in fade-in duration-200">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-2 text-foreground font-medium">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 <strong>{successFile.filename}</strong> ({formatBytes(successFile.size)}) successfully uploaded.
               </span>
             </div>
             <button
               onClick={() => setSuccessFile(null)}
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted/50 transition-colors"
+              aria-label="Dismiss success message"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
           {successFile.e2eKeyFragment && (
-            <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-2.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
-              <div className="flex-1 space-y-1.5">
-                <p className="font-semibold text-emerald-600 dark:text-emerald-300">
-                  Zero-Trust AES-GCM 256 Encrypted
-                </p>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Your secret decryption key was generated in-browser and was never sent to the server. Append this fragment to your share link URL:
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <code className="px-2 py-1 rounded bg-muted/80 border border-border font-mono text-[10px] select-all break-all text-foreground">
-                    {successFile.e2eKeyFragment}
-                  </code>
+            <div className="p-4 rounded-xl bg-card border border-emerald-500/30 dark:border-emerald-500/40 shadow-xs space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                      <span>Zero-Trust AES-GCM 256 Encryption Active</span>
+                      <InfoTooltip
+                        variant="emerald"
+                        title="What is Zero-Trust Encryption?"
+                        content="Your file was encrypted inside your web browser before uploading. The decryption key exists only on your device and was NEVER sent across the internet to our servers. Even GPHosting and Cloudflare cannot view your file content."
+                      />
+                    </div>
+                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                      Encrypted in-browser • Server holds 0 unencrypted bytes
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    E2E Zero-Knowledge
+                    <InfoTooltip
+                      variant="emerald"
+                      title="Zero-Knowledge Architecture"
+                      content="Because the server never possesses the encryption key, server operators, ISP eavesdroppers, and database dumps cannot read your file. Decryption occurs purely in the recipient's browser."
+                    />
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                To share this file, recipients must have the secret decryption key. Append this fragment to your share link URL or copy it directly:
+              </p>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-foreground flex items-center gap-1">
+                    Secret Decryption Key Fragment
+                    <InfoTooltip
+                      variant="emerald"
+                      title="URL Hash Fragment (#key=...)"
+                      content="URL fragments starting with '#' are evaluated strictly within the recipient's local browser and are NEVER transmitted over HTTP to web servers. This mathematically prevents the key from leaking to server logs."
+                    />
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono">Web Crypto API</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={successFile.e2eKeyFragment}
+                    className="flex-1 px-3 py-2 rounded-xl bg-muted/50 border border-border font-mono text-xs text-foreground select-all focus:outline-none"
+                  />
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard.writeText(successFile.e2eKeyFragment || "")}
-                    className="px-2.5 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold transition-colors shrink-0"
+                    onClick={() => {
+                      navigator.clipboard.writeText(successFile.e2eKeyFragment || "");
+                      setCopiedKey(true);
+                      setTimeout(() => setCopiedKey(false), 2000);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
                   >
-                    Copy Fragment
+                    {copiedKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedKey ? "Copied" : "Copy Key Fragment"}</span>
                   </button>
                 </div>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <span>
+                  <strong>Keep this key safe.</strong> Because this is true zero-trust, we do not store your key. If lost, the file cannot be decrypted or recovered by anyone.
+                </span>
               </div>
             </div>
           )}

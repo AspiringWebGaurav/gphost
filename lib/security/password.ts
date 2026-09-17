@@ -1,10 +1,15 @@
 import { argon2id } from "hash-wasm";
 import crypto from "node:crypto";
 
-export const PASSWORD_PEPPER =
-  process.env.PASSWORD_PEPPER ||
-  process.env.PIN_PEPPER ||
-  (process.env.NODE_ENV !== "production" ? "gphost_dev_password_pepper" : "");
+export function getPasswordPepper(): string {
+  return (
+    process.env.PASSWORD_PEPPER ||
+    process.env.PIN_PEPPER ||
+    (process.env.NODE_ENV !== "production" ? "gphost_dev_password_pepper" : "")
+  );
+}
+
+export const PASSWORD_PEPPER = getPasswordPepper();
 
 /**
  * Validates that a share password is a non-empty string up to 128 characters.
@@ -26,7 +31,7 @@ export function generatePasswordSalt(): string {
 export async function hashSharePassword(
   password: string,
   saltHex: string,
-  pepper = PASSWORD_PEPPER
+  pepper = getPasswordPepper()
 ): Promise<string> {
   if (!isValidPasswordFormat(password)) {
     throw new Error("Invalid password format: must be between 1 and 128 characters");
@@ -52,7 +57,7 @@ export async function verifySharePassword(
   password: string,
   saltHex: string,
   expectedHashHex: string,
-  pepper = PASSWORD_PEPPER
+  pepper = getPasswordPepper()
 ): Promise<boolean> {
   if (!isValidPasswordFormat(password)) {
     return false;

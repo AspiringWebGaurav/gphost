@@ -43,8 +43,17 @@ export async function GET(request: NextRequest) {
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
   if (exchangeError) {
+    console.error("Auth callback exchange error:", exchangeError.message);
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("error", exchangeError.message);
+    const isPkce =
+      exchangeError.message.toLowerCase().includes("code verifier") ||
+      exchangeError.message.toLowerCase().includes("pkce");
+    loginUrl.searchParams.set(
+      "error",
+      isPkce
+        ? "Session expired during sign-in. Please click Continue with Google to try again."
+        : exchangeError.message
+    );
     return NextResponse.redirect(loginUrl);
   }
 

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
 import { requireApprovedUser } from "@/lib/auth/session";
@@ -7,6 +7,7 @@ import { shareCreateRatelimit } from "@/lib/redis/ratelimit";
 import { generatePasswordSalt, hashSharePassword } from "@/lib/security/password";
 import { shortenUrl } from "@/lib/xurl/client";
 import { reserveXurlMapping, updateXurlMapping } from "@/lib/xurl/mapping";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,10 @@ const createShareSchema = z.object({
   maxDownloads: z.number().int().positive().nullable().optional(),
   isSingleUse: z.boolean().optional().default(false),
   burnAfterPreview: z.boolean().optional().default(false),
+  directDownload: z.boolean().optional().default(false),
+  disablePreview: z.boolean().optional().default(false),
+  recipientNote: z.string().trim().max(280).optional().nullable(),
+  passwordHint: z.string().trim().max(100).optional().nullable(),
   expiresInPreset: z.enum(SHARE_EXPIRY_PRESETS).optional(),
   expiresIn: z.enum(SHARE_EXPIRY_PRESETS).optional(),
   password: z.string().min(1).max(128).optional(),
@@ -98,6 +103,10 @@ export async function POST(req: NextRequest) {
       maxDownloads,
       isSingleUse,
       burnAfterPreview,
+      directDownload,
+      disablePreview,
+      recipientNote,
+      passwordHint,
       expiresInPreset,
       expiresIn,
       password,
@@ -209,27 +218,106 @@ export async function POST(req: NextRequest) {
       passwordHash = await hashSharePassword(password, passwordSalt);
     }
 
-    // 7. Insert share link record into public.share_links
-    const { data: shareRecord, error: shareError } = await adminClient
+    // 7. Insert share link record into public.share_links with graceful schema migration fallback
+    let shareRecord: {
+      id: string;
+      slug: string;
+      max_downloads: number | null;
+      is_single_use: boolean;
+      burn_after_preview?: boolean;
+      direct_download?: boolean;
+      disable_preview?: boolean;
+      recipient_note?: string | null;
+      password_hint?: string | null;
+      expires_at: string | null;
+      created_at: string;
+    } | null = null;
+
+    const fullPayload = {
+      file_id: file.id,
+      slug,
+      token_hash: tokenHash,
+      max_downloads: effectiveMaxDownloads,
+      is_single_use: isSingleUse,
+      burn_after_preview: Boolean(burnAfterPreview),
+      direct_download: Boolean(directDownload),
+      disable_preview: Boolean(disablePreview),
+      recipient_note: recipientNote ? recipientNote.trim() : null,
+      password_hint: password && passwordHint ? passwordHint.trim() : null,
+      expires_at: effectiveExpiry ? effectiveExpiry.toISOString() : null,
+      is_active: true,
+      password_hash: passwordHash,
+      password_salt: passwordSalt,
+    };
+
+    const { data: primaryData, error: shareError } = await adminClient
       .from("share_links")
-      .insert({
+      .insert(fullPayload)
+      .select("id, slug, max_downloads, is_single_use, burn_after_preview, direct_download, disable_preview, recipient_note, password_hint, expires_at, created_at")
+      .single();
+
+    if (!shareError && primaryData) {
+      shareRecord = primaryData;
+    } else if (
+      shareError &&
+      (shareError.code === "42703" ||
+        shareError.code === "PGRST204" ||
+        shareError.message?.includes("direct_download") ||
+        shareError.message?.includes("disable_preview") ||
+        shareError.message?.includes("recipient_note") ||
+        shareError.message?.includes("password_hint"))
+    ) {
+      // Graceful fallback if database migration has not been applied in Supabase SQL editor yet
+      const fallbackPayload = {
         file_id: file.id,
         slug,
         token_hash: tokenHash,
         max_downloads: effectiveMaxDownloads,
         is_single_use: isSingleUse,
-        burn_after_preview: Boolean(burnAfterPreview),
         expires_at: effectiveExpiry ? effectiveExpiry.toISOString() : null,
         is_active: true,
         password_hash: passwordHash,
         password_salt: passwordSalt,
-      })
-      .select("id, slug, max_downloads, is_single_use, burn_after_preview, expires_at, created_at")
-      .single();
+      };
 
-    if (shareError || !shareRecord) {
+      const { data: fallbackData, error: fallbackError } = await adminClient
+        .from("share_links")
+        .insert(fallbackPayload)
+        .select("id, slug, max_downloads, is_single_use, expires_at, created_at")
+        .single();
+
+      if (fallbackError || !fallbackData) {
+        console.error("Failed to insert share link with fallback:", fallbackError);
+        return NextResponse.json({ error: "Database error creating share link" }, { status: 500 });
+      }
+
+      shareRecord = {
+        ...fallbackData,
+        burn_after_preview: Boolean(burnAfterPreview),
+        direct_download: Boolean(directDownload),
+        disable_preview: Boolean(disablePreview),
+        recipient_note: recipientNote ? recipientNote.trim() : null,
+        password_hint: password && passwordHint ? passwordHint.trim() : null,
+      };
+    } else {
       console.error("Failed to insert share link:", shareError);
       return NextResponse.json({ error: "Database error creating share link" }, { status: 500 });
+    }
+
+    // Ephemeral Redis cache ensures instant zero-latency resolution across all edge nodes
+    try {
+      await redis.set(
+        `share_enhancements:${slug}`,
+        {
+          direct_download: Boolean(directDownload),
+          disable_preview: Boolean(disablePreview),
+          recipient_note: recipientNote ? recipientNote.trim() : null,
+          password_hint: password && passwordHint ? passwordHint.trim() : null,
+        },
+        { ex: 86400 * 30 }
+      );
+    } catch {
+      // Non-blocking Redis cache fallback
     }
 
     // Dynamic Request Base URL:
@@ -328,23 +416,49 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 9. Record audit event
-    await adminClient.from("audit_logs").insert({
-      actor_id: user.id,
-      event_type: "SHARE_LINK_CREATED",
-      resource_type: "share_link",
-      resource_id: shareRecord.id,
-      ip_hash: "server_authoritative",
-      metadata: {
-        slug: shareRecord.slug,
-        is_custom_slug: Boolean(sanitizedCustomSlug),
-        is_single_use: isSingleUse,
-        expires_at: shareRecord.expires_at,
-        is_password_protected: Boolean(passwordHash),
-        shorten_with_xurl: Boolean(shortenWithXurl),
-        xurl_status: xurlPayload?.status,
-      },
-    });
+    // 9. Record audit event (Non-blocking via after())
+    try {
+      after(async () => {
+        await adminClient.from("audit_logs").insert({
+          actor_id: user.id,
+          event_type: "SHARE_LINK_CREATED",
+          resource_type: "share_link",
+          resource_id: shareRecord.id,
+          ip_hash: "server_authoritative",
+          metadata: {
+            slug: shareRecord.slug,
+            is_custom_slug: Boolean(sanitizedCustomSlug),
+            is_single_use: isSingleUse,
+            expires_at: shareRecord.expires_at,
+            is_password_protected: Boolean(passwordHash),
+            shorten_with_xurl: Boolean(shortenWithXurl),
+            xurl_status: xurlPayload?.status,
+          },
+        });
+      });
+    } catch {
+      // Fallback non-blocking async execution
+      void (async () => {
+        try {
+          await adminClient.from("audit_logs").insert({
+            actor_id: user.id,
+            event_type: "SHARE_LINK_CREATED",
+            resource_type: "share_link",
+            resource_id: shareRecord.id,
+            ip_hash: "server_authoritative",
+            metadata: {
+              slug: shareRecord.slug,
+              is_custom_slug: Boolean(sanitizedCustomSlug),
+              is_single_use: isSingleUse,
+              expires_at: shareRecord.expires_at,
+              is_password_protected: Boolean(passwordHash),
+              shorten_with_xurl: Boolean(shortenWithXurl),
+              xurl_status: xurlPayload?.status,
+            },
+          });
+        } catch {}
+      })();
+    }
 
     return NextResponse.json({
       success: true,
@@ -362,6 +476,10 @@ export async function POST(req: NextRequest) {
         max_downloads: shareRecord.max_downloads,
         is_single_use: shareRecord.is_single_use,
         burn_after_preview: shareRecord.burn_after_preview,
+        direct_download: shareRecord.direct_download,
+        disable_preview: shareRecord.disable_preview,
+        recipient_note: shareRecord.recipient_note,
+        password_hint: shareRecord.password_hint,
         is_password_protected: Boolean(passwordHash),
         is_custom_slug: Boolean(sanitizedCustomSlug),
         is_premium: isPremiumUser,

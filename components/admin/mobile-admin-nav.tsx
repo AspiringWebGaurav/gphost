@@ -137,7 +137,14 @@ export function MobileAdminNav({ isOwner, email }: MobileAdminNavProps) {
             </div>
 
             {/* Bottom: Control Panel Status & Actions */}
-            <div className="space-y-4 pt-4 border-t border-border">
+            {/* Bottom Actions: Sign Out + Control Panel + Theme */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <LogoutButton
+                variant="sidebar"
+                userEmail={email}
+                className="w-full"
+              />
+
               <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs">
                 <div className="text-purple-700 dark:text-purple-300 font-medium text-[11px] mb-0.5">
                   Control Panel
@@ -148,8 +155,8 @@ export function MobileAdminNav({ isOwner, email }: MobileAdminNavProps) {
               </div>
 
               <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">Interface Theme</span>
                 <ThemeToggle />
-                <LogoutButton variant="outline" className="h-8 text-xs px-2.5 rounded-xl" />
               </div>
             </div>
           </div>

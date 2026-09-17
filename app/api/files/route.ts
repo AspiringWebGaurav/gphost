@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
@@ -25,24 +25,21 @@ export async function GET(req: NextRequest) {
       : "created_at";
     const sortOrder = searchParams.get("sortOrder")?.toLowerCase() === "asc" ? "asc" : "desc";
 
-    // Authoritative Lazy Reconciliation: Automatically transition past-due files to EXPIRED
+    // Non-blocking Lazy Reconciliation: Transition past-due files to EXPIRED in background
     const nowIso = new Date().toISOString();
-    await Promise.all([
-      adminClient
-        .from("files")
-        .update({ status: "EXPIRED", updated_at: nowIso })
-        .eq("user_id", user.id)
-        .in("status", ["ACTIVE", "EXPIRING"])
-        .not("expires_at", "is", null)
-        .lte("expires_at", nowIso),
-      adminClient
-        .from("share_links")
-        .update({ is_active: false, updated_at: nowIso })
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .not("expires_at", "is", null)
-        .lte("expires_at", nowIso),
-    ]);
+    try {
+      after(async () => {
+        await adminClient
+          .from("files")
+          .update({ status: "EXPIRED", updated_at: nowIso })
+          .eq("user_id", user.id)
+          .in("status", ["ACTIVE", "EXPIRING"])
+          .not("expires_at", "is", null)
+          .lte("expires_at", nowIso);
+      });
+    } catch {
+      // Ignore if outside after context
+    }
 
     // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
     let query = adminClient
@@ -52,7 +49,7 @@ export async function GET(req: NextRequest) {
         { count: "exact" }
       )
       .eq("user_id", user.id)
-      .not("status", "in", '("DELETE_PENDING","DELETE_FAILED","PURGED")');
+      .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"]);
 
     // Search filter
     if (searchQuery) {
