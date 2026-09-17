@@ -4,6 +4,7 @@ import { publicShareRatelimit } from "@/lib/redis/ratelimit";
 import { formatPublicShareMetadata } from "@/lib/storage/share";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
+import { getClientIp } from "@/lib/security/ip";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET(
     }
 
     // 1. Ephemeral IP rate limiting
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+    const ip = getClientIp(req.headers);
     const { success: rateLimitOk } = await publicShareRatelimit.limit(ip);
     if (!rateLimitOk) {
       return NextResponse.json(

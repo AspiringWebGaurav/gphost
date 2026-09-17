@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOpRatelimit } from "@/lib/redis/ratelimit";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
 
+import { deleteR2Object } from "@/lib/storage/r2";
+
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
@@ -34,7 +36,21 @@ export async function DELETE(
     const ipHash = hashClientIp(clientIp);
     const adminClient = createAdminClient();
 
-    // Call atomic stored procedure
+    // Look up file record first to obtain r2_key
+    const { data: file, error: fileError } = await adminClient
+      .from("files")
+      .select("id, user_id, sanitized_name, r2_key, status, byte_size")
+      .eq("id", fileId)
+      .single();
+
+    if (fileError || !file) {
+      return NextResponse.json(
+        { success: false, error: "FILE_NOT_FOUND", message: "File not found" },
+        { status: 404 }
+      );
+    }
+
+    // Call atomic stored procedure for quota reclamation & status transition
     const { data: rpcResult, error: rpcError } = await adminClient.rpc(
       "admin_force_delete_file",
       {
@@ -58,11 +74,53 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      file_id: fileId,
-      result: rpcResult,
-    });
+    // Physical deletion from Cloudflare R2 if not already PURGED
+    if (file.status === "PURGED") {
+      return NextResponse.json({
+        success: true,
+        file_id: fileId,
+        status: "PURGED",
+        message: "File was already purged.",
+        result: rpcResult,
+      });
+    }
+
+    const r2Deleted = await deleteR2Object(file.r2_key);
+
+    if (r2Deleted) {
+      await adminClient
+        .from("files")
+        .update({
+          status: "PURGED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", fileId);
+
+      return NextResponse.json({
+        success: true,
+        file_id: fileId,
+        status: "PURGED",
+        message: "File permanently deleted and storage reclaimed.",
+        result: rpcResult,
+      });
+    } else {
+      await adminClient
+        .from("files")
+        .update({
+          status: "DELETE_FAILED",
+          last_reconciliation_error: "R2 physical delete failed during admin force delete",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", fileId);
+
+      return NextResponse.json({
+        success: true,
+        file_id: fileId,
+        status: "DELETE_FAILED",
+        message: "Storage quota reclaimed; physical cleanup queued for background reconciliation.",
+        result: rpcResult,
+      });
+    }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {

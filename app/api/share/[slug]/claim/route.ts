@@ -6,6 +6,8 @@ import { createPresignedGetUrl } from "@/lib/storage/r2";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
 import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-token";
 
+import { redis } from "@/lib/redis/client";
+
 export const dynamic = "force-dynamic";
 
 export async function POST(
@@ -30,33 +32,36 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
-    // 1b. VALIDATE: Check share existence and password requirements
-    const { data: shareMeta, error: shareMetaErr } = await adminClient
-      .from("share_links")
-      .select("id, file_id, password_hash, is_active, expires_at, max_downloads, download_count")
-      .eq("slug", slug)
-      .single();
+    // 1b. Fast Redis cache check for password protection to avoid blocking DB select
+    let shareMeta: { file_id: string; has_password: boolean } | null = null;
+    try {
+      const cached = await redis.get<{ file_id: string; has_password: boolean }>(`share:slug:${slug}`);
+      if (cached) shareMeta = cached;
+    } catch {}
 
-    if (shareMetaErr || !shareMeta) {
-      return NextResponse.json({ error: "Share link not found" }, { status: 404 });
-    }
+    if (!shareMeta) {
+      const { data, error: shareMetaErr } = await adminClient
+        .from("share_links")
+        .select("file_id, password_hash")
+        .eq("slug", slug)
+        .maybeSingle();
 
-    if (!shareMeta.is_active) {
-      return NextResponse.json(
-        { error: "This share link is no longer active" },
-        { status: 410 }
-      );
-    }
+      if (shareMetaErr || !data) {
+        return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+      }
 
-    if (shareMeta.max_downloads !== null && shareMeta.download_count >= shareMeta.max_downloads) {
-      return NextResponse.json(
-        { error: "This share link has reached its maximum download limit" },
-        { status: 410 }
-      );
+      shareMeta = {
+        file_id: data.file_id,
+        has_password: Boolean(data.password_hash),
+      };
+
+      try {
+        await redis.set(`share:slug:${slug}`, shareMeta, { ex: 60 });
+      } catch {}
     }
 
     // If password-protected, verify the signed unlock cookie
-    if (shareMeta.password_hash) {
+    if (shareMeta.has_password) {
       const cookieName = getUnlockCookieName(slug);
       const unlockCookie = req.cookies.get(cookieName)?.value;
 
@@ -71,7 +76,7 @@ export async function POST(
       }
     }
 
-    // 2. LOCK: Acquire authoritative 90-second download claim lease in PostgreSQL
+    // 2. LOCK: Acquire authoritative 50-second download claim lease in PostgreSQL
     const leaseToken = crypto.randomUUID();
     const ipHash = hashClientIp(clientIp);
     const userAgent = req.headers.get("user-agent") || null;
@@ -123,13 +128,13 @@ export async function POST(
       }
     }
 
-    // 3. PRESIGN: Generate 90-second presigned GET URL in-memory
+    // 3. PRESIGN: Generate 50-second presigned GET URL in-memory
     let downloadUrl: string;
     try {
       downloadUrl = await createPresignedGetUrl(
         claimResult.r2_key,
         claimResult.sanitized_name,
-        90,
+        50,
         claimResult.mime_type
       );
     } catch (presignErr) {
@@ -155,7 +160,7 @@ export async function POST(
       filename: claimResult.sanitized_name,
       byte_size: claimResult.byte_size,
       mime_type: claimResult.mime_type,
-      expires_in_seconds: 90,
+      expires_in_seconds: 50,
     });
   } catch (err) {
     console.error("Unexpected error claiming download:", err);

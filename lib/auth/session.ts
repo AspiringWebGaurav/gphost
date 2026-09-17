@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -20,8 +21,9 @@ export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 
 /**
  * Retrieves the currently authenticated Supabase Auth user from request cookies.
+ * Memoized per-request via React cache() to prevent redundant auth calls.
  */
-export async function getAuthenticatedUser() {
+export const getAuthenticatedUser = cache(async () => {
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
 
@@ -30,12 +32,13 @@ export async function getAuthenticatedUser() {
   }
 
   return user;
-}
+});
 
 /**
  * Authoritatively fetches the user's profile from PostgreSQL.
+ * Memoized per-request via React cache() to prevent redundant profile lookups across layout and page.
  */
-export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+export const getUserProfile = cache(async (userId: string): Promise<UserProfile | null> => {
   const adminClient = createAdminClient();
   const { data, error } = await adminClient
     .from("profiles")
@@ -48,7 +51,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   }
 
   return data as UserProfile;
-}
+});
 
 /**
  * Authoritative Server Guard: Requires that the user is authenticated and approved.

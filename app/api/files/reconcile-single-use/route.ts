@@ -201,9 +201,10 @@ async function handleReconcile(req: NextRequest) {
     for (const f of candidateFiles) {
       const { data: shareLink } = await adminClient
         .from("share_links")
-        .select("id, is_single_use")
+        .select("id, is_single_use, download_count")
         .eq("file_id", f.id)
         .eq("is_single_use", true)
+        .gt("download_count", 0)
         .maybeSingle();
 
       if (!shareLink) continue;

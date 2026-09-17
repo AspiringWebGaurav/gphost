@@ -180,6 +180,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   className="flex flex-col items-center justify-center -mt-4 group select-none"
                   aria-label={item.label}
                 >
@@ -197,6 +198,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={true}
                 className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all duration-150 select-none ${
                   isActive
                     ? "text-blue-600 dark:text-blue-400 font-semibold"

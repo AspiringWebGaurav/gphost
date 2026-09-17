@@ -1,6 +1,7 @@
 import { ListObjectsV2Command, ListObjectsV2CommandOutput } from "@aws-sdk/client-s3";
 import { getR2Client, R2_BUCKET_NAME } from "@/lib/storage/r2";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeFilename } from "@/lib/storage/sanitizer";
 
 export interface ReconciliationResult {
   userId: string;
@@ -93,9 +94,9 @@ export async function reconcileUserStorage(
     continuationToken = res.NextContinuationToken;
   } while (continuationToken);
 
-  // If user is admin or if no objects found under `u/${userId}/`, also scan root objects
+  // If user is admin, also scan root objects
   // in case files were uploaded directly via Cloudflare Console without a `u/{userId}/` prefix.
-  if (isAdmin || r2Objects.length === 0) {
+  if (isAdmin) {
     let rootToken: string | undefined = undefined;
     do {
       const rootCmd = new ListObjectsV2Command({
@@ -158,7 +159,8 @@ export async function reconcileUserStorage(
 
     if (!existing) {
       // Physical R2 file exists, but no DB record! Auto-register it into PostgreSQL
-      const filename = r2Obj.key.split("/").pop() || "recovered-file.bin";
+      const rawName = r2Obj.key.split("/").pop() || "recovered-file.bin";
+      const filename = sanitizeFilename(rawName);
       const mimeType = guessMimeType(filename);
       const nowIso = new Date().toISOString();
 
@@ -203,7 +205,7 @@ export async function reconcileUserStorage(
 
       reconciledFiles.push({
         id: existing.id,
-        sanitized_name: r2Obj.key.split("/").pop() || "recovered-file.bin",
+        sanitized_name: sanitizeFilename(r2Obj.key.split("/").pop() || "recovered-file.bin"),
         byte_size: r2Obj.size,
         r2_key: r2Obj.key,
       });

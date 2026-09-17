@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { headR2Object } from "@/lib/storage/r2";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -12,13 +13,27 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   try {
-    // Optional webhook secret verification
+    // Authoritative webhook secret verification with constant-time comparison
     const secret = process.env.R2_WEBHOOK_SECRET;
-    if (secret) {
-      const authHeader = req.headers.get("x-r2-webhook-secret") || req.headers.get("authorization");
-      if (authHeader !== secret && authHeader !== `Bearer ${secret}`) {
-        return NextResponse.json({ error: "Unauthorized webhook caller" }, { status: 401 });
-      }
+    if (!secret) {
+      // If secret is not configured, deny access to prevent unauthorized manipulation
+      return NextResponse.json(
+        { error: "R2 Webhook endpoint is not configured with R2_WEBHOOK_SECRET" },
+        { status: 401 }
+      );
+    }
+
+    const authHeader = req.headers.get("x-r2-webhook-secret") || req.headers.get("authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Missing webhook authorization header" }, { status: 401 });
+    }
+
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    const bufA = Buffer.from(token);
+    const bufB = Buffer.from(secret);
+
+    if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) {
+      return NextResponse.json({ error: "Unauthorized webhook caller" }, { status: 401 });
     }
 
     const payload = await req.json().catch(() => null);

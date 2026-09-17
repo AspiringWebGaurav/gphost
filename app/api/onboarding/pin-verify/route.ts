@@ -6,6 +6,7 @@ import { verifyPin, PIN_PEPPER } from "@/lib/security/pin";
 import { verifyTurnstileToken } from "@/lib/security/turnstile";
 import { pinRatelimit } from "@/lib/redis/ratelimit";
 import { setUserMaxFiles } from "@/lib/storage/user-limits";
+import { getClientIp } from "@/lib/security/ip";
 
 const PinVerifySchema = z.object({
   pin: z.string().length(4, "PIN must be strictly 4 digits").regex(/^\d{4}$/, "PIN must be digits only"),
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { pin, turnstileToken } = parsed.data;
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+  const clientIp = getClientIp(request.headers);
 
   // 3. Turnstile Bot Protection & Replay Defense
   const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIp);

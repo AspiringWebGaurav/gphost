@@ -147,15 +147,17 @@ export function IdleSessionMonitor() {
     const supabase = createClient();
     let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then((res: { data: { user: { id: string } | null } }) => {
+      const user = res.data.user;
       if (!user || isCancelled) return;
       const channelName = `user-profile-guard-${user.id}`;
       // Remove any pre-existing channel with this topic to avoid duplicate callback collisions
-      const existing = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+      const existing = supabase.getChannels().find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
       if (existing) {
         supabase.removeChannel(existing);
       }
-      realtimeChannel = supabase
+
+      const channel = supabase
         .channel(channelName)
         .on(
           "postgres_changes",
@@ -165,15 +167,22 @@ export function IdleSessionMonitor() {
             table: "profiles",
             filter: `id=eq.${user.id}`,
           },
-          (payload) => {
+          (payload: { new: Record<string, unknown> }) => {
             if (isCancelled) return;
             const newStatus = (payload.new as { status?: string })?.status;
             if (newStatus === "revoked" || newStatus === "rejected") {
               handleRevocationLogout();
             }
           }
-        )
-        .subscribe();
+        );
+
+      if (isCancelled) {
+        supabase.removeChannel(channel);
+        return;
+      }
+
+      realtimeChannel = channel;
+      channel.subscribe();
     });
 
     // 2. User activity event listeners
@@ -214,8 +223,12 @@ export function IdleSessionMonitor() {
     // 5. Background periodic timer to check idle timeout (every 15 seconds)
     idleCheckIntervalRef.current = setInterval(checkIdleStatus, 15000);
 
-    // 6. Fast Heartbeat polling to detect revocation (< 8 seconds fallback)
-    const revocationPollInterval = setInterval(checkRevocationStatus, 8000);
+    // 6. Fast Heartbeat polling to detect revocation: only query when tab is active/visible
+    const revocationPollInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        checkRevocationStatus();
+      }
+    }, 15000);
 
     // 7. Periodic Supabase session keep-alive while user is active
     tokenRefreshIntervalRef.current = setInterval(async () => {
@@ -239,6 +252,7 @@ export function IdleSessionMonitor() {
 
       if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
+        realtimeChannel = null;
       }
       if (idleCheckIntervalRef.current) clearInterval(idleCheckIntervalRef.current);
       if (revocationPollInterval) clearInterval(revocationPollInterval);

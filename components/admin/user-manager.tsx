@@ -69,7 +69,7 @@ export function UserManager({
     const supabase = createClient();
     const channelName = `admin-users-live-${currentUserId}`;
 
-    const existingChannel = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+    const existingChannel = supabase.getChannels().find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
     if (existingChannel) {
       supabase.removeChannel(existingChannel);
     }
@@ -83,7 +83,7 @@ export function UserManager({
           schema: "public",
           table: "profiles",
         },
-        (payload) => {
+        (payload: { eventType: string; new: Record<string, unknown>; old?: Record<string, unknown> }) => {
           if (payload.eventType === "UPDATE") {
             const updated = payload.new as Partial<AdminUserProfile>;
             setUsers((prev) =>
@@ -100,7 +100,7 @@ export function UserManager({
               )
             );
           } else if (payload.eventType === "INSERT") {
-            const inserted = payload.new as AdminUserProfile;
+            const inserted = payload.new as unknown as AdminUserProfile;
             setUsers((prev) => {
               if (prev.some((u) => u.id === inserted.id)) return prev;
               return [
@@ -114,8 +114,10 @@ export function UserManager({
               ];
             });
           } else if (payload.eventType === "DELETE") {
-            const deleted = payload.old as { id: string };
-            setUsers((prev) => prev.filter((u) => u.id !== deleted.id));
+            const deleted = payload.old as { id?: string } | undefined;
+            if (deleted?.id) {
+              setUsers((prev) => prev.filter((u) => u.id !== deleted.id));
+            }
           }
         }
       )

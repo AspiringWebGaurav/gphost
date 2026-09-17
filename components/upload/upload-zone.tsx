@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   UploadCloud,
   File as FileIcon,
@@ -92,6 +92,16 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
     setUploading(false);
     setStatusText("Upload cancelled");
   };
+
+  // Unmount cleanup: abort any in-flight XHR upload to prevent memory leaks and state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      isCancelledRef.current = true;
+      if (xhrRef.current) {
+        xhrRef.current.abort();
+      }
+    };
+  }, []);
 
   const startUpload = async () => {
     if (!selectedFile) return;
@@ -187,76 +197,107 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         setUploadSpeed("");
         setEtaSeconds(null);
 
+        const CONCURRENCY = 3;
         const totalParts = Math.ceil(selectedFile.size / MULTIPART_PART_SIZE);
-        const uploadedParts: { partNumber: number; eTag: string }[] = [];
+        const uploadedParts: { partNumber: number; eTag: string }[] = new Array(totalParts);
+        let completedPartsCount = 0;
+        let bytesUploadedCumulative = 0;
 
-        for (let i = 1; i <= totalParts; i++) {
-          if (isCancelledRef.current) {
-            throw new Error("Upload cancelled");
-          }
+        // Queue of part numbers
+        const queue = Array.from({ length: totalParts }, (_, idx) => idx + 1);
 
-          const start = (i - 1) * MULTIPART_PART_SIZE;
-          const end = Math.min(start + MULTIPART_PART_SIZE, selectedFile.size);
-          const chunk = selectedFile.slice(start, end);
+        const uploadWorker = async () => {
+          while (queue.length > 0) {
+            if (isCancelledRef.current) {
+              throw new Error("Upload cancelled");
+            }
 
-          setStatusText(`Uploading chunk ${i} of ${totalParts} to R2 edge...`);
-          const signRes = await fetch("/api/files/multipart/sign-part", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fileId,
-              uploadId: initData.uploadId,
-              partNumber: i,
-            }),
-          });
+            const partNumber = queue.shift()!;
+            const start = (partNumber - 1) * MULTIPART_PART_SIZE;
+            const end = Math.min(start + MULTIPART_PART_SIZE, selectedFile.size);
+            const chunk = selectedFile.slice(start, end);
+            const chunkSize = end - start;
 
-          if (!signRes.ok) {
-            const errData = await signRes.json().catch(() => ({}));
-            throw new Error(errData.error || `Failed to sign part ${i}`);
-          }
+            let attempts = 0;
+            let partSuccess = false;
+            let lastErr: Error | null = null;
 
-          const { presignedUrl } = await signRes.json();
+            while (attempts < 2 && !partSuccess) {
+              if (isCancelledRef.current) throw new Error("Upload cancelled");
+              attempts++;
+              try {
+                const signRes = await fetch("/api/files/multipart/sign-part", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    fileId,
+                    uploadId: initData.uploadId,
+                    partNumber,
+                  }),
+                });
 
-          let uploadPartRes: Response;
-          try {
-            uploadPartRes = await fetch(presignedUrl, {
-              method: "PUT",
-              body: chunk,
-            });
-          } catch {
-            throw new Error(
-              `Network error during direct upload to R2 (CORS not configured on this bucket). Please add a CORS policy in your Cloudflare R2 bucket settings.`
+                if (!signRes.ok) {
+                  const errData = await signRes.json().catch(() => ({}));
+                  throw new Error(errData.error || `Failed to sign part ${partNumber}`);
+                }
+
+                const { presignedUrl } = await signRes.json();
+
+                const uploadPartRes = await fetch(presignedUrl, {
+                  method: "PUT",
+                  body: chunk,
+                });
+
+                if (!uploadPartRes.ok) {
+                  throw new Error(`Failed to upload part ${partNumber} (HTTP ${uploadPartRes.status})`);
+                }
+
+                const rawEtag = uploadPartRes.headers.get("ETag");
+                if (!rawEtag) {
+                  throw new Error(`Storage provider missing ETag for part ${partNumber}`);
+                }
+
+                uploadedParts[partNumber - 1] = {
+                  partNumber,
+                  eTag: rawEtag.replace(/^"|"$/g, ""),
+                };
+
+                partSuccess = true;
+              } catch (err: unknown) {
+                lastErr = err instanceof Error ? err : new Error(`Failed part ${partNumber}`);
+                if (attempts >= 2) throw lastErr;
+                await new Promise((r) => setTimeout(r, 200));
+              }
+            }
+
+            completedPartsCount++;
+            bytesUploadedCumulative += chunkSize;
+            setUploadedBytes(bytesUploadedCumulative);
+
+            const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
+            if (elapsedSec > 0.25) {
+              const speed = bytesUploadedCumulative / elapsedSec;
+              setUploadSpeed(`${formatBytes(speed)}/s`);
+              const remainingBytes = Math.max(0, selectedFile.size - bytesUploadedCumulative);
+              const eta = speed > 0 ? Math.ceil(remainingBytes / speed) : 0;
+              setEtaSeconds(eta);
+            }
+
+            const pct = Math.round((completedPartsCount / totalParts) * 90);
+            setProgress(pct);
+            setStatusText(
+              `Uploading parts in parallel (${completedPartsCount}/${totalParts} complete)...`
             );
           }
+        };
 
-          if (!uploadPartRes.ok) {
-            throw new Error(`Failed to upload part ${i} to R2 (HTTP ${uploadPartRes.status})`);
-          }
+        // Spawn parallel workers up to CONCURRENCY
+        const workers = Array.from(
+          { length: Math.min(CONCURRENCY, totalParts) },
+          () => uploadWorker()
+        );
 
-          const rawEtag = uploadPartRes.headers.get("ETag");
-          if (!rawEtag) {
-            throw new Error(`Storage provider missing ETag for part ${i}`);
-          }
-
-          uploadedParts.push({
-            partNumber: i,
-            eTag: rawEtag.replace(/^"|"$/g, ""),
-          });
-
-          const currentUploaded = end;
-          setUploadedBytes(currentUploaded);
-          const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
-          if (elapsedSec > 0.4) {
-            const speed = currentUploaded / elapsedSec;
-            setUploadSpeed(`${formatBytes(speed)}/s`);
-            const remainingBytes = Math.max(0, selectedFile.size - currentUploaded);
-            const eta = speed > 0 ? Math.ceil(remainingBytes / speed) : 0;
-            setEtaSeconds(eta);
-          }
-
-          const pct = Math.round((i / totalParts) * 88);
-          setProgress(pct);
-        }
+        await Promise.all(workers);
 
         // Finalize Multipart Parts
         setStatusText("Assembling and verifying multipart chunks on R2...");

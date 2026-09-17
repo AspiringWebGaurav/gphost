@@ -41,12 +41,14 @@ export async function executeLifecycleSweep(): Promise<{
       expiredLinksCount = idsToDeactivate.length;
     }
 
-    // 2. Reconcile claimed single-use files whose 90-second download lease has expired
+    // 2. Reconcile claimed single-use files whose 50-second download lease has expired
+    // Strictly requires download_count > 0 so un-downloaded single-use files are never purged prematurely!
     const { data: singleUseLinks } = await adminClient
       .from("share_links")
       .select(`
         id,
         file_id,
+        download_count,
         files (
           id,
           r2_key,
@@ -56,6 +58,7 @@ export async function executeLifecycleSweep(): Promise<{
         )
       `)
       .eq("is_single_use", true)
+      .gt("download_count", 0)
       .limit(50);
 
     if (singleUseLinks && singleUseLinks.length > 0) {

@@ -46,11 +46,11 @@ export async function GET(
       );
     }
 
-    // Generate short-lived presigned download URL directly from Cloudflare R2
+    // Generate short-lived presigned download URL directly from Cloudflare R2 (50-second TTL)
     const downloadUrl = await createPresignedGetUrl(
       file.r2_key,
       file.sanitized_name,
-      120, // 2-minute TTL
+      50,
       file.mime_type
     );
 

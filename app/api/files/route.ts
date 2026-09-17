@@ -92,22 +92,24 @@ export async function GET(req: NextRequest) {
       .order(sortBy, { ascending: sortOrder === "asc" })
       .range(from, to);
 
-    const { data: files, count, error: filesError } = await query;
+    const [filesRes, profileRes] = await Promise.all([
+      query,
+      adminClient
+        .from("profiles")
+        .select("quota_bytes, storage_used_bytes, reserved_bytes")
+        .eq("id", user.id)
+        .single(),
+    ]);
 
-    if (filesError) {
-      console.error("[Files API] Query error:", filesError);
+    if (filesRes.error) {
+      console.error("[Files API] Query error:", filesRes.error);
       return NextResponse.json({ success: false, error: "Failed to load files" }, { status: 500 });
     }
 
-    const totalCount = count || 0;
+    const files = filesRes.data || [];
+    const totalCount = filesRes.count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
-
-    // Refresh profile quota state
-    const { data: currentProfile } = await adminClient
-      .from("profiles")
-      .select("quota_bytes, storage_used_bytes, reserved_bytes")
-      .eq("id", user.id)
-      .single();
+    const currentProfile = profileRes.data;
 
     return NextResponse.json({
       success: true,

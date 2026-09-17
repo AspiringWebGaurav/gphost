@@ -52,11 +52,11 @@ export async function DELETE(
     }
 
     // 4. Atomic PostgreSQL Quota Reclamation & Transition to DELETE_PENDING
-    // Reclaims quota immediately and prevents double-crediting
+    // Reclaims quota immediately on the file owner's profile and prevents double-crediting
     const { error: reclaimError } = await adminClient.rpc(
       "reclaim_file_storage",
       {
-        p_user_id: user.id,
+        p_user_id: file.user_id,
         p_file_id: fileId,
       }
     );

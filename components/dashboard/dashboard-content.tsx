@@ -34,13 +34,7 @@ export function DashboardContent({
 }: DashboardContentProps) {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
 
-  let liveStorage: ReturnType<typeof useStorageSync> | null = null;
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    liveStorage = useStorageSync();
-  } catch {
-    liveStorage = null;
-  }
+  const liveStorage = useStorageSync();
 
   const isAdmin = profile.role === "admin";
   const isPremium =

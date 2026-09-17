@@ -19,6 +19,19 @@ export async function GET() {
       );
     }
 
+    // Check Redis cache first (15-second TTL to withstand bursts & rapid tab switching)
+    const CACHE_KEY = "admin:dashboard:stats";
+    try {
+      const cached = await redis.get<Record<string, unknown>>(CACHE_KEY);
+      if (cached) {
+        return NextResponse.json({
+          success: true,
+          stats: cached,
+          cached: true,
+        });
+      }
+    } catch {}
+
     const adminClient = createAdminClient();
 
     // Parallel aggregate queries
@@ -86,43 +99,50 @@ export async function GET() {
     const pins = pinsRes.data || [];
     const activePins = pins.filter((p) => p.is_active).length;
 
+    const stats = {
+      users: {
+        total: totalUsers,
+        approved: approvedUsers,
+        pending: pendingUsers,
+        rejected: rejectedUsers,
+        revoked: revokedUsers,
+      },
+      storage: {
+        totalCommittedBytes: totalStorageUsed,
+        totalReservedBytes: totalReservedBytes,
+      },
+      files: {
+        total: files.length,
+        active: activeFiles,
+        uploading: uploadingFiles,
+        expiring: expiringFiles,
+        expired: expiredFiles,
+        deletePending: deletePendingFiles,
+      },
+      shares: {
+        activeCount: sharesRes.count || 0,
+      },
+      downloads: {
+        totalClaims: downloadsRes.count || 0,
+      },
+      onboarding: {
+        pendingRequests,
+        activePins,
+      },
+      xurl: {
+        isQuotaCooldown: Boolean(cooldownBreaker),
+        isRateLimited: Boolean(ratelimitBreaker),
+      },
+    };
+
+    // Cache in Redis for 15 seconds
+    try {
+      await redis.set(CACHE_KEY, stats, { ex: 15 });
+    } catch {}
+
     return NextResponse.json({
       success: true,
-      stats: {
-        users: {
-          total: totalUsers,
-          approved: approvedUsers,
-          pending: pendingUsers,
-          rejected: rejectedUsers,
-          revoked: revokedUsers,
-        },
-        storage: {
-          totalCommittedBytes: totalStorageUsed,
-          totalReservedBytes: totalReservedBytes,
-        },
-        files: {
-          total: files.length,
-          active: activeFiles,
-          uploading: uploadingFiles,
-          expiring: expiringFiles,
-          expired: expiredFiles,
-          deletePending: deletePendingFiles,
-        },
-        shares: {
-          activeCount: sharesRes.count || 0,
-        },
-        downloads: {
-          totalClaims: downloadsRes.count || 0,
-        },
-        onboarding: {
-          pendingRequests,
-          activePins,
-        },
-        xurl: {
-          isQuotaCooldown: Boolean(cooldownBreaker),
-          isRateLimited: Boolean(ratelimitBreaker),
-        },
-      },
+      stats,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";

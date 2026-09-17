@@ -97,7 +97,7 @@ export function FilePreviewViewer({
 
       setDownloadProgress(90);
       setDownloadSuccess(true);
-      setLeaseSeconds(data.expires_in_seconds || 90);
+      setLeaseSeconds(data.expires_in_seconds || 50);
 
       if (isSingleUse) {
         setIsSingleUseClaimed(true);
@@ -286,7 +286,7 @@ export function FilePreviewViewer({
                 )}
                 <span>
                   {downloadSuccess
-                    ? `Direct download active! Lease valid for ${leaseSeconds ?? 90}s`
+                    ? `Direct download active! Secure transfer slot valid for ${leaseSeconds ?? 50}s to initiate.`
                     : "Connecting to Cloudflare R2 edge network..."}
                 </span>
               </div>

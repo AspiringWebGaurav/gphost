@@ -178,7 +178,7 @@ export function StorageProvider({
     // 3. Supabase Realtime WebSocket Connection (Pure push, zero polling)
     const supabase = createClient();
     const channelName = `storage-realtime-${initialUserId}`;
-    const existingChannel = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
+    const existingChannel = supabase.getChannels().find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
     if (existingChannel) {
       supabase.removeChannel(existingChannel);
     }
@@ -196,7 +196,7 @@ export function StorageProvider({
           table: "profiles",
           filter: `id=eq.${initialUserId}`,
         },
-        (payload) => {
+        (payload: { new: Record<string, unknown> }) => {
           if (!isMountedRef.current) return;
           const updated = payload.new as {
             storage_used_bytes?: number;
@@ -223,7 +223,7 @@ export function StorageProvider({
           table: "files",
           filter: `user_id=eq.${initialUserId}`,
         },
-        (payload) => {
+        (payload: { eventType: string }) => {
           if (!isMountedRef.current) return;
           if (payload.eventType === "INSERT") {
             setActiveFilesCount((c) => c + 1);
@@ -232,7 +232,7 @@ export function StorageProvider({
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (isMountedRef.current) {
           setRealtimeConnected(status === "SUBSCRIBED");
         }

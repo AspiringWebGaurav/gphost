@@ -26,6 +26,10 @@ export function createUnlockToken(
   ttlSeconds = 15 * 60,
   secret = UNLOCK_TOKEN_SECRET
 ): string {
+  if (!secret || secret.trim().length === 0) {
+    throw new Error("Missing cryptographic UNLOCK_TOKEN_SECRET in server configuration");
+  }
+
   const payload: UnlockTokenPayload = {
     slug,
     fileId,
@@ -51,7 +55,7 @@ export function verifyUnlockToken(
   expectedFileId: string,
   secret = UNLOCK_TOKEN_SECRET
 ): boolean {
-  if (typeof token !== "string" || !token.includes(".")) {
+  if (!secret || secret.trim().length === 0 || typeof token !== "string" || !token.includes(".")) {
     return false;
   }
 

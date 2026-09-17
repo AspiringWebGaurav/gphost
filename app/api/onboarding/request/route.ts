@@ -4,6 +4,7 @@ import { getAuthenticatedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyTurnstileToken } from "@/lib/security/turnstile";
 import { requestRatelimit } from "@/lib/redis/ratelimit";
+import { getClientIp } from "@/lib/security/ip";
 
 const AccessRequestSchema = z.object({
   reason: z
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { reason, turnstileToken } = parsed.data;
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+  const clientIp = getClientIp(request.headers);
 
   // 3. Turnstile Bot Protection & Replay Defense
   const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIp);

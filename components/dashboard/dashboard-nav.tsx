@@ -39,6 +39,7 @@ export function DashboardNav({ isAdmin = false, onNavigate }: DashboardNavProps)
           <Link
             key={item.href}
             href={item.href}
+            prefetch={true}
             onClick={onNavigate}
             className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors ${
               isActive
@@ -56,6 +57,7 @@ export function DashboardNav({ isAdmin = false, onNavigate }: DashboardNavProps)
         <div className="pt-3 mt-3 border-t border-border">
           <Link
             href="/admin"
+            prefetch={true}
             onClick={onNavigate}
             className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-purple-600 dark:text-purple-300 hover:bg-purple-500/10 border border-purple-500/20 transition-colors"
           >

@@ -65,6 +65,8 @@ function LoginForm() {
     };
   }, []);
 
+  const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // BFCache and Window Focus Recovery:
   // When user hits browser Back button from Google or switches back to this tab,
   // BFCache (back-forward cache) restores the exact JavaScript heap state where loading was true.
@@ -76,14 +78,16 @@ function LoginForm() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        setTimeout(() => {
+        if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = setTimeout(() => {
           resetState();
         }, 400);
       }
     };
 
     const handleWindowFocus = () => {
-      setTimeout(() => {
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+      focusTimeoutRef.current = setTimeout(() => {
         resetState();
       }, 400);
     };
@@ -93,6 +97,7 @@ function LoginForm() {
     window.addEventListener("focus", handleWindowFocus);
 
     return () => {
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
       window.removeEventListener("pageshow", handlePageShow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleWindowFocus);

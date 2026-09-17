@@ -27,7 +27,7 @@ export async function getUserMaxFiles(userId: string): Promise<number | null> {
     const { data: log } = await adminClient
       .from("audit_logs")
       .select("metadata")
-      .eq("actor_id", userId)
+      .or(`resource_id.eq.${userId},actor_id.eq.${userId}`)
       .in("event_type", ["PROFILE_QUOTA_ASSIGNED", "PIN_ONBOARDING_SUCCESS", "ADMIN_USER_LIMIT_UPDATE"])
       .order("created_at", { ascending: false })
       .limit(1)

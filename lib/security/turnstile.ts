@@ -17,6 +17,11 @@ export async function verifyTurnstileToken(token: string | null | undefined, cli
 
   const trimmedToken = token.trim();
 
+  // Guard against memory bloat: reject abnormal token lengths
+  if (trimmedToken.length > 2048) {
+    return { success: false, error: "Invalid Turnstile token length" };
+  }
+
   // Test token handling for automated verification
   if (process.env.NODE_ENV !== "production" && trimmedToken === "test_turnstile_bypass_token") {
     return { success: true };
@@ -24,9 +29,13 @@ export async function verifyTurnstileToken(token: string | null | undefined, cli
 
   // 1. Replay Protection via Redis: Check if token has already been consumed
   const replayKey = `gphost:turnstile:used:${trimmedToken}`;
-  const alreadyUsed = await redis.get(replayKey);
-  if (alreadyUsed) {
-    return { success: false, error: "Turnstile token already used (replay rejected)" };
+  try {
+    const alreadyUsed = await redis.get(replayKey);
+    if (alreadyUsed) {
+      return { success: false, error: "Turnstile token already used (replay rejected)" };
+    }
+  } catch (redisErr) {
+    console.warn("[Turnstile] Redis replay check warning:", redisErr);
   }
 
   // 2. Query Cloudflare Siteverify endpoint
@@ -49,6 +58,7 @@ export async function verifyTurnstileToken(token: string | null | undefined, cli
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
+      signal: AbortSignal.timeout(6000), // 6s timeout to prevent hanging serverless workers
     });
 
     if (!response.ok) {
@@ -65,7 +75,11 @@ export async function verifyTurnstileToken(token: string | null | undefined, cli
     }
 
     // 3. Mark token as consumed in Redis with 5-minute (300s) TTL
-    await redis.set(replayKey, "1", { ex: 300 });
+    try {
+      await redis.set(replayKey, "1", { ex: 300 });
+    } catch (setErr) {
+      console.warn("[Turnstile] Redis replay set warning:", setErr);
+    }
 
     return { success: true };
   } catch (err: unknown) {

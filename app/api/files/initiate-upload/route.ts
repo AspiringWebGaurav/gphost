@@ -16,6 +16,7 @@ import {
   calculateExpiryDate,
   getLegacyEnumFallback,
 } from "@/lib/storage/expiry";
+import { getUserMaxFiles } from "@/lib/storage/user-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -63,18 +64,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4b. Active file count limit verification
-    const { getUserMaxFiles } = await import("@/lib/storage/user-limits");
+    // 4b. Active file count limit verification & Quota Reservation
+    const adminClient = createAdminClient();
     const maxFiles = await getUserMaxFiles(user.id);
-    if (maxFiles !== null && maxFiles > 0) {
-      const adminClient = createAdminClient();
-      const { count: activeFileCount, error: countErr } = await adminClient
-        .from("files")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("status", "ACTIVE");
 
-      if (!countErr && (activeFileCount ?? 0) >= maxFiles) {
+    if (maxFiles !== null && maxFiles > 0) {
+      const [countRes, quotaRes] = await Promise.all([
+        adminClient
+          .from("files")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "ACTIVE"),
+        adminClient.rpc("reserve_user_quota", {
+          p_user_id: user.id,
+          p_requested_bytes: byte_size,
+        }),
+      ]);
+
+      const activeFileCount = countRes.count ?? 0;
+      if (!countRes.error && activeFileCount >= maxFiles) {
+        if (quotaRes.data) {
+          await adminClient.rpc("release_quota_reservation", {
+            p_user_id: user.id,
+            p_reserved_bytes: byte_size,
+          });
+        }
         return NextResponse.json(
           {
             error: "File upload limit reached",
@@ -83,34 +97,50 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
-    }
 
-    // 5. Authoritative Quota Reservation in PostgreSQL
-    const adminClient = createAdminClient();
-    const { data: quotaReserved, error: quotaError } = await adminClient.rpc(
-      "reserve_user_quota",
-      {
-        p_user_id: user.id,
-        p_requested_bytes: byte_size,
+      if (quotaRes.error) {
+        console.error("Quota reservation error:", quotaRes.error);
+        return NextResponse.json(
+          { error: "Unable to verify quota admission. Please try again." },
+          { status: 500 }
+        );
       }
-    );
 
-    if (quotaError) {
-      console.error("Quota reservation error:", quotaError);
-      return NextResponse.json(
-        { error: "Unable to verify quota admission. Please try again." },
-        { status: 500 }
-      );
-    }
-
-    if (!quotaReserved) {
-      return NextResponse.json(
+      if (!quotaRes.data) {
+        return NextResponse.json(
+          {
+            error: "Quota exceeded",
+            message: "You do not have enough remaining storage quota for this upload.",
+          },
+          { status: 413 }
+        );
+      }
+    } else {
+      const { data: quotaReserved, error: quotaError } = await adminClient.rpc(
+        "reserve_user_quota",
         {
-          error: "Quota exceeded",
-          message: "You do not have enough remaining storage quota for this upload.",
-        },
-        { status: 413 }
+          p_user_id: user.id,
+          p_requested_bytes: byte_size,
+        }
       );
+
+      if (quotaError) {
+        console.error("Quota reservation error:", quotaError);
+        return NextResponse.json(
+          { error: "Unable to verify quota admission. Please try again." },
+          { status: 500 }
+        );
+      }
+
+      if (!quotaReserved) {
+        return NextResponse.json(
+          {
+            error: "Quota exceeded",
+            message: "You do not have enough remaining storage quota for this upload.",
+          },
+          { status: 413 }
+        );
+      }
     }
 
     // 6. Generate server-authoritative sanitized filename & unpredictable R2 object key

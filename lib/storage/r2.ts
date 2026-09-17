@@ -225,12 +225,12 @@ export async function deleteR2Object(key: string): Promise<boolean> {
 
 /**
  * Generates a short-lived presigned GET URL for secure downloading from Cloudflare R2.
- * Enforces a strict 90-second expiration and RFC 5987 / RFC 6266 attachment Content-Disposition.
+ * Enforces a strict 50-second expiration and RFC 5987 / RFC 6266 attachment Content-Disposition.
  */
 export async function createPresignedGetUrl(
   key: string,
   filename: string,
-  expiresInSec = 90,
+  expiresInSec = 50,
   mimeType?: string
 ): Promise<string> {
   const client = getR2Client();

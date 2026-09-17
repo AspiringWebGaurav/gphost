@@ -196,30 +196,25 @@ export function DownloadCard({
         return;
       }
 
-      setDownloadProgress(88);
-      setDownloadPhase("Dispatching direct stream to browser...");
-
       // Download slot claimed successfully!
       setDownloadSuccess(true);
-      setLeaseSeconds(data.expires_in_seconds || 90);
+      setLeaseSeconds(data.expires_in_seconds || 50);
 
       if (isSingleUse) {
         setIsSingleUseClaimed(true);
       }
 
-      // Trigger browser download via presigned GET URL
+      setDownloadProgress(100);
+      setDownloadPhase("Direct R2 stream initiated!");
+      setClaiming(false);
+
+      // Trigger browser download immediately via presigned GET URL
       const a = document.createElement("a");
       a.href = data.downloadUrl;
       a.download = data.filename || metadata.filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-
-      setTimeout(() => {
-        setDownloadProgress(100);
-        setDownloadPhase("Direct R2 stream initiated!");
-        setClaiming(false);
-      }, 350);
     } catch {
       setDownloadProgress(0);
       setDownloadPhase("");
@@ -544,7 +539,7 @@ export function DownloadCard({
                       {leaseSeconds !== null && leaseSeconds > 0 ? (
                         <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
                           <Clock className="w-3 h-3 text-emerald-500" />
-                          <span>{leaseSeconds}s lease</span>
+                          <span>{leaseSeconds}s slot active</span>
                         </span>
                       ) : isSingleUseClaimed ? (
                         <span className="text-rose-600 dark:text-rose-400 font-semibold">
@@ -558,6 +553,19 @@ export function DownloadCard({
                       )}
                     </div>
                   </div>
+
+                  {/* Simple Words UI/UX Explanation of the 50-Second Download Slot Lease */}
+                  {leaseSeconds !== null && leaseSeconds > 0 && (
+                    <div className="p-3 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs text-foreground space-y-1 mt-1">
+                      <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                        <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>50-Second Secure Transfer Slot</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Your private download stream is active for <strong className="font-semibold text-foreground">{leaseSeconds} seconds</strong> to initiate. Your browser has started downloading. Once started, your transfer continues uninterrupted until 100% complete.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

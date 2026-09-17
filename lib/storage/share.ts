@@ -42,9 +42,15 @@ export function formatPublicShareMetadata(
 export function isPreviewableImage(mimeType: string, filename: string): boolean {
   const lowerMime = (mimeType || "").toLowerCase();
   const lowerName = (filename || "").toLowerCase();
+
+  // Exclude SVG from inline preview to completely prevent XSS vectors via embedded scripts
+  if (lowerMime === "image/svg+xml" || /\.svg$/i.test(lowerName)) {
+    return false;
+  }
+
   return (
-    lowerMime.startsWith("image/") ||
-    /\.(jpg|jpeg|png|webp|gif|svg|bmp|ico)$/i.test(lowerName)
+    (lowerMime.startsWith("image/") && lowerMime !== "image/svg+xml") ||
+    /\.(jpg|jpeg|png|webp|gif|bmp|ico)$/i.test(lowerName)
   );
 }
 

@@ -26,7 +26,23 @@ export default async function DashboardLayout({
     redirect("/login?next=/dashboard");
   }
 
-  const profile = await getUserProfile(user.id);
+  const adminClient = createAdminClient();
+  const nowIso = new Date().toISOString();
+
+  const [profile, activePinRes] = await Promise.all([
+    getUserProfile(user.id),
+    user.email
+      ? adminClient
+          .from("onboarding_pins")
+          .select("id")
+          .eq("is_active", true)
+          .ilike("label", `%User: ${user.email}%`)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
   if (!profile) {
     redirect("/login");
   }
@@ -39,22 +55,8 @@ export default async function DashboardLayout({
     redirect("/access-gate");
   }
 
-  // If user was issued an Onboarding PIN by administrator, force verification at access-gate before vault access
-  if (user.email) {
-    const adminClient = createAdminClient();
-    const nowIso = new Date().toISOString();
-    const { data: activePin } = await adminClient
-      .from("onboarding_pins")
-      .select("id")
-      .eq("is_active", true)
-      .ilike("label", `%User: ${user.email}%`)
-      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .limit(1)
-      .maybeSingle();
-
-    if (activePin) {
-      redirect("/access-gate");
-    }
+  if (activePinRes.data) {
+    redirect("/access-gate");
   }
 
   const isAdmin = profile.role === "admin";
