@@ -2,6 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { Redis } from "@upstash/redis";
 
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
 const r2 = new S3Client({
   region: "auto",
