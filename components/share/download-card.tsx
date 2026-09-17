@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
 import { formatExpiryBadge } from "@/lib/storage/expiry";
+import { importE2EKey, decryptBuffer, extractE2EKeyFromHash } from "@/lib/crypto/e2e";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (bytes === 0) return "0 Bytes";
@@ -90,6 +91,17 @@ export function DownloadCard({
   }, [metadata.expires_at]);
 
   const isTimeExpired = Boolean(expiryBadge?.isExpired);
+
+  // Client-side Zero-Trust End-to-End Encryption Key
+  const [e2eKey, setE2eKey] = useState<string | null>(() => extractE2EKeyFromHash());
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setE2eKey(extractE2EKeyFromHash());
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   // Resolved preview format
   const resolvedPreviewType =
@@ -208,13 +220,37 @@ export function DownloadCard({
       setDownloadPhase("Direct R2 stream initiated!");
       setClaiming(false);
 
-      // Trigger browser download immediately via presigned GET URL
-      const a = document.createElement("a");
-      a.href = data.downloadUrl;
-      a.download = data.filename || metadata.filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (e2eKey) {
+        setDownloadPhase("Decrypting with zero-trust key in browser...");
+        try {
+          const fetchRes = await fetch(data.downloadUrl);
+          const encryptedBuf = await fetchRes.arrayBuffer();
+          const cryptoKey = await importE2EKey(e2eKey);
+          const decryptedBuf = await decryptBuffer(encryptedBuf, cryptoKey);
+          const blob = new Blob([decryptedBuf], { type: metadata.mime_type });
+          const localUrl = URL.createObjectURL(blob);
+
+          const a = document.createElement("a");
+          a.href = localUrl;
+          a.download = data.filename || metadata.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(localUrl), 15000);
+          setDownloadPhase("Decrypted & saved to disk!");
+        } catch (decryptErr) {
+          console.error("E2E decryption error:", decryptErr);
+          setClaimError("Failed to decrypt file. Invalid or corrupted zero-trust key.");
+        }
+      } else {
+        // Trigger browser download immediately via presigned GET URL
+        const a = document.createElement("a");
+        a.href = data.downloadUrl;
+        a.download = data.filename || metadata.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     } catch {
       setDownloadProgress(0);
       setDownloadPhase("");
@@ -256,6 +292,13 @@ export function DownloadCard({
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                 <Flame className="w-3 h-3" />
                 Single-Use
+              </span>
+            )}
+
+            {e2eKey && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <ShieldCheck className="w-3 h-3" />
+                Zero-Trust E2E
               </span>
             )}
           </div>

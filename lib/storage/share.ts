@@ -11,6 +11,8 @@ export interface PublicShareMetadata {
   is_password_protected: boolean;
   download_count: number;
   max_downloads: number | null;
+  is_single_use?: boolean;
+  burn_after_preview?: boolean;
 }
 
 export function formatPublicShareMetadata(
@@ -26,6 +28,8 @@ export function formatPublicShareMetadata(
     password_hash?: string | null;
     download_count: number;
     max_downloads: number | null;
+    is_single_use?: boolean;
+    burn_after_preview?: boolean;
   }
 ): PublicShareMetadata {
   return {
@@ -36,6 +40,8 @@ export function formatPublicShareMetadata(
     is_password_protected: Boolean(file.is_password_protected || share.password_hash),
     download_count: share.download_count,
     max_downloads: share.max_downloads,
+    is_single_use: Boolean(share.is_single_use),
+    burn_after_preview: Boolean(share.burn_after_preview),
   };
 }
 

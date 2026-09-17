@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { SettingsForm } from "@/components/dashboard/settings-form";
+import { ApiKeysManager } from "@/components/dashboard/api-keys-manager";
 import { Settings } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -21,17 +22,17 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div>
         <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-medium mb-1.5">
           <Settings className="w-3 h-3" />
           <span>Settings</span>
         </div>
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-          Profile Settings
+          Account &amp; Developer Settings
         </h1>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Manage your display name and check your account storage &amp; role credentials.
+          Manage your profile, credentials, and developer API keys for terminal uploads.
         </p>
       </div>
 
@@ -47,6 +48,8 @@ export default async function SettingsPage() {
           created_at: profile.created_at,
         }}
       />
+
+      <ApiKeysManager />
     </div>
   );
 }

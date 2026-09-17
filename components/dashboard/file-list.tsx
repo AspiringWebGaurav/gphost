@@ -20,12 +20,16 @@ import {
   Download,
   AlertCircle,
   CheckCircle2,
+  Flame,
+  Zap,
+  Activity,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
 } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
+import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 
 export interface FileItem {
   id: string;
@@ -61,8 +65,10 @@ function formatExpiry(expiresAt: string | null, baseTime?: number): string {
 interface ShareResponseData {
   slug: string;
   shareUrl: string;
+  rawUrl?: string;
   expires_at: string | null;
   is_single_use?: boolean;
+  burn_after_preview?: boolean;
   is_password_protected?: boolean;
   is_custom_slug?: boolean;
   is_premium?: boolean;
@@ -215,6 +221,7 @@ export function FileList({
   const [sharePreset, setSharePreset] = useState<string>("file_expiry");
   const [maxDownloads, setMaxDownloads] = useState<string>("");
   const [isSingleUse, setIsSingleUse] = useState(false);
+  const [burnAfterPreview, setBurnAfterPreview] = useState(false);
   const [sharePassword, setSharePassword] = useState("");
   const [customSlug, setCustomSlug] = useState("");
   const [shortenWithXurl, setShortenWithXurl] = useState(false);
@@ -223,6 +230,8 @@ export function FileList({
   const [shareError, setShareError] = useState<string | null>(null);
   const [copiedDirect, setCopiedDirect] = useState(false);
   const [copiedXurl, setCopiedXurl] = useState(false);
+  const [copiedRaw, setCopiedRaw] = useState(false);
+  const [analyticsFile, setAnalyticsFile] = useState<FileItem | null>(null);
 
   const handleDeleteConfirm = async () => {
     if (!fileToDelete) return;
@@ -269,6 +278,7 @@ export function FileList({
         fileId: shareFile.id,
         maxDownloads: maxDownloads ? parseInt(maxDownloads, 10) : null,
         isSingleUse,
+        burnAfterPreview,
         expiresInPreset: sharePreset,
         shortenWithXurl,
       };
@@ -475,6 +485,14 @@ export function FileList({
                     </button>
                   </>
                 )}
+
+                <button
+                  onClick={() => setAnalyticsFile(file)}
+                  className="p-1.5 rounded-lg border border-border hover:border-purple-500/30 hover:bg-purple-500/10 text-muted-foreground hover:text-purple-500 transition-colors cursor-pointer"
+                  title="Edge Analytics & Geo Heatmap"
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                </button>
 
                 <button
                   onClick={() => setFileToDelete(file)}
@@ -782,6 +800,23 @@ export function FileList({
                       />
                     </label>
 
+                    {/* Burn on Preview Toggle */}
+                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
+                      <div>
+                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                          <Flame className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Burn on Preview</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">Destroys itself 60s after first preview</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={burnAfterPreview}
+                        onChange={(e) => setBurnAfterPreview(e.target.checked)}
+                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                      />
+                    </label>
+
                     {/* Shorten with XURL Checkbox Card */}
                     <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
                       <div>
@@ -906,6 +941,46 @@ export function FileList({
                       </button>
                     </div>
                   </div>
+
+                  {/* Direct Raw / CDN Asset URL */}
+                  {(shareResult.rawUrl || (shareResult as unknown as { share?: { rawUrl?: string } }).share?.rawUrl) && (
+                    <div className="space-y-1.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                          <label className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                            Direct Raw / CDN Asset URL
+                          </label>
+                        </div>
+                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium">0 Vercel Egress</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={shareResult.rawUrl || (shareResult as unknown as { share?: { rawUrl?: string } }).share?.rawUrl || ""}
+                          className="flex-1 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all"
+                        />
+                        <button
+                          onClick={() => {
+                            const rUrl = shareResult.rawUrl || (shareResult as unknown as { share?: { rawUrl?: string } }).share?.rawUrl || "";
+                            if (rUrl) {
+                              navigator.clipboard.writeText(rUrl);
+                              setCopiedRaw(true);
+                              setTimeout(() => setCopiedRaw(false), 2000);
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                        >
+                          {copiedRaw ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedRaw ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Permanent raw link to embed directly in Discord, GitHub READMEs, or blogs. Streams straight from Cloudflare R2 edge.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Optional XURL Short Link */}
                   {shareResult.xurl?.shortUrl ? (
@@ -1154,6 +1229,15 @@ export function FileList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edge Telemetry & Analytics Modal */}
+      {analyticsFile && (
+        <FileAnalyticsModal
+          fileId={analyticsFile.id}
+          filename={analyticsFile.sanitized_name}
+          onClose={() => setAnalyticsFile(null)}
+        />
       )}
     </div>
   );

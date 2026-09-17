@@ -5,6 +5,7 @@ import { downloadClaimRatelimit } from "@/lib/redis/ratelimit";
 import { createPresignedGetUrl } from "@/lib/storage/r2";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
 import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-token";
+import { logFileEvent } from "@/lib/telemetry/events";
 
 import { redis } from "@/lib/redis/client";
 
@@ -150,6 +151,14 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    // Non-blocking edge telemetry (Cloudflare country, city, referrer)
+    void logFileEvent({
+      fileId: claimResult.file_id,
+      shareLinkId: claimResult.share_id,
+      eventType: "download",
+      req,
+    });
 
     // 4. RETURN: Deliver presigned URL and public metadata only
     // Note: DOWNLOAD_CLAIMED audit logging occurred atomically inside acquire_download_claim_lease RPC!

@@ -30,12 +30,17 @@ import {
   Download,
   AlertCircle,
   CheckCircle2,
+  Flame,
+  Zap,
+  Activity,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import {
   formatTimeRemaining,
 } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
+import { downloadFilesAsZip } from "@/lib/storage/bundle-zip";
+import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 
 function getFileTypeDetails(mimeType: string, filename: string) {
   const lowerMime = (mimeType || "").toLowerCase();
@@ -189,12 +194,16 @@ export function FileManager({
   const [selectedFileForDetails, setSelectedFileForDetails] = useState<SafeFileItem | null>(null);
   const [selectedFileForShare, setSelectedFileForShare] = useState<SafeFileItem | null>(null);
   const [selectedFileForDelete, setSelectedFileForDelete] = useState<SafeFileItem | null>(null);
+  const [selectedFileForAnalytics, setSelectedFileForAnalytics] = useState<SafeFileItem | null>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Share form state
   const [shareExpiresIn, setShareExpiresIn] = useState<string>("file_expiry");
   const [shareMaxDownloads, setShareMaxDownloads] = useState<string>("");
   const [shareIsSingleUse, setShareIsSingleUse] = useState<boolean>(false);
+  const [shareBurnAfterPreview, setShareBurnAfterPreview] = useState<boolean>(false);
   const [sharePassword, setSharePassword] = useState<string>("");
   const [shareCustomSlug, setShareCustomSlug] = useState<string>("");
   const [shareEnableXurl, setShareEnableXurl] = useState<boolean>(true);
@@ -209,12 +218,15 @@ export function FileManager({
     setShareExpiresIn("file_expiry");
     setShareMaxDownloads("");
     setShareIsSingleUse(false);
+    setShareBurnAfterPreview(false);
     setSharePassword("");
     setShareEnableXurl(true);
+    setCopiedRaw(false);
   };
   const [shareResult, setShareResult] = useState<{
     slug?: string;
     shareUrl: string;
+    rawUrl?: string;
     expires_at?: string | null;
     is_custom_slug?: boolean;
     is_premium?: boolean;
@@ -222,6 +234,7 @@ export function FileManager({
   } | null>(null);
   const [copiedDirect, setCopiedDirect] = useState(false);
   const [copiedXurl, setCopiedXurl] = useState(false);
+  const [copiedRaw, setCopiedRaw] = useState(false);
 
   // Extend Expiry Modal State
   const [selectedFileForExtend, setSelectedFileForExtend] = useState<SafeFileItem | null>(null);
@@ -331,6 +344,30 @@ export function FileManager({
     }
   };
 
+  const handleBatchZipDownload = async () => {
+    const selectedFiles = files.filter((f) => selectedFileIds.has(f.id));
+    if (selectedFiles.length === 0) return;
+
+    try {
+      await downloadFilesAsZip(
+        selectedFiles.map((f) => ({
+          id: f.id,
+          name: f.sanitized_name,
+          size: f.byte_size,
+        })),
+        `gphost-bundle-${Date.now()}.zip`,
+        (progress) => {
+          setZippingProgress(progress);
+        }
+      );
+      setSelectedFileIds(new Set());
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to generate batch ZIP");
+    } finally {
+      setZippingProgress(null);
+    }
+  };
+
   // Fetch paginated files with server-side query
   const fetchFiles = useCallback(
     async (p: number, q: string, cat: string, sort: string, order: string) => {
@@ -424,6 +461,7 @@ export function FileManager({
         expiresIn: shareExpiresIn,
         maxDownloads: maxDownloadsNum,
         isSingleUse: shareIsSingleUse,
+        burnAfterPreview: shareBurnAfterPreview,
         password: sharePassword.trim() || undefined,
         shortenWithXurl: shareEnableXurl,
         enableXurl: shareEnableXurl,
@@ -449,6 +487,7 @@ export function FileManager({
       setShareResult({
         slug: shareData.slug || data.slug,
         shareUrl: shareData.shareUrl || data.shareUrl || "",
+        rawUrl: shareData.rawUrl || data.rawUrl || "",
         expires_at: shareData.expires_at || data.expires_at,
         is_custom_slug: shareData.is_custom_slug || data.is_custom_slug,
         is_premium: shareData.is_premium || data.is_premium,
@@ -661,6 +700,46 @@ export function FileManager({
         <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
       </div>
 
+      {/* Batch Selection Toolbar */}
+      {selectedFileIds.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-foreground shadow-sm animate-in fade-in duration-150">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" />
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {selectedFileIds.size} {selectedFileIds.size === 1 ? "file" : "files"} selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBatchZipDownload}
+              disabled={zippingProgress !== null}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer shadow-xs disabled:opacity-50"
+            >
+              {zippingProgress ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>
+                    Zipping {zippingProgress.current}/{zippingProgress.total}...
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Archive className="w-3.5 h-3.5" />
+                  <span>Download ZIP ({selectedFileIds.size})</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setSelectedFileIds(new Set())}
+              className="px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 4. Files Container (Grid or List View) */}
       {loading ? (
         <div className="p-12 flex flex-col items-center justify-center gap-3 text-muted-foreground rounded-2xl border border-border bg-card shadow-2xs">
@@ -705,6 +784,18 @@ export function FileManager({
                   {/* Card Top: Type badge & Name */}
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedFileIds.has(file.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const next = new Set(selectedFileIds);
+                          if (next.has(file.id)) next.delete(file.id);
+                          else next.add(file.id);
+                          setSelectedFileIds(next);
+                        }}
+                        className="w-3.5 h-3.5 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                      />
                       <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${fileType.bg} ${fileType.color}`}>
                         <FileTypeIcon className="w-3.5 h-3.5" />
                       </div>
@@ -836,6 +927,14 @@ export function FileManager({
                       </button>
 
                       <button
+                        onClick={() => setSelectedFileForAnalytics(file)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-500/10 transition cursor-pointer"
+                        title="Edge Analytics & Geo Heatmap"
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
                         onClick={() => setSelectedFileForDelete(file)}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
                         title="Delete file"
@@ -896,6 +995,18 @@ export function FileManager({
                   }`}
                 >
                   <div className="flex items-start sm:items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedFileIds.has(file.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        const next = new Set(selectedFileIds);
+                        if (next.has(file.id)) next.delete(file.id);
+                        else next.add(file.id);
+                        setSelectedFileIds(next);
+                      }}
+                      className="w-3.5 h-3.5 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0 mt-1 sm:mt-0"
+                    />
                     <div className={`w-9 h-9 rounded-xl border ${fileType.bg} ${fileType.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
                       <FileTypeIcon className="w-4 h-4" />
                     </div>
@@ -968,6 +1079,14 @@ export function FileManager({
                       ) : (
                         <Download className="w-3.5 h-3.5" />
                       )}
+                    </button>
+
+                    <button
+                      onClick={() => setSelectedFileForAnalytics(file)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-500/10 transition cursor-pointer"
+                      title="Edge Analytics & Geo Heatmap"
+                    >
+                      <Activity className="w-3.5 h-3.5" />
                     </button>
 
                     <button
@@ -1228,6 +1347,45 @@ export function FileManager({
                       </button>
                     </div>
                   </div>
+
+                  {/* Direct Raw / CDN Asset URL */}
+                  {(shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl) && (
+                    <div className="space-y-1.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                          <label className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                            Direct Raw / CDN Asset URL
+                          </label>
+                        </div>
+                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium">0 Vercel Egress</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || ""}
+                          className="flex-1 px-3 py-2 rounded-xl bg-background border border-purple-500/30 text-xs text-foreground font-mono select-all"
+                        />
+                        <button
+                          onClick={() => {
+                            const rUrl = shareResult.rawUrl || (shareResult as { share?: { rawUrl?: string } }).share?.rawUrl || "";
+                            if (rUrl) {
+                              navigator.clipboard.writeText(rUrl);
+                              setCopiedRaw(true);
+                              setTimeout(() => setCopiedRaw(false), 2000);
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                        >
+                          {copiedRaw ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedRaw ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Permanent raw link to embed directly in Discord, GitHub READMEs, or blogs. Streams straight from Cloudflare R2 edge with zero server load.
+                      </p>
+                    </div>
+                  )}
 
                   {/* XURL Shortlink */}
                   {(shareResult.xurl?.shortUrl || (shareResult as { share?: { xurl?: { shortUrl?: string } } }).share?.xurl?.shortUrl) ? (
@@ -1524,6 +1682,23 @@ export function FileManager({
                       />
                     </label>
 
+                    {/* Burn on Preview Toggle */}
+                    <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
+                      <div>
+                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                          <Flame className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Burn on Preview</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">Destroys itself 60s after first preview</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={shareBurnAfterPreview}
+                        onChange={(e) => setShareBurnAfterPreview(e.target.checked)}
+                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                      />
+                    </label>
+
                     {/* XURL Toggle */}
                     <label className="flex items-center justify-between p-3 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border cursor-pointer transition select-none">
                       <div>
@@ -1761,6 +1936,15 @@ export function FileManager({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edge Telemetry & Analytics Modal */}
+      {selectedFileForAnalytics && (
+        <FileAnalyticsModal
+          fileId={selectedFileForAnalytics.id}
+          filename={selectedFileForAnalytics.sanitized_name}
+          onClose={() => setSelectedFileForAnalytics(null)}
+        />
       )}
     </div>
   );

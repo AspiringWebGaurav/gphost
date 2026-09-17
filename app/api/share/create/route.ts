@@ -40,6 +40,7 @@ const createShareSchema = z.object({
   fileId: z.string().uuid(),
   maxDownloads: z.number().int().positive().nullable().optional(),
   isSingleUse: z.boolean().optional().default(false),
+  burnAfterPreview: z.boolean().optional().default(false),
   expiresInPreset: z.enum(SHARE_EXPIRY_PRESETS).optional(),
   expiresIn: z.enum(SHARE_EXPIRY_PRESETS).optional(),
   password: z.string().min(1).max(128).optional(),
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
       fileId,
       maxDownloads,
       isSingleUse,
+      burnAfterPreview,
       expiresInPreset,
       expiresIn,
       password,
@@ -216,12 +218,13 @@ export async function POST(req: NextRequest) {
         token_hash: tokenHash,
         max_downloads: effectiveMaxDownloads,
         is_single_use: isSingleUse,
+        burn_after_preview: Boolean(burnAfterPreview),
         expires_at: effectiveExpiry ? effectiveExpiry.toISOString() : null,
         is_active: true,
         password_hash: passwordHash,
         password_salt: passwordSalt,
       })
-      .select("id, slug, max_downloads, is_single_use, expires_at, created_at")
+      .select("id, slug, max_downloads, is_single_use, burn_after_preview, expires_at, created_at")
       .single();
 
     if (shareError || !shareRecord) {
@@ -253,6 +256,7 @@ export async function POST(req: NextRequest) {
 
     // Dynamic direct share URL: matches the active user's environment (local in dev, domain in production)
     const shareUrl = `${activeOrigin}/f/${shareRecord.slug}`;
+    const rawUrl = `${activeOrigin}/raw/${shareRecord.slug}`;
 
     // Target URL passed to XURL shortener:
     // When in localhost / private network, generate XURL with the official domain https://gphost.eu.cc.
@@ -345,6 +349,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       shareUrl,
+      rawUrl,
       slug: shareRecord.slug,
       isCustomSlug: Boolean(sanitizedCustomSlug),
       isPremium: isPremiumUser,
@@ -352,9 +357,11 @@ export async function POST(req: NextRequest) {
       share: {
         slug: shareRecord.slug,
         shareUrl,
+        rawUrl,
         expires_at: shareRecord.expires_at,
         max_downloads: shareRecord.max_downloads,
         is_single_use: shareRecord.is_single_use,
+        burn_after_preview: shareRecord.burn_after_preview,
         is_password_protected: Boolean(passwordHash),
         is_custom_slug: Boolean(sanitizedCustomSlug),
         is_premium: isPremiumUser,

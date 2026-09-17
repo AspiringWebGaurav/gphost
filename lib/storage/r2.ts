@@ -275,3 +275,30 @@ export async function createPresignedPreviewUrl(
   return getSignedUrl(client, command, { expiresIn: expiresInSec });
 }
 
+/**
+ * Generates a presigned GET URL for direct raw CDN asset delivery (/raw/[slug]).
+ * Configures 'inline' Content-Disposition, exact Content-Type, and HTTP cache headers.
+ */
+export async function createPresignedRawUrl(
+  key: string,
+  filename: string,
+  expiresInSec = 3600,
+  mimeType?: string
+): Promise<string> {
+  const client = getR2Client();
+
+  const asciiFilename = filename.replace(/["\\]/g, "_").replace(/[^\x20-\x7E]/g, "_");
+  const encodedFilename = encodeURIComponent(filename);
+  const contentDisposition = `inline; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: key,
+    ResponseContentDisposition: contentDisposition,
+    ResponseCacheControl: "public, max-age=3600, stale-while-revalidate=86400",
+    ...(mimeType ? { ResponseContentType: mimeType } : {}),
+  });
+
+  return getSignedUrl(client, command, { expiresIn: expiresInSec });
+}
+

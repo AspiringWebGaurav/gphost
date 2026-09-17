@@ -39,6 +39,7 @@ interface FilePreviewViewerProps {
   previewUrl: string;
   expiresAt: string | null;
   isSingleUse?: boolean;
+  burnAfterPreview?: boolean;
 }
 
 export function FilePreviewViewer({
@@ -50,6 +51,7 @@ export function FilePreviewViewer({
   previewUrl,
   expiresAt,
   isSingleUse = false,
+  burnAfterPreview = false,
 }: FilePreviewViewerProps) {
   // Zoom state for images
   const [zoomScale, setZoomScale] = useState<number>(1);
@@ -172,6 +174,15 @@ export function FilePreviewViewer({
                     </span>
                   </>
                 )}
+                {burnAfterPreview && (
+                  <>
+                    <span>•</span>
+                    <span className="text-rose-500 font-semibold flex items-center gap-0.5 animate-pulse">
+                      <Flame className="w-3 h-3 text-rose-500" />
+                      Burn on Preview (60s)
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -265,6 +276,14 @@ export function FilePreviewViewer({
           <ThemeToggle />
         </div>
       </header>
+
+      {/* Burn on Preview Notice */}
+      {burnAfterPreview && (
+        <div className="bg-rose-500/10 border-b border-rose-500/25 text-rose-600 dark:text-rose-400 px-4 py-2 text-xs flex items-center justify-center gap-2 font-medium">
+          <Flame className="w-4 h-4 text-rose-500 animate-bounce shrink-0" />
+          <span>Burn on Preview active: file is scheduled to auto-destruct 60 seconds after first opening!</span>
+        </div>
+      )}
 
       {/* Optional Download Notification Banner */}
       {claimError && (

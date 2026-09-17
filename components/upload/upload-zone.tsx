@@ -10,9 +10,11 @@ import {
   Clock,
   Loader2,
   Zap,
+  ShieldCheck,
 } from "lucide-react";
 import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
+import { generateE2EKey, encryptBuffer } from "@/lib/crypto/e2e";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -42,7 +44,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const [statusText, setStatusText] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successFile, setSuccessFile] = useState<{ id: string; filename: string; size: number } | null>(null);
+  const [enableZeroTrust, setEnableZeroTrust] = useState<boolean>(false);
+  const [successFile, setSuccessFile] = useState<{ id: string; filename: string; size: number; e2eKeyFragment?: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -117,15 +120,29 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
     isCancelledRef.current = false;
 
     try {
-      const mimeType = selectedFile.type || "application/octet-stream";
+      let fileToUpload: File = selectedFile;
+      let e2eKeyFragment: string | undefined;
+
+      if (enableZeroTrust) {
+        setStatusText("Encrypting file locally with zero-trust AES-GCM 256...");
+        const { key, base64Key } = await generateE2EKey();
+        const fileBuffer = await selectedFile.arrayBuffer();
+        const encryptedBuffer = await encryptBuffer(fileBuffer, key);
+        e2eKeyFragment = `#key=${base64Key}`;
+        fileToUpload = new File([encryptedBuffer], selectedFile.name, {
+          type: "application/octet-stream",
+        });
+      }
+
+      const mimeType = fileToUpload.type || "application/octet-stream";
 
       // 1. Initiate Upload Route
       const initRes = await fetch("/api/files/initiate-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: selectedFile.name,
-          byte_size: selectedFile.size,
+          filename: fileToUpload.name,
+          byte_size: fileToUpload.size,
           mime_type: mimeType,
           expiry_preset: expiryPreset,
         }),
@@ -187,7 +204,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
           xhr.open("PUT", initData.presignedUrl, true);
           xhr.setRequestHeader("Content-Type", mimeType);
-          xhr.send(selectedFile);
+          xhr.send(fileToUpload);
         });
       } else {
         // Multipart Upload Flow (>= 100 MB)
@@ -198,7 +215,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         setEtaSeconds(null);
 
         const CONCURRENCY = 3;
-        const totalParts = Math.ceil(selectedFile.size / MULTIPART_PART_SIZE);
+        const totalParts = Math.ceil(fileToUpload.size / MULTIPART_PART_SIZE);
         const uploadedParts: { partNumber: number; eTag: string }[] = new Array(totalParts);
         let completedPartsCount = 0;
         let bytesUploadedCumulative = 0;
@@ -214,8 +231,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
             const partNumber = queue.shift()!;
             const start = (partNumber - 1) * MULTIPART_PART_SIZE;
-            const end = Math.min(start + MULTIPART_PART_SIZE, selectedFile.size);
-            const chunk = selectedFile.slice(start, end);
+            const end = Math.min(start + MULTIPART_PART_SIZE, fileToUpload.size);
+            const chunk = fileToUpload.slice(start, end);
             const chunkSize = end - start;
 
             let attempts = 0;
@@ -278,7 +295,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             if (elapsedSec > 0.25) {
               const speed = bytesUploadedCumulative / elapsedSec;
               setUploadSpeed(`${formatBytes(speed)}/s`);
-              const remainingBytes = Math.max(0, selectedFile.size - bytesUploadedCumulative);
+              const remainingBytes = Math.max(0, fileToUpload.size - bytesUploadedCumulative);
               const eta = speed > 0 ? Math.ceil(remainingBytes / speed) : 0;
               setEtaSeconds(eta);
             }
@@ -334,20 +351,21 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       const completedData = await completeRes.json();
       setProgress(100);
-      setUploadedBytes(selectedFile.size);
+      setUploadedBytes(fileToUpload.size);
       setEtaSeconds(0);
       setStatusText("Upload complete and verified!");
       setSuccessFile({
         id: fileId,
-        filename: completedData.file.sanitized_name || selectedFile.name,
-        size: completedData.file.byte_size || selectedFile.size,
+        filename: completedData.file.sanitized_name || fileToUpload.name,
+        size: completedData.file.byte_size || fileToUpload.size,
+        e2eKeyFragment,
       });
       setSelectedFile(null);
 
-      const fileSize = completedData.file.byte_size || selectedFile.size;
+      const fileSize = completedData.file.byte_size || fileToUpload.size;
       storageEvents.emit("file:lifecycle", {
         fileId,
-        filename: completedData.file.sanitized_name || selectedFile.name,
+        filename: completedData.file.sanitized_name || fileToUpload.name,
         size: fileSize,
         action: "created",
       });
@@ -454,6 +472,23 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                 })}
               </select>
             </div>
+
+            {/* Zero-Trust E2E Toggle */}
+            <label
+              title="Client-Side Zero-Trust Encryption: Encrypts the file using AES-GCM 256 in your browser before uploading to R2. The secret key is only stored in your link's URL hash fragment and is never sent to the server."
+              className="flex items-center gap-1.5 bg-muted/40 hover:bg-muted/70 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground cursor-pointer select-none transition-colors"
+            >
+              <input
+                type="checkbox"
+                checked={enableZeroTrust}
+                onChange={(e) => setEnableZeroTrust(e.target.checked)}
+                className="rounded border-border text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+              />
+              <ShieldCheck className={`w-3.5 h-3.5 ${enableZeroTrust ? "text-emerald-500" : "text-muted-foreground"}`} />
+              <span className={enableZeroTrust ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                E2E Encrypt
+              </span>
+            </label>
 
             <button
               onClick={() => setSelectedFile(null)}
@@ -579,19 +614,47 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       {/* Success Notification */}
       {successFile && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between gap-3 text-emerald-600 dark:text-emerald-400 text-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>
-              <strong>{successFile.filename}</strong> ({formatBytes(successFile.size)}) successfully uploaded.
-            </span>
+        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 text-emerald-600 dark:text-emerald-400 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>
+                <strong>{successFile.filename}</strong> ({formatBytes(successFile.size)}) successfully uploaded.
+              </span>
+            </div>
+            <button
+              onClick={() => setSuccessFile(null)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <button
-            onClick={() => setSuccessFile(null)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+
+          {successFile.e2eKeyFragment && (
+            <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-2.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+              <div className="flex-1 space-y-1.5">
+                <p className="font-semibold text-emerald-600 dark:text-emerald-300">
+                  Zero-Trust AES-GCM 256 Encrypted
+                </p>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Your secret decryption key was generated in-browser and was never sent to the server. Append this fragment to your share link URL:
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <code className="px-2 py-1 rounded bg-muted/80 border border-border font-mono text-[10px] select-all break-all text-foreground">
+                    {successFile.e2eKeyFragment}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(successFile.e2eKeyFragment || "")}
+                    className="px-2.5 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold transition-colors shrink-0"
+                  >
+                    Copy Fragment
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

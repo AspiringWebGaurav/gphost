@@ -5,6 +5,7 @@ import { getPreviewType } from "@/lib/storage/share";
 import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-token";
 import { getClientIp } from "@/lib/security/ip";
 import { downloadClaimRatelimit } from "@/lib/redis/ratelimit";
+import { logFileEvent } from "@/lib/telemetry/events";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,34 @@ export async function GET(
       );
     }
 
+interface PreviewFileRecord {
+  id: string;
+  sanitized_name: string;
+  r2_key: string;
+  byte_size: number;
+  mime_type: string;
+  status: string;
+  expires_at: string | null;
+}
+
+interface SharePreviewRecord {
+  id: string;
+  slug: string;
+  is_active: boolean;
+  expires_at: string | null;
+  max_downloads: number | null;
+  download_count: number;
+  burn_after_preview?: boolean | null;
+  first_previewed_at?: string | null;
+  preview_count?: number | null;
+  password_hash?: string | null;
+  file: PreviewFileRecord | PreviewFileRecord[] | null;
+}
+
     const adminClient = createAdminClient();
-    const { data: share, error: shareErr } = await adminClient
+    let shareRecord: SharePreviewRecord | null = null;
+
+    const { data: shareWithBurn, error: shareErr } = await adminClient
       .from("share_links")
       .select(`
         id,
@@ -38,6 +65,9 @@ export async function GET(
         expires_at,
         max_downloads,
         download_count,
+        burn_after_preview,
+        first_previewed_at,
+        preview_count,
         password_hash,
         file:files (
           id,
@@ -52,7 +82,49 @@ export async function GET(
       .eq("slug", slug)
       .single();
 
-    if (shareErr || !share || !share.file) {
+    if (shareErr && (shareErr.code === "PGRST204" || shareErr.message?.includes("burn_after_preview"))) {
+      // Fallback query if migration is pending in Supabase SQL editor
+      const { data: fallbackShare, error: fallbackErr } = await adminClient
+        .from("share_links")
+        .select(`
+          id,
+          slug,
+          is_active,
+          expires_at,
+          max_downloads,
+          download_count,
+          password_hash,
+          file:files (
+            id,
+            sanitized_name,
+            r2_key,
+            byte_size,
+            mime_type,
+            status,
+            expires_at
+          )
+        `)
+        .eq("slug", slug)
+        .single();
+
+      if (fallbackErr || !fallbackShare) {
+        return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+      }
+      shareRecord = {
+        ...fallbackShare,
+        burn_after_preview: false,
+        first_previewed_at: null,
+        preview_count: 0,
+      };
+    } else if (shareErr || !shareWithBurn) {
+      return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+    } else {
+      shareRecord = shareWithBurn;
+    }
+
+    const share = shareRecord;
+
+    if (!share || !share.file) {
       return NextResponse.json({ error: "Share link not found" }, { status: 404 });
     }
 
@@ -107,6 +179,40 @@ export async function GET(
       );
     }
 
+    let effectiveExpiry = share.expires_at;
+
+    // Handle Burn-on-Preview lifecycle:
+    // When previewed for the first time, arm a 60-second self-destruct lease
+    if (share.burn_after_preview) {
+      if (!share.first_previewed_at) {
+        const burnExpiry = new Date(Date.now() + 60000).toISOString();
+        effectiveExpiry = burnExpiry;
+
+        await adminClient
+          .from("share_links")
+          .update({
+            first_previewed_at: new Date().toISOString(),
+            preview_count: (share.preview_count || 0) + 1,
+            expires_at: burnExpiry,
+          })
+          .eq("id", share.id);
+
+        // Also arm underlying file expiration for R2 sweeper
+        await adminClient
+          .from("files")
+          .update({ expires_at: burnExpiry })
+          .eq("id", file.id);
+      }
+    }
+
+    // Non-blocking telemetry
+    void logFileEvent({
+      fileId: file.id,
+      shareLinkId: share.id,
+      eventType: "preview",
+      req,
+    });
+
     const previewUrl = await createPresignedPreviewUrl(
       file.r2_key,
       file.sanitized_name,
@@ -117,10 +223,16 @@ export async function GET(
     return NextResponse.json({
       success: true,
       previewUrl,
+      downloadUrl: previewUrl,
       previewType,
       mime_type: file.mime_type,
       filename: file.sanitized_name,
       byte_size: file.byte_size,
+      burn_after_preview: Boolean(share.burn_after_preview),
+      burnAfterPreview: Boolean(share.burn_after_preview),
+      first_previewed_at: share.first_previewed_at || (share.burn_after_preview ? new Date().toISOString() : null),
+      firstPreviewedAt: share.first_previewed_at || (share.burn_after_preview ? new Date().toISOString() : null),
+      expires_at: effectiveExpiry,
     });
   } catch (err) {
     console.error("Error generating preview URL:", err);

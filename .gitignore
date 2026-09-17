@@ -54,6 +54,9 @@ tsconfig.tsbuildinfo
 playwright-report/
 test-results/
 blob-report/
+.playwright/
+*benchmark-results*.json
+benchmark-results.json
 
 # --- Debug & Runtime Logs ---
 npm-debug.log*

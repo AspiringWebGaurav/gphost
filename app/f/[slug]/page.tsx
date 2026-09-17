@@ -75,14 +75,45 @@ export default async function PublicSharePage({ params }: PageProps) {
     notFound();
   }
 
+interface PublicFileRecord {
+  id: string;
+  sanitized_name: string;
+  r2_key: string;
+  byte_size: number;
+  mime_type: string;
+  status: string;
+  expires_at: string | null;
+  is_password_protected?: boolean;
+}
+
+interface PublicShareRecord {
+  id: string;
+  slug: string;
+  is_active: boolean;
+  is_single_use: boolean;
+  burn_after_preview?: boolean;
+  first_previewed_at?: string | null;
+  preview_count?: number | null;
+  expires_at: string | null;
+  max_downloads: number | null;
+  download_count: number;
+  password_hash?: string | null;
+  file: PublicFileRecord | PublicFileRecord[] | null;
+}
+
   const adminClient = createAdminClient();
-  const { data: share } = await adminClient
+  let share: PublicShareRecord | null = null;
+
+  const { data: shareWithBurn, error: shareErr } = await adminClient
     .from("share_links")
     .select(`
       id,
       slug,
       is_active,
       is_single_use,
+      burn_after_preview,
+      first_previewed_at,
+      preview_count,
       expires_at,
       max_downloads,
       download_count,
@@ -100,6 +131,42 @@ export default async function PublicSharePage({ params }: PageProps) {
     `)
     .eq("slug", slug)
     .single();
+
+  if (shareErr && (shareErr.code === "PGRST204" || shareErr.message?.includes("burn_after_preview"))) {
+    const { data: fallbackShare } = await adminClient
+      .from("share_links")
+      .select(`
+        id,
+        slug,
+        is_active,
+        is_single_use,
+        expires_at,
+        max_downloads,
+        download_count,
+        password_hash,
+        file:files (
+          id,
+          sanitized_name,
+          r2_key,
+          byte_size,
+          mime_type,
+          status,
+          expires_at,
+          is_password_protected
+        )
+      `)
+      .eq("slug", slug)
+      .single();
+
+    share = fallbackShare
+      ? { ...fallbackShare, burn_after_preview: false, first_previewed_at: null, preview_count: 0 }
+      : null;
+  } else if (shareWithBurn) {
+    share = {
+      ...shareWithBurn,
+      burn_after_preview: Boolean(shareWithBurn.burn_after_preview),
+    };
+  }
 
   if (!share || !share.file) {
     return (

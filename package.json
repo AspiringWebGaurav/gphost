@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "benchmark": "node scripts/benchmark-apis.mjs",
     "test:cors": "node scripts/test_r2_cors.mjs",
     "clean": "node scripts/clean.mjs standard",
     "total-clean": "node scripts/clean.mjs total"
@@ -23,6 +25,7 @@
     "@upstash/ratelimit": "^2.1.0",
     "@upstash/redis": "^1.38.4",
     "class-variance-authority": "^0.7.1",
+    "client-zip": "^2.5.1",
     "clsx": "^2.1.1",
     "cn": "^0.3.0",
     "hash-wasm": "^4.12.0",
@@ -36,6 +39,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
