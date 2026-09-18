@@ -403,37 +403,35 @@ export function ShareModal({
                     </p>
                   </div>
 
-                  {/* Custom Link Name */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
-                        <span>Custom Link Name</span>
-                        {isPremium ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 tracking-wider">
-                            PRO
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-0.5">
-                            <Lock className="w-2.5 h-2.5" />
-                            <span>PRO</span>
-                          </span>
-                        )}
-                        <InfoTooltip
-                          title="Custom Link Name"
-                          content="Choose a clean, memorable address for your link (e.g. gphost.app/f/project-deck) instead of random letters."
-                        />
-                      </label>
-                      <span className="text-[10.5px] text-muted-foreground">
-                        {isPremium ? "letters, numbers, dashes" : "Upgrade to unlock"}
-                      </span>
-                    </div>
+                    {/* Custom Link Name with Attached Domain */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Custom Link URL (Slug)</span>
+                          <span className="text-[10.5px] font-normal text-muted-foreground">(Optional)</span>
+                          <InfoTooltip
+                            title="Custom Link Address"
+                            content="Create a personalized, memorable URL address for your link. The domain is automatically attached so you can share it anywhere."
+                          />
+                        </label>
+                        <span className="text-[10.5px] text-muted-foreground font-mono">
+                          letters, numbers, dashes
+                        </span>
+                      </div>
 
-                    {isPremium ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center h-10 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200 shadow-2xs hover:shadow-xs focus-within:shadow-xs overflow-hidden group">
-                          <span className="h-full flex items-center px-3 bg-muted/40 group-hover:bg-muted/60 text-xs text-muted-foreground font-mono font-medium border-r border-border/80 group-hover:border-blue-500/30 group-focus-within:border-blue-500/40 select-none transition-colors duration-200">
-                            /f/
-                          </span>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center h-10 sm:h-11 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200 shadow-2xs hover:shadow-xs focus-within:shadow-xs overflow-hidden group">
+                          {/* Attached Domain Prefix */}
+                          <div className="h-full flex items-center px-2.5 sm:px-3 bg-muted/40 group-hover:bg-muted/60 text-xs text-muted-foreground font-mono font-medium border-r border-border/80 select-none transition-colors duration-200 gap-0.5 shrink-0 max-w-[210px] sm:max-w-none overflow-hidden">
+                            <span className="hidden xs:inline text-muted-foreground/60">https://</span>
+                            <span className="font-semibold text-blue-600 dark:text-blue-400 truncate">
+                              {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}
+                            </span>
+                            <span className="text-muted-foreground/80">/f/</span>
+                          </div>
+
+                          {/* Editable Custom Slug Input */}
                           <input
                             type="text"
                             placeholder="e.g. my-project-files"
@@ -444,40 +442,28 @@ export function ShareModal({
                             maxLength={48}
                             className="w-full h-full px-3 text-xs sm:text-[13px] text-foreground font-mono tracking-tight font-medium bg-transparent focus:outline-none placeholder:text-muted-foreground/50 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
                           />
+
                           {customSlug && (
                             <button
                               type="button"
                               onClick={() => setCustomSlug("")}
-                              className="p-1 mr-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg cursor-pointer transition-colors"
+                              className="p-1.5 mr-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg cursor-pointer transition-colors shrink-0"
                               aria-label="Clear custom slug"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
-                        {customSlug && (
-                          <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 truncate">
-                            <span className="font-medium text-foreground">Your link:</span>
-                            <span className="font-mono text-blue-600 dark:text-blue-400 font-medium truncate">
-                              {typeof window !== "undefined" ? window.location.host : "gphost.app"}/f/{customSlug}
-                            </span>
-                          </div>
-                        )}
+
+                        {/* Live Domain Attachment Preview */}
+                        <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 truncate">
+                          <span className="font-medium text-foreground">Attached URL:</span>
+                          <span className="font-mono text-blue-600 dark:text-blue-400 font-medium truncate">
+                            https://{typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{customSlug || "auto-generated-slug"}
+                          </span>
+                        </div>
                       </div>
-                    ) : (
-                      <div className="flex items-center h-10 rounded-xl bg-muted/20 border border-border/70 overflow-hidden opacity-60 cursor-not-allowed">
-                        <span className="h-full flex items-center px-3 bg-muted/40 text-xs text-muted-foreground border-r border-border/70 font-mono select-none">
-                          /f/
-                        </span>
-                        <input
-                          type="text"
-                          disabled
-                          placeholder="Upgrade to Premium to set custom names"
-                          className="w-full h-full px-3 text-xs text-muted-foreground bg-transparent focus:outline-none font-sans cursor-not-allowed placeholder:font-sans"
-                        />
-                      </div>
-                    )}
-                  </div>
+                    </div>
 
                   {/* Download Limit */}
                   <div className="space-y-1.5">

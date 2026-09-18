@@ -25,8 +25,11 @@ import {
   Zap,
   Lightbulb,
   MessageSquare,
+  Archive,
+  Globe,
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
+import { ZipViewerModal } from "@/components/dashboard/zip-viewer-modal";
 import { importE2EKey, decryptBuffer, extractE2EKeyFromHash } from "@/lib/crypto/e2e";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useTimeRemaining } from "@/lib/hooks/use-time-remaining";
@@ -85,6 +88,10 @@ export function DownloadCard({
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [copiedFilename, setCopiedFilename] = useState(false);
   const [showLifecycle, setShowLifecycle] = useState(false);
+  const [showZipViewer, setShowZipViewer] = useState(false);
+
+  const isZip = (metadata.filename || "").toLowerCase().endsWith(".zip") || (metadata.mime_type || "").includes("zip");
+  const isHtml = (metadata.filename || "").toLowerCase().endsWith(".html") || (metadata.filename || "").toLowerCase().endsWith(".htm") || (metadata.mime_type || "").includes("text/html");
 
   // Live reactive real-time expiration tracker
   const { isExpired: isTimeExpired } = useTimeRemaining(
@@ -679,6 +686,32 @@ export function DownloadCard({
                       <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0" />
                     </a>
                   )}
+
+                  {/* Client-Side In-Browser ZIP Archive Inspector */}
+                  {isZip && !isTimeExpired && (
+                    <button
+                      type="button"
+                      onClick={() => setShowZipViewer(true)}
+                      className="w-full h-11 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>Browse Archive Files (Zero-Download ZIP)</span>
+                    </button>
+                  )}
+
+                  {/* GP-Sites: 1-Click Static Web Preview */}
+                  {isHtml && !isTimeExpired && (
+                    <a
+                      href={`/site/${slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full h-11 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Launch Live Site (GP-Sites)</span>
+                      <ExternalLink className="w-3 h-3 text-cyan-500/70" />
+                    </a>
+                  )}
                 </div>
               ) : (
                 <div className="w-full py-3 rounded-xl bg-muted/40 border border-border text-center text-xs text-muted-foreground">
@@ -760,6 +793,15 @@ export function DownloadCard({
         {/* Space filler for bottom alignment */}
         <div className="hidden lg:block shrink-0 h-2" />
       </div>
+
+      {/* Client-Side In-Browser ZIP Archive Inspector Modal */}
+      {showZipViewer && (
+        <ZipViewerModal
+          filename={metadata.filename}
+          fileSource={`/raw/${slug}`}
+          onClose={() => setShowZipViewer(false)}
+        />
+      )}
     </div>
   );
 }

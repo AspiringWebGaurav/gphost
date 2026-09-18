@@ -165,15 +165,6 @@ export async function POST(req: NextRequest) {
     const sanitizedCustomSlug = customSlug?.trim().toLowerCase();
 
     if (sanitizedCustomSlug) {
-      if (!isPremiumUser) {
-        return NextResponse.json(
-          {
-            error:
-              "Custom slugs are an exclusive Premium Plan feature. Please upgrade your plan to unlock custom slugs.",
-          },
-          { status: 403 }
-        );
-      }
 
       if (RESERVED_SLUGS.has(sanitizedCustomSlug)) {
         return NextResponse.json(

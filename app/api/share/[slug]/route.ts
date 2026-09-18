@@ -222,3 +222,143 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
+
+const RESERVED_SLUGS = new Set([
+  "api",
+  "f",
+  "admin",
+  "login",
+  "auth",
+  "download",
+  "share",
+  "settings",
+  "terms",
+  "privacy",
+  "dashboard",
+  "files",
+  "upload",
+  "access-gate",
+  "help",
+  "docs",
+  "about",
+  "site",
+  "raw",
+]);
+
+/**
+ * EDIT CUSTOM SLUG: Update the slug of an existing share link with domain attachment.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { slug } = await params;
+    const body = await req.json();
+    const newSlug = body.newSlug?.trim().toLowerCase();
+
+    if (!newSlug || !/^[a-z0-9_-]{3,48}$/.test(newSlug)) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid slug. Must be 3-48 characters, containing only letters, numbers, hyphens, and underscores.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (RESERVED_SLUGS.has(newSlug)) {
+      return NextResponse.json(
+        { error: `The custom slug '${newSlug}' is reserved by the system.` },
+        { status: 400 }
+      );
+    }
+
+    const adminClient = createAdminClient();
+
+    // 1. Fetch share link with associated file
+    const { data: share, error: shareError } = await adminClient
+      .from("share_links")
+      .select(`
+        id,
+        slug,
+        is_active,
+        file:files (
+          id,
+          user_id
+        )
+      `)
+      .eq("slug", slug)
+      .single();
+
+    if (shareError || !share) {
+      return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+    }
+
+    const file = Array.isArray(share.file) ? share.file[0] : share.file;
+    const profile = await getUserProfile(user.id);
+    const isAdmin = profile?.role === "admin";
+    const isOwner = file && file.user_id === user.id;
+
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json(
+        { error: "Forbidden: You do not own this share link" },
+        { status: 403 }
+      );
+    }
+
+    // 2. Check if newSlug is already taken
+    if (newSlug !== slug) {
+      const { data: existing } = await adminClient
+        .from("share_links")
+        .select("id")
+        .eq("slug", newSlug)
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          { error: `The custom slug '${newSlug}' is already taken. Please choose another.` },
+          { status: 409 }
+        );
+      }
+
+      // Update the slug
+      const { error: updateError } = await adminClient
+        .from("share_links")
+        .update({ slug: newSlug })
+        .eq("id", share.id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: "Failed to update custom slug" },
+          { status: 500 }
+        );
+      }
+
+      // Purge old cache
+      try {
+        await Promise.all([
+          redis.del(`share:slug:${slug}`),
+          redis.del(`share:pub:${slug}`),
+          redis.del(`raw:meta:${slug}`),
+          redis.del(`share_enhancements:${slug}`),
+        ]);
+      } catch {}
+    }
+
+    return NextResponse.json({
+      success: true,
+      newSlug,
+      shareUrl: `/f/${newSlug}`,
+      rawUrl: `/raw/${newSlug}`,
+    });
+  } catch (err) {
+    console.error("Error updating custom slug:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}

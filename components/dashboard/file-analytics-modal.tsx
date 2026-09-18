@@ -14,6 +14,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import type { FileAnalyticsResponse } from "@/app/api/files/[id]/analytics/route";
+import { WorldMap } from "@/components/dashboard/world-map";
 
 interface FileAnalyticsModalProps {
   fileId: string;
@@ -167,6 +168,9 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                   </div>
                 </div>
               </div>
+
+              {/* Interactive Vector World Map */}
+              <WorldMap countries={data.countries} />
 
               {/* Geographic Distribution & Referrers Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

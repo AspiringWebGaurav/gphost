@@ -268,7 +268,59 @@ export default function HowItWorksPage() {
                   <span>Batch Multi-File ZIP Download</span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Sharing multiple pictures, homework documents, or project files? Select them in your file list and download everything as a single ZIP file with zero server lag.
+                  Sharing multiple pictures, homework documents, or project files? Select them in your file list and download everything as a single ZIP archive with zero server lag.
+                </p>
+              </div>
+
+              {/* Tool C: Zero-Download ZIP Inspector */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
+                    <Archive className="w-4 h-4" />
+                  </div>
+                  <span>Zero-Download ZIP Archive Inspector</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Inspect the internal folder structure of any ZIP file directly in your browser. Extract and download single files on the fly without downloading hundreds of megabytes.
+                </p>
+              </div>
+
+              {/* Tool D: GP-Sites Static Web Previews */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                  <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-500">
+                    <Globe className="w-4 h-4" />
+                  </div>
+                  <span>GP-Sites: Drop-and-Host Static Webpages</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Upload any HTML portfolio, landing page, or mockup. Host and view it instantly under <code>/site/[slug]</code> with an isolated sandbox and automatic lifecycle cleanup.
+                </p>
+              </div>
+
+              {/* Tool E: In-Browser Media Optimizer */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                  <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <span>Client-Side Media Optimizer &amp; WebP</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Automatically convert bulky JPG/PNG pictures into modern WebP format right on your device. Strips private camera EXIF data and shrinks storage consumption by up to 70%.
+                </p>
+              </div>
+
+              {/* Tool F: Resumable Upload Persistence */}
+              <div className="p-5 rounded-2xl bg-card border border-border space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                    <UploadCloud className="w-4 h-4" />
+                  </div>
+                  <span>Resumable Upload Persistence (IndexedDB)</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Lost connection or accidentally refreshed your tab mid-upload? Active multipart transfers are automatically saved in local browser storage so you never lose your progress.
                 </p>
               </div>
             </div>

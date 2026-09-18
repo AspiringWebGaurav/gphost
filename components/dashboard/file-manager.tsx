@@ -40,6 +40,7 @@ import {
   QrCode,
   Send,
   Mail,
+  Terminal,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
@@ -49,6 +50,9 @@ import { downloadFilesAsZip } from "@/lib/storage/bundle-zip";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { ZipViewerModal } from "@/components/dashboard/zip-viewer-modal";
+import { TerminalUploadModal } from "@/components/dashboard/terminal-upload-modal";
+import { HtmlHostModal } from "@/components/dashboard/html-host-modal";
 
 function getFileTypeDetails(mimeType: string, filename: string) {
   const lowerMime = (mimeType || "").toLowerCase();
@@ -203,9 +207,28 @@ export function FileManager({
   const [selectedFileForShare, setSelectedFileForShare] = useState<SafeFileItem | null>(null);
   const [selectedFileForDelete, setSelectedFileForDelete] = useState<SafeFileItem | null>(null);
   const [selectedFileForAnalytics, setSelectedFileForAnalytics] = useState<SafeFileItem | null>(null);
+  const [selectedFileForZip, setSelectedFileForZip] = useState<{ filename: string; url: string } | null>(null);
+  const [showTerminalModal, setShowTerminalModal] = useState<boolean>(false);
+  const [showHtmlHostModal, setShowHtmlHostModal] = useState<boolean>(false);
+  const [openingZipId, setOpeningZipId] = useState<string | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleOpenZipViewer = async (file: SafeFileItem) => {
+    setOpeningZipId(file.id);
+    try {
+      const res = await fetch(`/api/files/${file.id}/download`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch download link for archive");
+      setSelectedFileForZip({ filename: file.sanitized_name, url: data.downloadUrl });
+    } catch (err) {
+      console.error("Failed to open zip archive:", err);
+      alert("Could not load archive for inspection.");
+    } finally {
+      setOpeningZipId(null);
+    }
+  };
 
   // Share form state
   const [shareExpiresIn, setShareExpiresIn] = useState<string>("file_expiry");
@@ -730,6 +753,26 @@ export function FileManager({
                 <LayoutGrid className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {/* Host HTML Webpage Button */}
+            <button
+              onClick={() => setShowHtmlHostModal(true)}
+              className="px-2.5 py-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 font-medium"
+              title="Host static HTML webpage with custom domain and slug"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px] font-semibold">Host Webpage</span>
+            </button>
+
+            {/* Terminal Upload cURL Quick Launcher */}
+            <button
+              onClick={() => setShowTerminalModal(true)}
+              className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
+              title="Upload via Terminal (cURL / PowerShell)"
+            >
+              <Terminal className="w-3.5 h-3.5 text-blue-500" />
+              <span className="hidden md:inline font-mono text-[11px]">cURL</span>
+            </button>
           </div>
         </div>
       </div>
@@ -886,7 +929,9 @@ export function FileManager({
                         <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                           <Archive className="w-5 h-5" />
                         </div>
-                        <span className="text-[10px] font-mono text-muted-foreground uppercase">Compressed</span>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                          {file.sanitized_name.toLowerCase().endsWith(".zip") ? "ZIP Archive" : "Compressed"}
+                        </span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-blue-600 dark:text-blue-400">
@@ -897,10 +942,43 @@ export function FileManager({
                       </div>
                     )}
 
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition flex items-center justify-center opacity-0 group-hover:opacity-100 gap-1.5 p-2">
                       <span className="px-2 py-1 rounded-md bg-background/90 backdrop-blur-xs border border-border text-[10px] font-medium text-foreground shadow-xs">
                         Details
                       </span>
+                      {(file.sanitized_name.toLowerCase().endsWith(".zip") || file.mime_type.includes("zip")) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleOpenZipViewer(file);
+                          }}
+                          disabled={openingZipId === file.id}
+                          className="px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-medium shadow-xs transition flex items-center gap-1 cursor-pointer"
+                          title="Inspect files inside ZIP archive"
+                        >
+                          {openingZipId === file.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Archive className="w-3 h-3" />
+                          )}
+                          <span>Browse</span>
+                        </button>
+                      )}
+                      {(file.sanitized_name.toLowerCase().endsWith(".html") || file.mime_type.includes("html")) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenShare(file);
+                          }}
+                          className="px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-medium shadow-xs transition flex items-center gap-1 cursor-pointer"
+                          title="Host as live webpage"
+                        >
+                          <Globe className="w-3 h-3" />
+                          <span>Live Site</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1221,20 +1299,38 @@ export function FileManager({
               </div>
             </div>
 
-            <div className="pt-2 border-t border-border flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  const target = selectedFileForDetails;
-                  setSelectedFileForDetails(null);
-                  setSelectedFileForAnalytics(target);
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-semibold transition cursor-pointer"
-                data-testid="file-details-analytics-btn"
-              >
-                <Activity className="w-3.5 h-3.5" />
-                <span>View Analytics</span>
-              </button>
+            <div className="pt-3 border-t border-border flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = selectedFileForDetails;
+                    setSelectedFileForDetails(null);
+                    setSelectedFileForAnalytics(target);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-semibold transition cursor-pointer"
+                  data-testid="file-details-analytics-btn"
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>View Analytics</span>
+                </button>
+
+                {(selectedFileForDetails.sanitized_name.toLowerCase().endsWith(".zip") || selectedFileForDetails.mime_type.includes("zip")) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const file = selectedFileForDetails;
+                      setSelectedFileForDetails(null);
+                      void handleOpenZipViewer(file);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold transition cursor-pointer"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Browse ZIP Files</span>
+                  </button>
+                )}
+              </div>
+
               <button
                 onClick={() => setSelectedFileForDetails(null)}
                 className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-semibold text-foreground transition cursor-pointer"
@@ -1851,80 +1947,66 @@ export function FileManager({
                       </p>
                     </div>
 
-                    {/* Custom Link Name */}
+                    {/* Custom Link Name with Attached Domain */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
-                          <span>Custom Link Name</span>
-                          {isPremium ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 tracking-wider">
-                              PRO
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border flex items-center gap-0.5">
-                              <Lock className="w-2.5 h-2.5" />
-                              <span>PRO</span>
-                            </span>
-                          )}
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Custom Link URL (Slug)</span>
+                          <span className="text-[10.5px] font-normal text-muted-foreground">(Optional)</span>
                           <InfoTooltip
-                            title="Custom Link Name"
-                            content="Choose a clean, memorable address for your link (e.g. gphost.eu.cc/f/project-deck) instead of random letters."
+                            title="Custom Link Address"
+                            content="Create a personalized, memorable URL address for your link. The domain is automatically attached so you can share it anywhere."
                           />
                         </label>
-                        <span className="text-[10.5px] text-muted-foreground">
-                          {isPremium ? "letters, numbers, dashes" : "Upgrade to unlock"}
+                        <span className="text-[10.5px] text-muted-foreground font-mono">
+                          letters, numbers, dashes
                         </span>
                       </div>
 
-                      {isPremium ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center h-10 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200 shadow-2xs hover:shadow-xs focus-within:shadow-xs overflow-hidden group">
-                            <span className="h-full flex items-center px-3 bg-muted/40 group-hover:bg-muted/60 text-xs text-muted-foreground font-mono font-medium border-r border-border/80 group-hover:border-blue-500/30 group-focus-within:border-blue-500/40 select-none transition-colors duration-200">
-                              /f/
+                      <div className="space-y-1.5">
+                        <div className="flex items-center h-10 sm:h-11 rounded-xl bg-background/90 hover:bg-background border border-border/80 hover:border-blue-500/60 dark:hover:border-blue-400/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200 shadow-2xs hover:shadow-xs focus-within:shadow-xs overflow-hidden group">
+                          {/* Attached Domain Prefix */}
+                          <div className="h-full flex items-center px-2.5 sm:px-3 bg-muted/40 group-hover:bg-muted/60 text-xs text-muted-foreground font-mono font-medium border-r border-border/80 select-none transition-colors duration-200 gap-0.5 shrink-0 max-w-[210px] sm:max-w-none overflow-hidden">
+                            <span className="hidden xs:inline text-muted-foreground/60">https://</span>
+                            <span className="font-semibold text-blue-600 dark:text-blue-400 truncate">
+                              {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}
                             </span>
-                            <input
-                              type="text"
-                              placeholder="e.g. my-project-files"
-                              value={shareCustomSlug}
-                              onChange={(e) =>
-                                setShareCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
-                              }
-                              maxLength={48}
-                              className="w-full h-full px-3 text-xs sm:text-[13px] text-foreground font-mono tracking-tight font-medium bg-transparent focus:outline-none placeholder:text-muted-foreground/50 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
-                            />
-                            {shareCustomSlug && (
-                              <button
-                                type="button"
-                                onClick={() => setShareCustomSlug("")}
-                                className="p-1 mr-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg cursor-pointer transition-colors"
-                                aria-label="Clear custom slug"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            <span className="text-muted-foreground/80">/f/</span>
                           </div>
-                          {shareCustomSlug && (
-                            <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 truncate">
-                              <span className="font-medium text-foreground">Your link:</span>
-                              <span className="font-mono text-blue-600 dark:text-blue-400 font-medium truncate">
-                                {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{shareCustomSlug}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center h-10 rounded-xl bg-muted/20 border border-border/70 overflow-hidden opacity-60 cursor-not-allowed">
-                          <span className="h-full flex items-center px-3 bg-muted/40 text-xs text-muted-foreground border-r border-border/70 font-mono select-none">
-                            /f/
-                          </span>
+
+                          {/* Editable Custom Slug Input */}
                           <input
                             type="text"
-                            disabled
-                            placeholder="Upgrade to Premium to set custom names"
-                            className="w-full h-full px-3 text-xs text-muted-foreground bg-transparent focus:outline-none font-sans cursor-not-allowed placeholder:font-sans"
+                            placeholder="e.g. my-project-deck"
+                            value={shareCustomSlug}
+                            onChange={(e) =>
+                              setShareCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
+                            }
+                            maxLength={48}
+                            className="w-full h-full px-3 text-xs sm:text-[13px] text-foreground font-mono tracking-tight font-medium bg-transparent focus:outline-none placeholder:text-muted-foreground/50 placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
                           />
+
+                          {shareCustomSlug && (
+                            <button
+                              type="button"
+                              onClick={() => setShareCustomSlug("")}
+                              className="p-1.5 mr-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg cursor-pointer transition-colors shrink-0"
+                              aria-label="Clear custom slug"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                      )}
+
+                        {/* Live Domain Attachment Preview */}
+                        <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 truncate">
+                          <span className="font-medium text-foreground">Attached URL:</span>
+                          <span className="font-mono text-blue-600 dark:text-blue-400 font-medium truncate">
+                            https://{typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/f/{shareCustomSlug || "auto-generated-slug"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Download Limit */}
@@ -2427,6 +2509,29 @@ export function FileManager({
           onClose={() => setSelectedFileForAnalytics(null)}
         />
       )}
+
+      {/* Client-Side In-Browser ZIP Archive Inspector Modal */}
+      {selectedFileForZip && (
+        <ZipViewerModal
+          filename={selectedFileForZip.filename}
+          fileSource={selectedFileForZip.url}
+          onClose={() => setSelectedFileForZip(null)}
+        />
+      )}
+
+      {/* Minimal Developer Terminal / cURL Upload Modal */}
+      <TerminalUploadModal
+        isOpen={showTerminalModal}
+        onClose={() => setShowTerminalModal(false)}
+      />
+
+      {/* Dedicated HTML Host Modal with Domain & Custom Slug */}
+      <HtmlHostModal
+        isOpen={showHtmlHostModal}
+        onClose={() => setShowHtmlHostModal(false)}
+        onSuccess={() => void fetchFiles(page, searchQuery, category, sortBy, sortOrder)}
+        canCreatePermanent={isPremium}
+      />
     </div>
   );
 }

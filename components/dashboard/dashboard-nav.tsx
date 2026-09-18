@@ -11,7 +11,6 @@ import {
   Clock,
   Settings,
   ShieldAlert,
-  Home,
 } from "lucide-react";
 
 interface DashboardNavProps {
@@ -23,7 +22,6 @@ export function DashboardNav({ isAdmin = false, onNavigate }: DashboardNavProps)
   const pathname = usePathname();
 
   const navItems = [
-    { label: "Home", href: "/", icon: Home },
     { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
     { label: "Upload", href: "/upload", icon: Upload },
     { label: "Files", href: "/files", icon: Files },
