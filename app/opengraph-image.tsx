@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+export const dynamic = "force-static";
+
 export const alt = "GPHosting — Fast, Simple & Private File Sharing";
 export const size = {
   width: 1200,

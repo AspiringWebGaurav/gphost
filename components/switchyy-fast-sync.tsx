@@ -19,6 +19,11 @@ export function SwitchyyFastSync({ projectId, publicKey }: SwitchyyFastSyncProps
     let isSubscribed = true;
 
     const syncMode = async () => {
+      // Pause polling when browser tab is hidden or in background
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+
       try {
         const url = `https://switchyy.eu.cc/api/v1/decide?projectId=${encodeURIComponent(
           projectId

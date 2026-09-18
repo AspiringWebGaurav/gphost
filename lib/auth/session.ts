@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -22,9 +23,19 @@ export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 /**
  * Retrieves the currently authenticated Supabase Auth user from request cookies.
  * Memoized per-request via React cache() to prevent redundant auth calls.
+ * Short-circuits instantly if no Supabase auth cookies are present, saving Vercel Hobby function time.
  */
 export const getAuthenticatedUser = cache(async () => {
   try {
+    const cookieStore = await cookies();
+    const hasAuthCookie = cookieStore
+      .getAll()
+      .some((c) => c.name.startsWith("sb-") || c.name.includes("auth-token"));
+
+    if (!hasAuthCookie) {
+      return null;
+    }
+
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
 

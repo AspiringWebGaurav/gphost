@@ -18,8 +18,17 @@ export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30-minute inactivity window (bac
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Immediately bypass Next.js internal paths (HMR, Turbopack WebSockets, static assets)
-  if (pathname.startsWith("/_next")) {
+  // Immediately bypass Next.js internal paths, static assets, and generated metadata images
+  if (
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname.startsWith("/icon") ||
+    pathname.startsWith("/apple-icon") ||
+    pathname.startsWith("/opengraph-image")
+  ) {
     return NextResponse.next();
   }
 
@@ -67,18 +76,57 @@ export async function proxy(request: NextRequest) {
   // Attach CSP header to the outgoing response
   supabaseResponse.headers.set("Content-Security-Policy", cspHeader);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const isProtectedPath =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/upload") ||
+    pathname.startsWith("/files") ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/admin");
 
   const url = request.nextUrl.clone();
+
+  // Helper to attach CSP and forward refreshed session cookies to redirect responses
+  const redirectWithCsp = (targetUrl: URL) => {
+    const res = NextResponse.redirect(targetUrl);
+    res.headers.set("Content-Security-Policy", cspHeader);
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      res.cookies.set(cookie.name, cookie.value, {
+        path: cookie.path || "/",
+        sameSite: (cookie.sameSite as "lax" | "strict" | "none") || "lax",
+        maxAge: SESSION_MAX_AGE_SECONDS,
+        httpOnly: cookie.httpOnly,
+        secure: cookie.secure,
+      });
+    });
+    return res;
+  };
+
+  // Fast-Path Auth Cookie Check for Vercel Hobby Quota Preservation:
+  // If the browser presents no Supabase auth cookies, skip initializing Supabase SSR
+  // and avoid redundant network roundtrips completely.
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") || c.name.includes("auth-token"));
+
+  if (!hasAuthCookie) {
+    if (isProtectedPath) {
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return redirectWithCsp(url);
+    }
+    return supabaseResponse;
+  }
 
   // IMPORTANT: For OAuth callback & verification routes, bypass middleware session manipulation.
   // The route handler specifically exchanges the PKCE code for a session using the incoming code verifier cookie.
   if (pathname.startsWith("/auth/callback") || pathname.startsWith("/auth/confirm")) {
     return supabaseResponse;
   }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     return supabaseResponse;
@@ -163,29 +211,6 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  const isProtectedPath =
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/upload") ||
-    pathname.startsWith("/files") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/admin");
-
-  // Helper to attach CSP and forward refreshed session cookies to redirect responses
-  const redirectWithCsp = (targetUrl: URL) => {
-    const res = NextResponse.redirect(targetUrl);
-    res.headers.set("Content-Security-Policy", cspHeader);
-    supabaseResponse.cookies.getAll().forEach((cookie) => {
-      res.cookies.set(cookie.name, cookie.value, {
-        path: cookie.path || "/",
-        sameSite: (cookie.sameSite as "lax" | "strict" | "none") || "lax",
-        maxAge: SESSION_MAX_AGE_SECONDS,
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-      });
-    });
-    return res;
-  };
-
   // 5. Inactivity / Idle Timeout Check:
   // If user is authenticated on a protected route, verify they haven't been idle in background > 30 minutes.
   // Live users actively interacting have their timestamp continuously updated.
@@ -226,7 +251,15 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
-  // Authenticated user: verify profile status
+  // Quota & Latency Optimization:
+  // Only query PostgreSQL profiles table if visiting a protected path or the login screen.
+  // Authenticated users browsing public static pages (e.g. /, /terms, /privacy, /developers, /f/*)
+  // bypass this database call completely.
+  if (!isProtectedPath && pathname !== "/login") {
+    return supabaseResponse;
+  }
+
+  // Authenticated user on protected path or login: verify profile status
   const { data: profile } = await supabase
     .from("profiles")
     .select("status, role")
@@ -288,9 +321,9 @@ export const config = {
      * - _next (static files, image optimization, HMR websocket)
      * - api (API routes that have their own authoritative token/session auth)
      * - raw (public direct CDN redirect streaming)
-     * - static assets: favicon.ico, robots.txt, sitemap.xml, manifest.webmanifest
+     * - static assets: favicon.ico, robots.txt, sitemap.xml, manifest.webmanifest, icon, apple-icon, opengraph-image
      * - media and font files (svg, png, jpg, jpeg, gif, webp, woff, woff2, ico)
      */
-    "/((?!_next|api|raw|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico)$).*)",
+    "/((?!_next|api|raw|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon|apple-icon|opengraph-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico)$).*)",
   ],
 };
