@@ -13,6 +13,7 @@ import {
   Activity,
   ShieldCheck,
   ArrowLeft,
+  Home,
 } from "lucide-react";
 
 interface AdminNavProps {
@@ -60,11 +61,19 @@ export function AdminNav({ isOwner = false, onNavigate }: AdminNavProps) {
         );
       })}
 
-      <div className="pt-4 mt-4 border-t border-border">
+      <div className="pt-4 mt-4 border-t border-border space-y-1">
+        <Link
+          href="/"
+          onClick={onNavigate}
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition"
+        >
+          <Home className="w-4 h-4 text-purple-500" />
+          <span>Landing Page</span>
+        </Link>
         <Link
           href="/dashboard"
           onClick={onNavigate}
-          className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition"
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Dashboard</span>

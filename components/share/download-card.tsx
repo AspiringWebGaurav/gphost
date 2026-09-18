@@ -27,9 +27,10 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
-import { formatExpiryBadge } from "@/lib/storage/expiry";
 import { importE2EKey, decryptBuffer, extractE2EKeyFromHash } from "@/lib/crypto/e2e";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { useTimeRemaining } from "@/lib/hooks/use-time-remaining";
+import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (bytes === 0) return "0 Bytes";
@@ -85,22 +86,11 @@ export function DownloadCard({
   const [copiedFilename, setCopiedFilename] = useState(false);
   const [showLifecycle, setShowLifecycle] = useState(false);
 
-  // Live real-time expiration tracker
-  const [expiryBadge, setExpiryBadge] = useState(() =>
-    metadata.expires_at ? formatExpiryBadge(metadata.expires_at) : null
+  // Live reactive real-time expiration tracker
+  const { isExpired: isTimeExpired } = useTimeRemaining(
+    metadata.expires_at,
+    { warningThresholdMs: 60 * 1000 }
   );
-
-  useEffect(() => {
-    if (!metadata.expires_at) return;
-    const update = () => {
-      setExpiryBadge(formatExpiryBadge(metadata.expires_at));
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [metadata.expires_at]);
-
-  const isTimeExpired = Boolean(expiryBadge?.isExpired);
 
   // Client-side Zero-Trust End-to-End Encryption Key
   const [e2eKey, setE2eKey] = useState<string | null>(() => extractE2EKeyFromHash());
@@ -330,18 +320,7 @@ export function DownloadCard({
             )}
           </div>
 
-          {expiryBadge && (
-            <span
-              className={`text-xs flex items-center gap-1 font-medium ${
-                isTimeExpired
-                  ? "text-rose-600 dark:text-rose-400"
-                  : "text-muted-foreground"
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 text-muted-foreground/70" />
-              <span>{expiryBadge.label}</span>
-            </span>
-          )}
+          <ExpiryStatusBadge expiresAt={metadata.expires_at} />
         </div>
 
         {/* Center: Hero File Focus (Full Show, Dynamically Flexed, Stacked on Left on Desktop) */}
@@ -443,15 +422,7 @@ export function DownloadCard({
             </div>
             <div className="flex items-center justify-between text-muted-foreground">
               <span>Expires</span>
-              <span
-                className={`font-medium ${
-                  isTimeExpired
-                    ? "text-rose-600 dark:text-rose-400 font-semibold"
-                    : "text-foreground"
-                }`}
-              >
-                {expiryBadge ? expiryBadge.label : "Never"}
-              </span>
+              <ExpiryStatusBadge expiresAt={metadata.expires_at} />
             </div>
             <div className="flex items-center justify-between text-muted-foreground">
               <span>Access Limit</span>

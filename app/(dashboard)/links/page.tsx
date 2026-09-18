@@ -102,6 +102,7 @@ async function fetchActiveShareLinks(userId: string): Promise<ShareLinkItem[]> {
     return {
       id: l.id,
       slug: l.slug,
+      file_id: file?.id,
       file_name: file?.sanitized_name || "Unknown",
       byte_size: file?.byte_size || 0,
       download_count: l.download_count,

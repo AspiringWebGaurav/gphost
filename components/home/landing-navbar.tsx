@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, UserCheck } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, Home } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -19,61 +20,63 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+
+  // Close menu on route change (React-recommended render-time state adjustment)
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    setMobileMenuOpen(false);
+  }
+
+  // Prevent background scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     let rafId: number | null = null;
 
     const updateScrollState = () => {
       const scrollY = window.scrollY;
-      // Smooth hysteresis threshold:
-      // Enter compact floating capsule past 65px (avoids twitchy trigger on first micro-wheel)
-      // Expand back to full header when near top under 25px
-      setIsScrolled((prev) => {
-        if (!prev && scrollY > 65) return true;
-        if (prev && scrollY < 25) return false;
-        return prev;
+      setIsScrolled(scrollY > 20);
+    };
+
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        updateScrollState();
+        rafId = null;
       });
-      rafId = null;
     };
 
-    const handleScroll = () => {
-      if (rafId === null) {
-        rafId = window.requestAnimationFrame(updateScrollState);
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
     updateScrollState();
-
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      window.removeEventListener("scroll", handleScroll);
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", onScroll);
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
     };
   }, []);
 
-  // Close mobile menu when clicking outside or pressing Escape
+  // Keyboard accessibility (Escape closes mobile menu)
   useEffect(() => {
-    if (!mobileMenuOpen) return;
-
-    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      if (navRef.current && !navRef.current.contains(event.target as Node)) {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && mobileMenuOpen) {
         setMobileMenuOpen(false);
       }
     };
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMobileMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [mobileMenuOpen]);
@@ -81,14 +84,17 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
   return (
     <div
       ref={navRef}
-      className="sticky top-0 inset-x-0 z-50 pointer-events-none w-full flex flex-col items-center px-0"
+      className="sticky top-0 inset-x-0 z-50 pointer-events-auto md:pointer-events-none w-full flex flex-col items-center px-0"
     >
       <header
         className={cn(
-          "gpu-nav-capsule pointer-events-auto flex items-center justify-between",
+          "gpu-nav-capsule pointer-events-auto flex items-center justify-between gap-3 sm:gap-6 relative z-50 transition-all duration-200",
+          // Mobile: Solid, heavy opaque background edge-to-edge with border and shadow (never transparent)
+          "w-full h-14 px-4 bg-background dark:bg-[#070a12] border-b border-border shadow-md shadow-black/5 dark:shadow-black/25 rounded-none",
+          // Desktop (md+): Dynamic floating capsule
           isScrolled
-            ? "w-[calc(100%-1.5rem)] sm:w-[calc(100%-3rem)] max-w-5xl h-13 sm:h-14 translate-y-2 sm:translate-y-3 px-3.5 sm:px-5 rounded-xl sm:rounded-2xl bg-background/85 dark:bg-background/85 backdrop-blur-xl border border-border/70 shadow-lg shadow-black/5 dark:shadow-black/25"
-            : "w-full max-w-full h-15 sm:h-16 translate-y-0 px-4 sm:px-8 md:px-12 rounded-none bg-background/0 backdrop-blur-0 border border-transparent shadow-none"
+            ? "md:w-[calc(100%-3rem)] md:max-w-5xl md:h-14 md:translate-y-3 md:px-5 md:rounded-2xl md:bg-background/90 md:dark:bg-background/90 md:backdrop-blur-xl md:border md:border-border/70 md:shadow-lg"
+            : "md:w-full md:max-w-full md:h-16 md:translate-y-0 md:px-8 md:lg:px-12 md:rounded-none md:bg-transparent md:border-transparent md:shadow-none"
         )}
       >
         {/* Brand Logo */}
@@ -98,20 +104,18 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
         </div>
 
         {/* Desktop Navigation Links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground font-medium">
+        <nav className="hidden md:flex items-center gap-5 lg:gap-6 text-sm text-muted-foreground font-medium shrink-0 whitespace-nowrap">
           {user && isApproved ? (
             <>
+              <Link href="/" className="hover:text-foreground transition-colors">
+                Home
+              </Link>
               <Link href="/dashboard" className="text-foreground font-semibold hover:text-blue-500 transition-colors">
                 Dashboard
               </Link>
               <Link href="/upload" className="hover:text-foreground transition-colors">
                 Upload
               </Link>
-              {isAdmin && (
-                <Link href="/admin" className="text-purple-600 dark:text-purple-400 font-semibold hover:opacity-80 transition-opacity">
-                  Admin Panel
-                </Link>
-              )}
             </>
           ) : (
             <>
@@ -147,21 +151,49 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
         </nav>
 
         {/* Actions (Sign In / Dashboard + Theme Toggle + Mobile Menu Trigger) */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {user ? (
             <div className="flex items-center gap-1.5 sm:gap-2">
-              <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 text-xs text-muted-foreground font-medium border border-border">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
-                <span className="truncate max-w-[120px]">{profile?.full_name || user.email}</span>
-              </span>
+              {/* Synchronized User Identity Pill */}
               <Link
-                href={isApproved ? (isAdmin ? "/admin" : "/dashboard") : "/access-gate"}
-                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-semibold bg-foreground text-background hover:opacity-90 transition-opacity shadow-sm shrink-0"
+                href="/dashboard"
+                className="hidden lg:inline-flex items-center gap-2 px-3 h-8 sm:h-9 rounded-xl border border-border bg-card/60 hover:bg-muted/60 text-xs font-semibold text-foreground transition-all duration-200 shadow-xs shrink-0 select-none group"
+                title={`Signed in as ${profile?.full_name || user.email} (Open Dashboard)`}
               >
-                <span>{isAdmin ? "Admin" : "Dashboard"}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                </span>
+                <span className="truncate max-w-[130px] tracking-tight group-hover:text-blue-500 transition-colors">
+                  {profile?.full_name || user.email}
+                </span>
               </Link>
-              <LogoutButton variant="outline" className="hidden sm:inline-flex h-8 sm:h-9 text-xs" />
+
+              {/* Special Effect Admin Button on Navbar */}
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className="relative group inline-flex items-center gap-1.5 px-3 h-8 sm:h-9 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 via-fuchsia-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(168,85,247,0.4)] hover:shadow-[0_0_20px_rgba(217,70,239,0.7)] border border-purple-400/40 transition-all duration-200 hover:scale-[1.02] shrink-0 whitespace-nowrap"
+                  title="Admin Center"
+                >
+                  <Shield className="w-3.5 h-3.5 text-purple-200 animate-pulse" />
+                  <span>Admin</span>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                </Link>
+              )}
+
+              {/* Dashboard Button */}
+              <Link
+                href={isApproved ? "/dashboard" : "/access-gate"}
+                className="inline-flex items-center gap-1.5 px-3 h-8 sm:h-9 rounded-xl text-xs font-semibold bg-foreground text-background hover:opacity-90 transition-opacity shadow-sm shrink-0 whitespace-nowrap"
+                title="Go to Dashboard"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Dashboard</span>
+              </Link>
+              <div className="hidden md:block">
+                <LogoutButton variant="outline" className="h-8 sm:h-9 text-xs" />
+              </div>
             </div>
           ) : (
             <Link
@@ -178,29 +210,45 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
 
           {/* Mobile Hamburger Toggle Button */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer touch-manipulation relative z-10 select-none"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
+            data-testid="landing-hamburger-button"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </header>
 
-      {/* Mobile Animated Dropdown Drawer */}
+      {/* High-Contrast Full-Screen Mobile Backdrop Overlay */}
       {mobileMenuOpen && (
         <div
-          className={cn(
-            "md:hidden pointer-events-auto p-3 sm:p-4 rounded-2xl bg-background/95 backdrop-blur-2xl border border-border/80 shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-2 duration-200",
-            isScrolled
-              ? "w-[calc(100%-1.5rem)] sm:w-[calc(100%-3rem)] max-w-5xl mt-3 sm:mt-4"
-              : "w-[calc(100%-1.5rem)] sm:w-[calc(100%-3rem)] max-w-full mt-2"
-          )}
+          data-testid="mobile-menu-backdrop"
+          className="fixed inset-0 bg-black/75 backdrop-blur-md z-40 md:hidden pointer-events-auto transition-opacity animate-in fade-in duration-200"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Mobile Elevated Navigation Sheet */}
+      {mobileMenuOpen && (
+        <div
+          data-testid="mobile-menu-panel"
+          className="fixed top-15 inset-x-3.5 max-w-md mx-auto md:hidden pointer-events-auto p-4 rounded-2xl bg-card text-card-foreground border border-border shadow-2xl space-y-2.5 z-50 animate-in fade-in slide-in-from-top-3 duration-250 ring-1 ring-black/10 dark:ring-white/10"
         >
           <div className="flex flex-col space-y-1 text-sm font-medium">
             {user && isApproved ? (
               <>
+                <Link
+                  href="/"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                >
+                  <Home className="w-4 h-4 text-cyan-500" />
+                  <span>Home</span>
+                </Link>
                 <Link
                   href="/dashboard"
                   onClick={() => setMobileMenuOpen(false)}
@@ -221,10 +269,15 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
                   <Link
                     href="/admin"
                     onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-purple-600 dark:text-purple-400 font-semibold hover:bg-muted/70 transition-colors"
+                    className="relative overflow-hidden flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-indigo-500/15 text-purple-700 dark:text-purple-300 font-bold border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.25)] hover:border-purple-500/50 transition-all"
                   >
-                    <UserCheck className="w-4 h-4 text-purple-500" />
-                    <span>Admin Panel</span>
+                    <div className="flex items-center gap-2.5">
+                      <Shield className="w-4 h-4 text-purple-500 animate-pulse" />
+                      <span>Admin Center</span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40">
+                      SPECIAL ACCESS
+                    </span>
                   </Link>
                 )}
               </>

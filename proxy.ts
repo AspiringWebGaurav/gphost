@@ -16,12 +16,26 @@ export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30-minute inactivity window (bac
  * independently enforce authoritative database checks.
  */
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Immediately bypass Next.js internal paths (HMR, Turbopack WebSockets, static assets)
+  if (pathname.startsWith("/_next")) {
+    return NextResponse.next();
+  }
+
   // 1. Generate 128-bit cryptographically random base64 nonce
   const nonce = crypto.randomBytes(16).toString("base64");
 
-  // 2. Build strict Content-Security-Policy (allow 'unsafe-eval' in development for React/Turbopack debugging)
+  // 2. Build strict Content-Security-Policy
+  // In development, allow 'unsafe-inline', 'unsafe-eval', and 'ws:' / 'wss:' so Turbopack HMR and React hydration function seamlessly on LAN IPs
   const isDev = process.env.NODE_ENV !== "production";
-  const scriptSrc = `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com https://switchyy.eu.cc;`;
+  const scriptSrc = `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline' 'unsafe-eval'" : ""} https://challenges.cloudflare.com https://switchyy.eu.cc;`;
+  const connectSrc = `connect-src 'self' ${isDev ? "ws: wss: " : ""}https://*.supabase.co https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://switchyy.eu.cc https://xurl.eu.cc;`;
+
+  // Only upgrade insecure requests in production when accessed over HTTPS.
+  // In development (or over local network HTTP such as 192.168.x.x:3000), upgrade-insecure-requests causes mobile
+  // browsers to rewrite HTTP sub-resource URLs (CSS, JS, fonts) to HTTPS, breaking stylesheet and script loading completely.
+  const upgradeInsecureDirective = !isDev && request.nextUrl.protocol === "https:" ? "upgrade-insecure-requests;" : "";
 
   const cspHeader = `
     default-src 'self';
@@ -29,13 +43,13 @@ export async function proxy(request: NextRequest) {
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: blob: https:;
     font-src 'self';
-    connect-src 'self' https://*.supabase.co https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://switchyy.eu.cc https://xurl.eu.cc;
+    ${connectSrc}
     frame-src 'self' https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com blob:;
     object-src 'none';
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    upgrade-insecure-requests;
+    ${upgradeInsecureDirective}
   `
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -59,7 +73,6 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   const url = request.nextUrl.clone();
-  const { pathname } = url;
 
   // IMPORTANT: For OAuth callback & verification routes, bypass middleware session manipulation.
   // The route handler specifically exchanges the PKCE code for a session using the incoming code verifier cookie.
@@ -272,12 +285,11 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
+     * - _next (static files, image optimization, HMR websocket)
      * - favicon.ico (favicon file)
      * - images, png, svg, ico
      * - api routes that have their own authoritative token/session auth
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

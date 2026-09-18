@@ -8,16 +8,19 @@ import {
   Globe,
   Lock,
   Flame,
-  Clock,
   Trash2,
   ExternalLink,
+  Download,
+  Activity,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
-import { formatTimeRemaining } from "@/lib/storage/expiry";
+import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
+import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 
 export interface ShareLinkItem {
   id: string;
   slug: string;
+  file_id?: string;
   file_name: string;
   byte_size: number;
   download_count: number;
@@ -49,6 +52,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   const [linkToDelete, setLinkToDelete] = useState<ShareLinkItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [analyticsFile, setAnalyticsFile] = useState<{ id: string; filename: string } | null>(null);
 
   // Real-time live countdown ticker (ticks every second)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -154,20 +158,15 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                     </span>
                   )}
 
-                  <span className="text-muted-foreground">
-                    Downloads:{" "}
-                    <strong className="text-foreground">
-                      {link.download_count}
-                      {link.max_downloads ? ` / ${link.max_downloads}` : " (unlimited)"}
-                    </strong>
-                  </span>
-
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-blue-500" />
-                    <span className="font-medium">
-                      {link.expires_at ? formatTimeRemaining(link.expires_at, currentTime) : "Never"}
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 text-xs font-medium">
+                    <Download className="w-3 h-3 text-purple-500" />
+                    <span>
+                      <strong>{link.download_count}</strong> {link.download_count === 1 ? "download" : "downloads"}
+                      {link.max_downloads ? ` / ${link.max_downloads} max` : ""}
                     </span>
                   </span>
+
+                  <ExpiryStatusBadge expiresAt={link.expires_at} />
                 </div>
 
                 {/* XURL Alias if active */}
@@ -220,6 +219,18 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                   </button>
                 )}
 
+                {link.file_id && (
+                  <button
+                    onClick={() => setAnalyticsFile({ id: link.file_id!, filename: link.file_name })}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-medium transition cursor-pointer"
+                    title="View File Analytics & Downloads"
+                    data-testid={`link-analytics-btn-${link.slug}`}
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Analytics</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     setDeleteError(null);
@@ -266,6 +277,15 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
         cancelText="Cancel"
         variant="danger"
       />
+
+      {/* Analytics Modal */}
+      {analyticsFile && (
+        <FileAnalyticsModal
+          fileId={analyticsFile.id}
+          filename={analyticsFile.filename}
+          onClose={() => setAnalyticsFile(null)}
+        />
+      )}
     </div>
   );
 }

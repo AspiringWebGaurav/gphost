@@ -10,7 +10,7 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { IdleSessionMonitor } from "@/components/auth/idle-session-monitor";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
-import { Layers } from "lucide-react";
+import { Layers, Home } from "lucide-react";
 
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 
@@ -68,9 +68,9 @@ export default async function DashboardLayout({
       {/* Desktop Sidebar */}
       <aside className="w-64 border-r border-border bg-card flex flex-col justify-between hidden md:flex sticky top-0 h-screen p-5 transition-colors">
         <div className="space-y-6">
-          {/* Brand */}
+          {/* Brand - Links to Landing Page */}
           <div className="px-1">
-            <BrandLogo size="sm" href="/dashboard" subtitle="Console" />
+            <BrandLogo size="sm" href="/" subtitle="Console" />
           </div>
 
           {/* Navigation */}
@@ -97,7 +97,7 @@ export default async function DashboardLayout({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Navbar */}
-        <header className="h-14 md:h-16 border-b border-border bg-background/80 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40 shrink-0 transition-colors">
+        <header className="h-14 md:h-16 border-b border-border bg-background dark:bg-[#070a12] md:bg-background/80 md:backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40 shrink-0 shadow-xs md:shadow-none transition-colors">
           <div className="flex items-center gap-2.5 md:hidden">
             <MobileNav
               isAdmin={isAdmin}
@@ -111,7 +111,7 @@ export default async function DashboardLayout({
                 reserved_bytes: profile.reserved_bytes,
               }}
             />
-            <Link href="/dashboard" className="flex items-center gap-2">
+            <Link href="/" className="flex items-center gap-2" title="Return to Landing Page">
               <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-xs">
                 <Layers className="w-4 h-4" />
               </div>
@@ -134,6 +134,15 @@ export default async function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 px-3 h-8 sm:h-9 rounded-xl border border-border bg-card/60 hover:bg-muted/60 text-xs font-semibold text-foreground transition-all duration-150 shadow-xs shrink-0"
+              title="Return to Landing Page"
+            >
+              <Home className="w-3.5 h-3.5 text-blue-500" />
+              <span>Home</span>
+            </Link>
+
             <span
               className={`hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
                 isAdmin

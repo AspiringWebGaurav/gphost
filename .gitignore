@@ -102,14 +102,20 @@ desktop.ini
 
 # --- Agent Governance, IDE & Local Scratch ---
 .agent/
+.agent*/
 .agents/
+.agents*/
 .gemini/
+.claude/
+.cursor/
+.windsurf/
 scratch/
 scratch_*
 *.scratch.*
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+*.agent*
 
 # --- Temporary, Backup & Archive Files ---
 *.backup

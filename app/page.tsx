@@ -18,6 +18,7 @@ import {
   Terminal,
   HardDrive,
   FileText,
+  LayoutDashboard,
 } from "lucide-react";
 import { BackToTop } from "@/components/ui/back-to-top";
 import { BrandLogoSymbol } from "@/components/ui/brand-logo";
@@ -64,17 +65,12 @@ export default async function HomePage() {
         isAdmin={Boolean(isAdmin)}
       />
 
-      {/* Hero Section */}
+      {/* Hero Section - Fills full first viewport till screen bottom */}
       <main className="flex-1 relative z-10">
-        <section className="relative pt-6 sm:pt-16 pb-10 sm:pb-14 px-3.5 sm:px-6 max-w-5xl mx-auto text-center flex flex-col items-center overflow-hidden">
-          {user && isApproved ? (
+        <section className="relative min-h-[calc(100dvh-3.5rem)] md:min-h-[calc(100dvh-4rem)] pt-4 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6 max-w-5xl mx-auto text-center flex flex-col justify-between items-center">
+          <div className="w-full flex-1 flex flex-col justify-center items-center my-auto">
+            {user && isApproved ? (
             <>
-              {/* Active Session Status Badge */}
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] sm:text-xs font-medium mb-4">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Active Session • 30m Auto-Renewing Window</span>
-              </div>
-
               {/* Dynamic Welcome Heading */}
               <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-foreground max-w-3xl leading-[1.14] sm:leading-[1.12] mb-3 sm:mb-3.5">
                 Welcome back,{" "}
@@ -91,10 +87,11 @@ export default async function HomePage() {
               {/* Dynamic Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-2.5 sm:gap-3 w-full sm:w-auto mb-6">
                 <Link
-                  href={isAdmin ? "/admin" : "/dashboard"}
+                  href="/dashboard"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 h-10 rounded-xl text-xs sm:text-sm font-semibold bg-foreground text-background hover:opacity-90 shadow-sm transition-all duration-150 shrink-0"
                 >
-                  <span>{isAdmin ? "Enter Admin Center" : "Open Dashboard"}</span>
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Go to Dashboard</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
 
@@ -229,9 +226,10 @@ export default async function HomePage() {
               </div>
             </>
           )}
+          </div>
 
-          {/* Metrics Row */}
-          <div className="mt-7 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-4 gap-4 text-left max-w-3xl w-full">
+          {/* Metrics Row - Anchored at the bottom of the first viewport */}
+          <div className="mt-6 sm:mt-auto pt-4 sm:pt-5 pb-2 border-t border-border grid grid-cols-2 md:grid-cols-4 gap-4 text-left max-w-3xl w-full shrink-0">
             <div>
               <div className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">5 GB</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">Free Storage</div>

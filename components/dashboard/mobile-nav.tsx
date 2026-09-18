@@ -75,6 +75,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
       {/* Mobile Top Header Hamburger Button */}
       <button
         type="button"
+        data-testid="dashboard-hamburger-button"
         onClick={() => setIsOpen(true)}
         aria-label="Open navigation menu"
         className="p-2 -ml-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition cursor-pointer md:hidden"
@@ -87,18 +88,22 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
         <div className="fixed inset-0 z-50 md:hidden animate-in fade-in duration-200">
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            data-testid="dashboard-mobile-backdrop"
+            className="fixed inset-0 bg-black/75 backdrop-blur-md transition-opacity"
             onClick={closeDrawer}
             aria-hidden="true"
           />
 
           {/* Drawer Panel */}
-          <div className="fixed inset-y-0 left-0 w-[290px] max-w-[85vw] bg-card border-r border-border shadow-2xl flex flex-col justify-between p-5 z-10 animate-in slide-in-from-left duration-250">
+          <div
+            data-testid="dashboard-mobile-drawer"
+            className="fixed inset-y-0 left-0 w-[290px] max-w-[85vw] bg-card text-card-foreground border-r border-border shadow-2xl flex flex-col justify-between p-5 z-10 animate-in slide-in-from-left duration-250 ring-1 ring-black/10 dark:ring-white/10"
+          >
             {/* Drawer Header: Brand & Close */}
             <div className="space-y-5">
               <div className="flex items-center justify-between">
                 <div onClick={closeDrawer}>
-                  <BrandLogo size="sm" href="/dashboard" subtitle="Console" />
+                  <BrandLogo size="sm" href="/" subtitle="Console" />
                 </div>
 
                 <button
@@ -220,6 +225,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
           {/* 5th Action: Menu button to trigger Drawer */}
           <button
             type="button"
+            data-testid="dashboard-bottom-menu-button"
             onClick={() => setIsOpen(true)}
             className="flex flex-col items-center justify-center py-1 px-3 rounded-xl text-muted-foreground hover:text-foreground transition-all duration-150 select-none cursor-pointer"
             aria-label="Open full menu"

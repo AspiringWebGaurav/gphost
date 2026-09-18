@@ -46,14 +46,23 @@ export default async function DashboardPage() {
       .lte("expires_at", nowIso),
   ]);
 
-  const [{ data: files }, { data: approvedRequest }] = await Promise.all([
+  const [
+    { data: files, count: totalFilesCount },
+    { data: shareLinks, count: activeLinksCount },
+    { data: approvedRequest },
+  ] = await Promise.all([
     adminClient
       .from("files")
-      .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at")
+      .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at", { count: "exact" })
       .eq("user_id", user.id)
       .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
       .order("created_at", { ascending: false })
       .limit(10),
+    adminClient
+      .from("share_links")
+      .select("id, download_count", { count: "exact" })
+      .eq("user_id", user.id)
+      .eq("is_active", true),
     adminClient
       .from("access_requests")
       .select("reviewed_at, rejection_reason")
@@ -63,6 +72,11 @@ export default async function DashboardPage() {
       .limit(1)
       .maybeSingle(),
   ]);
+
+  const totalDownloads = (shareLinks || []).reduce(
+    (sum, link) => sum + (Number(link.download_count) || 0),
+    0
+  );
 
   const configuredAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
   const isOwnerOrAdmin =
@@ -86,6 +100,11 @@ export default async function DashboardPage() {
     <DashboardContent
       initialFiles={files || []}
       welcomeInfo={welcomeInfo}
+      stats={{
+        totalFiles: totalFilesCount ?? (files ? files.length : 0),
+        activeLinks: activeLinksCount ?? (shareLinks ? shareLinks.length : 0),
+        totalDownloads,
+      }}
       profile={{
         full_name: profile.full_name,
         email: profile.email,

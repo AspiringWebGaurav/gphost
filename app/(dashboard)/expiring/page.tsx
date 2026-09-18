@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Clock, AlertTriangle, ArrowRight } from "lucide-react";
+import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +13,6 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
-
-function formatRemainingTime(expiresAt: string, currentMs: number): string {
-  const diffMs = new Date(expiresAt).getTime() - currentMs;
-  if (diffMs <= 0) return "Expired";
-  const hours = Math.floor(diffMs / (1000 * 60 * 60));
-  const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours}h ${mins}m left`;
 }
 
 async function fetchExpiringFiles(userId: string) {
@@ -58,7 +51,7 @@ export default async function ExpiringPage() {
     redirect("/access-gate");
   }
 
-  const { files, currentMs } = await fetchExpiringFiles(user.id);
+  const { files } = await fetchExpiringFiles(user.id);
 
   return (
     <div className="space-y-6 max-w-5xl w-full mx-auto">
@@ -101,9 +94,7 @@ export default async function ExpiringPage() {
                     <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                       <span>{formatBytes(file.byte_size)}</span>
                       <span>&bull;</span>
-                      <span className="font-mono text-amber-600 dark:text-amber-400 font-medium">
-                        {formatRemainingTime(file.expires_at!, currentMs)}
-                      </span>
+                      <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} />
                       <span>&bull;</span>
                       <span>Expires: {new Date(file.expires_at!).toLocaleString()}</span>
                     </div>

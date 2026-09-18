@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import Link from "next/link";
 import {
   UploadCloud,
   File as FileIcon,
@@ -13,11 +14,17 @@ import {
   ShieldCheck,
   Copy,
   Check,
+  Share2,
+  ExternalLink,
+  Activity,
+  Files,
 } from "lucide-react";
 import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
 import { generateE2EKey, encryptBuffer } from "@/lib/crypto/e2e";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
+import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -49,7 +56,24 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [copiedKey, setCopiedKey] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [enableZeroTrust, setEnableZeroTrust] = useState<boolean>(false);
-  const [successFile, setSuccessFile] = useState<{ id: string; filename: string; size: number; e2eKeyFragment?: string } | null>(null);
+  const [successFile, setSuccessFile] = useState<{
+    id: string;
+    filename: string;
+    size: number;
+    mimeType?: string;
+    expiresAt: string | null;
+    e2eKeyFragment?: string;
+  } | null>(null);
+  const [shareResult, setShareResult] = useState<{
+    slug: string;
+    shareUrl: string;
+    rawUrl?: string;
+  } | null>(null);
+  const [isGeneratingShare, setIsGeneratingShare] = useState(false);
+  const [shareGenError, setShareGenError] = useState<string | null>(null);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const [copiedRaw, setCopiedRaw] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,6 +84,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const handleFileChange = (file: File) => {
     setErrorMsg(null);
     setSuccessFile(null);
+    setShareResult(null);
+    setShareGenError(null);
     setProgress(0);
     setUploadedBytes(0);
     setUploadSpeed("");
@@ -362,8 +388,12 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         id: fileId,
         filename: completedData.file.sanitized_name || fileToUpload.name,
         size: completedData.file.byte_size || fileToUpload.size,
+        mimeType: completedData.file.mime_type || mimeType,
+        expiresAt: completedData.file.expires_at || null,
         e2eKeyFragment,
       });
+      setShareResult(null);
+      setShareGenError(null);
       setSelectedFile(null);
 
       const fileSize = completedData.file.byte_size || fileToUpload.size;
@@ -387,6 +417,37 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
     }
   };
 
+  const handleQuickShare = async () => {
+    if (!successFile) return;
+    setIsGeneratingShare(true);
+    setShareGenError(null);
+    try {
+      const res = await fetch("/api/share/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: successFile.id,
+          expiresInPreset: expiryPreset,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to generate share link");
+      }
+      const shareData = data.share || data;
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      setShareResult({
+        slug: shareData.slug,
+        shareUrl: shareData.shareUrl || `${origin}/f/${shareData.slug}`,
+        rawUrl: shareData.rawUrl || `${origin}/raw/${shareData.slug}`,
+      });
+    } catch (err: unknown) {
+      setShareGenError(err instanceof Error ? err.message : "Error creating share link");
+    } finally {
+      setIsGeneratingShare(false);
+    }
+  };
+
   return (
     <div className={`w-full ${compact ? "space-y-3" : "space-y-4"}`}>
       {/* Dropzone container */}
@@ -406,6 +467,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         <input
           ref={fileInputRef}
           type="file"
+          data-testid="file-upload-input"
           className="hidden"
           onChange={(e) => {
             if (e.target.files && e.target.files[0]) {
@@ -524,6 +586,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
               <button
                 onClick={startUpload}
+                data-testid="upload-button-trigger"
                 className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
               >
                 Upload
@@ -658,25 +721,184 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         </div>
       )}
 
-      {/* Success Notification */}
+      {/* Post-Upload Action Hub */}
       {successFile && (
-        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-4 text-xs shadow-xs animate-in fade-in duration-200">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-foreground font-medium">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>
-                <strong>{successFile.filename}</strong> ({formatBytes(successFile.size)}) successfully uploaded.
-              </span>
+        <div
+          data-testid="post-upload-hub"
+          className="p-4 sm:p-5 rounded-2xl bg-card border border-emerald-500/30 shadow-lg space-y-4 animate-in fade-in duration-200"
+        >
+          {/* Header Row: Success Status & Live Expiry Timer */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-border/70">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-sm font-bold text-foreground truncate" data-testid="upload-success-title">
+                  Upload Complete &amp; Verified
+                </h4>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Direct transfer verified and committed to storage
+                </p>
+              </div>
             </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <ExpiryStatusBadge expiresAt={successFile.expiresAt} size="sm" />
+              <button
+                type="button"
+                onClick={() => {
+                  setSuccessFile(null);
+                  setShareResult(null);
+                }}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                aria-label="Dismiss and upload another"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Uploaded File Details Strip */}
+          <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                <FileIcon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate max-w-xs sm:max-w-md">
+                  {successFile.filename}
+                </p>
+                <p className="text-[11px] text-muted-foreground font-mono">
+                  {formatBytes(successFile.size)} • {successFile.mimeType || "Asset"}
+                </p>
+              </div>
+            </div>
+
             <button
-              onClick={() => setSuccessFile(null)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted/50 transition-colors"
-              aria-label="Dismiss success message"
+              type="button"
+              data-testid="post-upload-view-analytics-btn"
+              onClick={() => setShowAnalyticsModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:border-purple-500/30 hover:bg-purple-500/10 text-xs font-medium text-muted-foreground hover:text-purple-600 dark:hover:text-purple-300 transition-colors cursor-pointer shrink-0"
+              title="View file analytics & download counts"
             >
-              <X className="w-4 h-4" />
+              <Activity className="w-3.5 h-3.5 text-purple-500" />
+              <span className="hidden sm:inline">Analytics</span>
             </button>
           </div>
 
+          {/* Share Link Generation / Result Card */}
+          {!shareResult ? (
+            <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Need a shareable link?</p>
+                <p className="text-[11px] text-muted-foreground">Create a direct share link or CDN hotlink for this upload.</p>
+                {shareGenError && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium mt-1">{shareGenError}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                data-testid="post-upload-generate-share-btn"
+                onClick={handleQuickShare}
+                disabled={isGeneratingShare}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
+              >
+                {isGeneratingShare ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Generate Share Link</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3 p-4 rounded-xl bg-blue-500/5 border border-blue-500/25" data-testid="post-upload-share-result">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Share2 className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Public Share Link</span>
+                </span>
+                <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold">Ready to Share</span>
+              </div>
+
+              {/* Web Share URL */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  data-testid="post-upload-share-url-input"
+                  value={shareResult.shareUrl}
+                  className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-background border border-border font-mono text-xs text-foreground select-all focus:outline-none"
+                />
+                <button
+                  type="button"
+                  data-testid="post-upload-copy-share-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareResult.shareUrl);
+                    setCopiedShare(true);
+                    setTimeout(() => setCopiedShare(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                >
+                  {copiedShare ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedShare ? "Copied" : "Copy"}</span>
+                </button>
+                <a
+                  href={shareResult.shareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground border border-border transition cursor-pointer shrink-0"
+                  title="Open share page in new tab"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              {/* Direct Raw CDN URL */}
+              {shareResult.rawUrl && (
+                <div className="pt-2 border-t border-border/60 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-purple-500" />
+                      <span>Direct Raw / CDN Hotlink</span>
+                    </span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono">0 Vercel Egress</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      data-testid="post-upload-raw-url-input"
+                      value={shareResult.rawUrl}
+                      className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-background border border-purple-500/30 font-mono text-[11px] text-foreground select-all focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      data-testid="post-upload-copy-raw-btn"
+                      onClick={() => {
+                        navigator.clipboard.writeText(shareResult.rawUrl || "");
+                        setCopiedRaw(true);
+                        setTimeout(() => setCopiedRaw(false), 2000);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                    >
+                      {copiedRaw ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedRaw ? "Copied" : "Copy Raw"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Zero-Trust Key Display if enabled */}
           {successFile.e2eKeyFragment && (
             <div className="p-4 rounded-xl bg-card border border-emerald-500/30 dark:border-emerald-500/40 shadow-xs space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -699,17 +921,10 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    E2E Zero-Knowledge
-                    <InfoTooltip
-                      variant="emerald"
-                      title="Zero-Knowledge Architecture"
-                      content="Because the server never possesses the encryption key, server operators, ISP eavesdroppers, and database dumps cannot read your file. Decryption occurs purely in the recipient's browser."
-                    />
-                  </span>
-                </div>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  E2E Zero-Knowledge
+                </span>
               </div>
 
               <p className="text-muted-foreground text-xs leading-relaxed">
@@ -757,7 +972,50 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               </div>
             </div>
           )}
+
+          {/* Action Row: Next Logical Steps */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-border/70">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="post-upload-analytics-btn"
+                onClick={() => setShowAnalyticsModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border transition-colors cursor-pointer"
+              >
+                <Activity className="w-3.5 h-3.5 text-purple-500" />
+                <span>View Analytics</span>
+              </button>
+
+              <Link
+                href="/files"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border transition-colors cursor-pointer"
+              >
+                <Files className="w-3.5 h-3.5 text-blue-500" />
+                <span>View in Files</span>
+              </Link>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSuccessFile(null);
+                setShareResult(null);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-600/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-xs font-semibold transition cursor-pointer"
+            >
+              <span>+ Upload Another File</span>
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Analytics Modal from Post-Upload */}
+      {showAnalyticsModal && successFile && (
+        <FileAnalyticsModal
+          fileId={successFile.id}
+          filename={successFile.filename}
+          onClose={() => setShowAnalyticsModal(false)}
+        />
       )}
     </div>
   );

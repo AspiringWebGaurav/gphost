@@ -33,11 +33,10 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
-import {
-  formatTimeRemaining,
-} from "@/lib/storage/expiry";
+import { formatTimeRemaining } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
+import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 
 export interface FileItem {
   id: string;
@@ -419,34 +418,7 @@ export function FileList({
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
                     <span className="font-mono">{formatBytes(file.byte_size)}</span>
                     <span>•</span>
-                    {isExpired ? (
-                      <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold">
-                        <Clock className="w-3 h-3 text-rose-500" />
-                        <span>Expired</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        <span>{formatExpiry(file.expires_at, currentTime)}</span>
-                      </span>
-                    )}
-                    <span>•</span>
-                    {isExpired ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-2xs">
-                        <AlertCircle className="w-3 h-3" />
-                        <span>EXPIRED</span>
-                      </span>
-                    ) : file.status === "ACTIVE" ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>ACTIVE</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                        <Clock className="w-3 h-3" />
-                        <span>{file.status}</span>
-                      </span>
-                    )}
+                    <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} />
                   </div>
                 </div>
               </div>
@@ -529,10 +501,12 @@ export function FileList({
 
                 <button
                   onClick={() => setAnalyticsFile(file)}
-                  className="p-1.5 rounded-lg border border-border hover:border-purple-500/30 hover:bg-purple-500/10 text-muted-foreground hover:text-purple-500 transition-colors cursor-pointer"
-                  title="Edge Analytics & Geo Heatmap"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/15 text-purple-600 dark:text-purple-400 text-xs font-medium transition-colors cursor-pointer"
+                  title="View File Analytics & Downloads"
+                  data-testid={`file-analytics-btn-${file.id}`}
                 >
                   <Activity className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Analytics</span>
                 </button>
 
                 <button
@@ -1142,13 +1116,7 @@ export function FileList({
                 {/* Realtime Stats & QR Code Action Strip */}
                 <div className="p-3 rounded-xl bg-muted/40 border border-border flex flex-wrap items-center justify-between gap-2.5 text-xs">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
-                      <Clock className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Expires:</span>
-                      <strong className="text-foreground font-mono font-semibold">
-                        {formatExpiry(shareResult.expires_at || null, currentTime)}
-                      </strong>
-                    </span>
+                    <ExpiryStatusBadge expiresAt={shareResult.expires_at} />
                     <span className="text-muted-foreground/40">•</span>
                     <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
                       <Download className="w-3.5 h-3.5 text-blue-500" />
@@ -1172,18 +1140,32 @@ export function FileList({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowQrCode(!showQrCode)}
-                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer w-full sm:w-auto ${
-                      showQrCode
-                        ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
-                        : "bg-background hover:bg-muted text-foreground border-border hover:border-blue-500/40 shadow-2xs"
-                    }`}
-                  >
-                    <QrCode className="w-3.5 h-3.5" />
-                    <span>{showQrCode ? "Hide QR Code" : "Show QR Code"}</span>
-                  </button>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    {shareFile && (
+                      <button
+                        type="button"
+                        onClick={() => setAnalyticsFile(shareFile)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer flex-1 sm:flex-initial"
+                        title="View File Analytics"
+                        data-testid="share-result-analytics-btn"
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                        <span>View Analytics</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowQrCode(!showQrCode)}
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex-1 sm:flex-initial ${
+                        showQrCode
+                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
+                          : "bg-background hover:bg-muted text-foreground border-border hover:border-blue-500/40 shadow-2xs"
+                      }`}
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>{showQrCode ? "Hide QR" : "QR Code"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Instant Client-Side Bug-Free SVG QR Code */}

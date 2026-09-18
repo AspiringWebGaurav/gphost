@@ -93,6 +93,7 @@ async function purgeSupabase() {
 
   // Step A: Delete dependent tables
   const tables = [
+    "cron_cleanup_claims",
     "file_events",
     "user_api_keys",
     "api_keys",
