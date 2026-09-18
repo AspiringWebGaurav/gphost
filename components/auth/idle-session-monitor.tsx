@@ -223,12 +223,13 @@ export function IdleSessionMonitor() {
     // 5. Background periodic timer to check idle timeout (every 15 seconds)
     idleCheckIntervalRef.current = setInterval(checkIdleStatus, 15000);
 
-    // 6. Fast Heartbeat polling to detect revocation: only query when tab is active/visible
+    // 6. Heartbeat fallback polling to detect revocation: query every 2 minutes while tab is active/visible
+    // (Supabase Realtime WebSocket listener above handles instant <500ms revocation events)
     const revocationPollInterval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         checkRevocationStatus();
       }
-    }, 15000);
+    }, 120000);
 
     // 7. Periodic Supabase session keep-alive while user is active
     tokenRefreshIntervalRef.current = setInterval(async () => {

@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
     "172.16.*.*",
   ],
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: "https",

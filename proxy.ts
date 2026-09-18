@@ -286,10 +286,11 @@ export const config = {
     /*
      * Match all request paths except for:
      * - _next (static files, image optimization, HMR websocket)
-     * - favicon.ico (favicon file)
-     * - images, png, svg, ico
-     * - api routes that have their own authoritative token/session auth
+     * - api (API routes that have their own authoritative token/session auth)
+     * - raw (public direct CDN redirect streaming)
+     * - static assets: favicon.ico, robots.txt, sitemap.xml, manifest.webmanifest
+     * - media and font files (svg, png, jpg, jpeg, gif, webp, woff, woff2, ico)
      */
-    "/((?!_next|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next|api|raw|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico)$).*)",
   ],
 };

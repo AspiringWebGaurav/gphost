@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Shield, Lock, EyeOff, Server, Trash2, CheckCircle2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
 export default function PrivacyPage() {
   return (

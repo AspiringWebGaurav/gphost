@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
 export default function TermsPage() {
   return (

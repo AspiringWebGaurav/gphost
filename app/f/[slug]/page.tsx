@@ -10,71 +10,13 @@ import { BrandLogo } from "@/components/ui/brand-logo";
 import { AlertCircle, Clock, Ban, Flame } from "lucide-react";
 import { redis } from "@/lib/redis/client";
 
+import { cache } from "react";
+
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
-
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { slug } = await params;
-  if (!slug) {
-    return {
-      title: "Download File — GPHosting",
-      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
-    };
-  }
-
-  const adminClient = createAdminClient();
-  const { data: share } = await adminClient
-    .from("share_links")
-    .select(`
-      id,
-      file:files (
-        sanitized_name
-      )
-    `)
-    .eq("slug", slug)
-    .single();
-
-  const file = Array.isArray(share?.file) ? share.file[0] : share?.file;
-  if (!file) {
-    return {
-      title: "File Not Found — GPHosting",
-      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
-    };
-  }
-
-  const title = `Download ${file.sanitized_name} — GPHosting`;
-  const description = "Secure, high-speed direct ephemeral file transfer powered by GPHosting.";
-
-  return {
-    title,
-    description,
-    robots: {
-      index: false,
-      follow: false,
-      noarchive: true,
-      nosnippet: true,
-    },
-    openGraph: {
-      title,
-      description,
-      siteName: "GPHosting",
-    },
-    twitter: {
-      card: "summary",
-      title,
-      description,
-    },
-  };
-}
-
-export default async function PublicSharePage({ params }: PageProps) {
-  const { slug } = await params;
-  if (!slug || slug.length > 64) {
-    notFound();
-  }
 
 interface PublicFileRecord {
   id: string;
@@ -106,8 +48,13 @@ interface PublicShareRecord {
   file: PublicFileRecord | PublicFileRecord[] | null;
 }
 
+/**
+ * Cached public share link resolver:
+ * Deduplicates queries across generateMetadata and PublicSharePage within the same render pass,
+ * halving Supabase database overhead on every public file link visit.
+ */
+const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | null> => {
   const adminClient = createAdminClient();
-  let share: PublicShareRecord | null = null;
 
   const { data: shareWithBurn, error: shareErr } = await adminClient
     .from("share_links")
@@ -140,6 +87,8 @@ interface PublicShareRecord {
     `)
     .eq("slug", slug)
     .single();
+
+  let share: PublicShareRecord | null = null;
 
   if (
     shareErr &&
@@ -218,6 +167,60 @@ interface PublicShareRecord {
       // Non-blocking Redis fallback
     }
   }
+
+  return share;
+});
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  if (!slug) {
+    return {
+      title: "Download File — GPHosting",
+      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+    };
+  }
+
+  const share = await getPublicShare(slug);
+  const file = Array.isArray(share?.file) ? share.file[0] : share?.file;
+  if (!file) {
+    return {
+      title: "File Not Found — GPHosting",
+      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+    };
+  }
+
+  const title = `Download ${file.sanitized_name} — GPHosting`;
+  const description = "Secure, high-speed direct ephemeral file transfer powered by GPHosting.";
+
+  return {
+    title,
+    description,
+    robots: {
+      index: false,
+      follow: false,
+      noarchive: true,
+      nosnippet: true,
+    },
+    openGraph: {
+      title,
+      description,
+      siteName: "GPHosting",
+    },
+    twitter: {
+      card: "summary",
+      title,
+      description,
+    },
+  };
+}
+
+export default async function PublicSharePage({ params }: PageProps) {
+  const { slug } = await params;
+  if (!slug || slug.length > 64) {
+    notFound();
+  }
+
+  const share = await getPublicShare(slug);
 
   if (!share || !share.file) {
     return (
