@@ -809,7 +809,7 @@ export function FileManager({
       ) : viewMode === "grid" ? (
         /* GRID / CARD VIEW (Google Drive & Windows 11 style) */
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
             {files.map((file) => {
               const isExpired =
                 file.status === "EXPIRED" ||
@@ -819,9 +819,9 @@ export function FileManager({
               return (
                 <div
                   key={file.id}
-                  className={`rounded-2xl border ${
+                  className={`relative rounded-2xl border ${
                     isExpired ? "border-rose-500/35 bg-rose-500/[0.02]" : "border-border bg-card"
-                  } p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between`}
+                  } p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between overflow-hidden`}
                 >
                   {/* Card Top: Type badge & Name */}
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -905,50 +905,46 @@ export function FileManager({
                   </div>
 
                   {/* Card Metadata */}
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 pb-2 border-b border-border/60">
-                    <span className="font-mono">{formatBytes(file.byte_size)}</span>
-                    <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} />
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 pb-2 border-b border-border/60 gap-2 min-w-0">
+                    <span className="font-mono font-medium text-foreground/80 shrink-0 whitespace-nowrap">
+                      {formatBytes(file.byte_size)}
+                    </span>
+                    <div className="min-w-0 shrink-0">
+                      <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
+                    </div>
                   </div>
 
                   {/* Card Actions */}
-                  <div className="flex items-center justify-between gap-1.5 pt-2">
-                    <button
-                      onClick={() => setSelectedFileForDetails(file)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition text-xs flex items-center gap-1 cursor-pointer"
-                      title="View file details"
-                    >
-                      <Info className="w-3.5 h-3.5" />
-                      <span className="text-[11px]">Details</span>
-                    </button>
+                  <div className="flex items-center gap-1.5 pt-2.5 mt-auto">
+                    {isExpired ? (
+                      <button
+                        onClick={() => {
+                          setSelectedFileForExtend(file);
+                          setExtendPreset("30d");
+                          setExtendError(null);
+                        }}
+                        className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                        title="Extend file expiration"
+                      >
+                        <RotateCw className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Extend</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleOpenShare(file)}
+                        className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
+                        title="Share file"
+                      >
+                        <Share2 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Share</span>
+                      </button>
+                    )}
 
-                    <div className="flex items-center gap-1.5">
-                      {isExpired ? (
-                        <button
-                          onClick={() => {
-                            setSelectedFileForExtend(file);
-                            setExtendPreset("30d");
-                            setExtendError(null);
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
-                          title="Extend file expiration"
-                        >
-                          <RotateCw className="w-3 h-3" />
-                          <span>Extend</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleOpenShare(file)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition shadow-xs cursor-pointer"
-                        >
-                          <Share2 className="w-3 h-3" />
-                          <span>Share</span>
-                        </button>
-                      )}
-
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => handleDirectDownload(file)}
                         disabled={downloadingId === file.id}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                        className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
                         title="Download file"
                       >
                         {downloadingId === file.id ? (
@@ -960,7 +956,7 @@ export function FileManager({
 
                       <button
                         onClick={() => setSelectedFileForAnalytics(file)}
-                        className="p-1.5 rounded-lg text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 border border-purple-500/20 transition cursor-pointer"
+                        className="w-7 h-7 rounded-lg text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 border border-purple-500/20 flex items-center justify-center transition cursor-pointer shrink-0"
                         title="View File Analytics"
                         data-testid={`file-manager-grid-analytics-${file.id}`}
                       >
@@ -968,8 +964,16 @@ export function FileManager({
                       </button>
 
                       <button
+                        onClick={() => setSelectedFileForDetails(file)}
+                        className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition cursor-pointer shrink-0"
+                        title="View file details"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
                         onClick={() => setSelectedFileForDelete(file)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                        className="w-7 h-7 rounded-lg text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 flex items-center justify-center transition cursor-pointer shrink-0"
                         title="Delete file"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

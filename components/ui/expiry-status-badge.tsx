@@ -47,7 +47,7 @@ export function ExpiryStatusBadge({
         data-testid="expiry-status-badge"
         data-status="permanent"
         className={cn(
-          "inline-flex items-center font-medium rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-mono select-none",
+          "inline-flex items-center font-medium rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-mono select-none whitespace-nowrap",
           sizeClasses,
           className
         )}
@@ -65,7 +65,7 @@ export function ExpiryStatusBadge({
         data-testid="expiry-status-badge"
         data-status="expired"
         className={cn(
-          "inline-flex items-center font-semibold uppercase tracking-wider rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-mono select-none",
+          "inline-flex items-center font-semibold uppercase tracking-wider rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-mono select-none whitespace-nowrap",
           sizeClasses,
           className
         )}
@@ -83,7 +83,7 @@ export function ExpiryStatusBadge({
         data-testid="expiry-status-badge"
         data-status="expiring"
         className={cn(
-          "inline-flex items-center font-semibold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-mono select-none animate-pulse",
+          "inline-flex items-center font-semibold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-mono select-none animate-pulse whitespace-nowrap",
           sizeClasses,
           className
         )}
@@ -101,7 +101,7 @@ export function ExpiryStatusBadge({
       data-testid="expiry-status-badge"
       data-status="active"
       className={cn(
-        "inline-flex items-center font-medium rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-mono select-none",
+        "inline-flex items-center font-medium rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-mono select-none whitespace-nowrap",
         sizeClasses,
         className
       )}
