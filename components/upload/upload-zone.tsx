@@ -21,6 +21,7 @@ import {
   Globe,
   Terminal,
   Sparkles,
+  ExternalLink,
 } from "lucide-react";
 import { EXPIRY_OPTIONS, type ExpiryPreset } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
@@ -85,6 +86,9 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [showTerminalModal, setShowTerminalModal] = useState(false);
   const [showHtmlHostModal, setShowHtmlHostModal] = useState(false);
   const [htmlHostFile, setHtmlHostFile] = useState<ExistingUploadedFile | null>(null);
+  const [htmlCustomSlug, setHtmlCustomSlug] = useState<string>("");
+  const [deployedSiteSlug, setDeployedSiteSlug] = useState<string | null>(null);
+  const [copiedSiteUrl, setCopiedSiteUrl] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileControlsRef = useRef<HTMLDivElement>(null);
@@ -147,6 +151,21 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
     }
 
     setSelectedFile(file);
+
+    if (isHtmlDocument(file.name, file.type)) {
+      const base = file.name
+        .replace(/\.(html|htm|xhtml)$/i, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "-")
+        .replace(/-+/g, "-")
+        .slice(0, 24);
+      const randomSuffix = Math.random().toString(36).substring(2, 6);
+      setHtmlCustomSlug(base && base !== "index" ? `${base}-${randomSuffix}` : `site-${randomSuffix}`);
+    } else {
+      setHtmlCustomSlug("");
+    }
+    setDeployedSiteSlug(null);
+    setCopiedSiteUrl(false);
 
     // If selected file is an image, run client-side optimizer in the background
     if (isOptimizableImage(file)) {
@@ -495,17 +514,29 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         onUploadSuccess();
       }
 
-      // Automatic direct redirect to HTML Host modal upon successful HTML upload
+      // Automatic direct deploy to GP-Sites upon successful HTML upload
       if (isHtmlDocument(finalFileName, finalMimeType)) {
-        setHtmlHostFile({
-          id: fileId,
-          filename: finalFileName,
-          size: finalByteSize,
-          byteSize: finalByteSize,
-          mimeType: finalMimeType,
-          expiresAt: finalExpiresAt,
-        });
-        setShowHtmlHostModal(true);
+        try {
+          const sanitizedSlug = (htmlCustomSlug || finalFileName.replace(/\.(html|htm|xhtml)$/i, ""))
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, "");
+          const shareRes = await fetch("/api/share/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileId,
+              customSlug: sanitizedSlug || undefined,
+              expiresInPreset: expiryPreset,
+            }),
+          });
+          if (shareRes.ok) {
+            const shareData = await shareRes.json();
+            const finalSlug = shareData.share?.slug || shareData.slug || sanitizedSlug;
+            setDeployedSiteSlug(finalSlug);
+          }
+        } catch (shareErr) {
+          console.warn("Auto-deploy share link creation error:", shareErr);
+        }
       }
     } catch (err: unknown) {
       if (!isCancelledRef.current) {
@@ -805,14 +836,45 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
           {/* GP-Sites HTML Live Hosting Notice */}
           {isHtmlDocument(selectedFile.name, selectedFile.type) && (
-            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-200">
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-emerald-500 shrink-0" />
-                <span className="font-medium">Static Webpage detected &bull; Ready to host as live site with sandboxed preview</span>
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-200 font-semibold">
+                  <Globe className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>GP-Sites: Instant Live Web Hosting</span>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shrink-0">
+                  Auto-Deploy
+                </span>
               </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shrink-0">
-                GP-Sites
-              </span>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-emerald-900/80 dark:text-emerald-200/80 flex items-center justify-between">
+                  <span>Custom Web Address (Slug)</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">letters, numbers, dashes</span>
+                </label>
+                <div className="flex items-center rounded-lg border border-emerald-500/30 bg-background overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500/30 focus-within:border-emerald-500 transition-all">
+                  <span className="px-2.5 py-1.5 bg-muted/50 border-r border-border/70 text-[11px] font-mono text-muted-foreground shrink-0 select-none">
+                    {typeof window !== "undefined" ? window.location.host : "gphost.eu.cc"}/site/
+                  </span>
+                  <input
+                    type="text"
+                    value={htmlCustomSlug}
+                    onChange={(e) =>
+                      setHtmlCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
+                    }
+                    placeholder="your-custom-slug"
+                    className="flex-1 px-2.5 py-1.5 text-xs font-mono text-foreground bg-transparent focus:outline-hidden min-w-0"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                Single unified lifecycle: file, live site, and CDN links all expire together in{" "}
+                <strong>
+                  {EXPIRY_OPTIONS.find((p) => p.value === expiryPreset)?.label || expiryPreset}
+                </strong>
+                .
+              </p>
             </div>
           )}
 
@@ -830,10 +892,23 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               type="button"
               onClick={startUpload}
               data-testid="upload-button-trigger"
-              className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-sm shadow-blue-600/20 active:scale-[0.99] transition-all cursor-pointer"
+              className={`flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer active:scale-[0.99] ${
+                isHtmlDocument(selectedFile.name, selectedFile.type)
+                  ? "bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 shadow-emerald-600/20"
+                  : "bg-blue-600 hover:bg-blue-500 active:bg-blue-700 shadow-blue-600/20"
+              }`}
             >
-              <UploadCloud className="w-4 h-4" />
-              <span>Upload File Now</span>
+              {isHtmlDocument(selectedFile.name, selectedFile.type) ? (
+                <>
+                  <Globe className="w-4 h-4" />
+                  <span>Upload &amp; Host Webpage</span>
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>Upload File Now</span>
+                </>
+              )}
             </button>
           </div>
 
@@ -994,6 +1069,67 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             </div>
           </div>
 
+          {/* GP-Sites Live Webpage Card */}
+          {deployedSiteSlug && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-transparent border border-emerald-500/30 space-y-3 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-emerald-500" />
+                  <span className="text-xs font-bold text-foreground">GP-Sites: Webpage Deployed &amp; Live!</span>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                  Live Edge Host
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <a
+                  href={`/site/${deployedSiteSlug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-background border border-cyan-500/40 hover:border-cyan-500 text-xs font-mono text-cyan-600 dark:text-cyan-400 font-semibold truncate flex items-center justify-between gap-2 group transition cursor-pointer shadow-2xs"
+                  title="Open hosted live site in new tab"
+                >
+                  <span className="truncate">
+                    {(typeof window !== "undefined" ? window.location.origin : "https://gphost.eu.cc") + `/site/${deployedSiteSlug}`}
+                  </span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+                </a>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const originUrl = typeof window !== "undefined" ? window.location.origin : "https://gphost.eu.cc";
+                      navigator.clipboard.writeText(`${originUrl}/site/${deployedSiteSlug}`);
+                      setCopiedSiteUrl(true);
+                      setTimeout(() => setCopiedSiteUrl(false), 2000);
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                  >
+                    {copiedSiteUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedSiteUrl ? "Copied!" : "Copy Site URL"}</span>
+                  </button>
+
+                  <a
+                    href={`/site/${deployedSiteSlug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Launch</span>
+                  </a>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+                <span>CDN Hotlink: <code className="font-mono text-foreground">/raw/{deployedSiteSlug}</code></span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-medium">Single unified lifecycle • Both delete together upon expiry</span>
+              </div>
+            </div>
+          )}
+
           {/* Uploaded File Details Strip with Clean 'Share with Options' Button */}
           <div className="p-3.5 rounded-xl bg-muted/40 border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -1031,7 +1167,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                 <span>Share with Options</span>
               </button>
 
-              {isHtmlDocument(successFile.filename, successFile.mimeType) && (
+              {isHtmlDocument(successFile.filename, successFile.mimeType) && !deployedSiteSlug && (
                 <button
                   type="button"
                   onClick={() => {

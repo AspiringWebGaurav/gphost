@@ -781,31 +781,54 @@ export function HtmlHostModal({
             </div>
 
             {/* EXPIRY DURATION PRESET */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span>Hosting Duration (Auto-Expiry)</span>
-                </label>
-                <span className="text-[10.5px] text-muted-foreground">
-                  Auto-purged when expired (0 stale data)
-                </span>
+            {existingFileState ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-cyan-500" />
+                    <span>Hosting &amp; Link Expiry</span>
+                  </label>
+                  <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    Single unified lifecycle
+                  </span>
+                </div>
+                <div className="w-full h-10 px-3.5 rounded-xl bg-muted/40 border border-border/80 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Inherited from file upload</span>
+                  </span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {formatExpiryDate(existingFileState.expiresAt || existingFileState.expires_at || null)}
+                  </span>
+                </div>
               </div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[12px] font-semibold text-foreground/90 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span>Hosting Duration (Auto-Expiry)</span>
+                  </label>
+                  <span className="text-[10.5px] text-muted-foreground">
+                    Auto-purged when expired (0 stale data)
+                  </span>
+                </div>
 
-              <select
-                value={expiryPreset}
-                onChange={(e) => setExpiryPreset(e.target.value)}
-                disabled={isDeploying}
-                className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/80 hover:border-cyan-500/50 text-xs text-foreground focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition cursor-pointer"
-              >
-                <option value="1h">1 Hour (Quick Demo)</option>
-                <option value="24h">24 Hours (1 Day)</option>
-                <option value="7d">7 Days</option>
-                <option value="30d">30 Days (Recommended)</option>
-                <option value="90d">90 Days</option>
-                {canCreatePermanent && <option value="never">Permanent (Never Expire)</option>}
-              </select>
-            </div>
+                <select
+                  value={expiryPreset}
+                  onChange={(e) => setExpiryPreset(e.target.value)}
+                  disabled={isDeploying}
+                  className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/80 hover:border-cyan-500/50 text-xs text-foreground focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition cursor-pointer"
+                >
+                  <option value="1h">1 Hour (Quick Demo)</option>
+                  <option value="24h">24 Hours (1 Day)</option>
+                  <option value="7d">7 Days</option>
+                  <option value="30d">30 Days (Recommended)</option>
+                  <option value="90d">90 Days</option>
+                  {canCreatePermanent && <option value="never">Permanent (Never Expire)</option>}
+                </select>
+              </div>
+            )}
 
             {/* DEPLOYING PROGRESS BAR */}
             {isDeploying && (
