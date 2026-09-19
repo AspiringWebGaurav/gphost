@@ -99,19 +99,55 @@ export async function GET(req: NextRequest) {
       .order(sortBy, { ascending: sortOrder === "asc" })
       .range(from, to);
 
-    const [filesRes, profileRes] = await Promise.all([
+    const [filesRes, profileRes, shareLinksRes] = await Promise.all([
       query,
       adminClient
         .from("profiles")
         .select("quota_bytes, storage_used_bytes, reserved_bytes")
         .eq("id", user.id)
         .single(),
+      adminClient
+        .from("share_links")
+        .select(
+          `id, download_count, max_downloads, expires_at, is_active,
+           files!inner(id, user_id, status, expires_at)`
+        )
+        .eq("files.user_id", user.id)
+        .eq("files.status", "ACTIVE")
+        .eq("is_active", true),
     ]);
 
     if (filesRes.error) {
       console.error("[Files API] Query error:", filesRes.error);
       return NextResponse.json({ success: false, error: "Failed to load files" }, { status: 500 });
     }
+
+    interface DbShareLinkStatsRow {
+      id: string;
+      download_count: number;
+      max_downloads: number | null;
+      expires_at: string | null;
+      is_active: boolean;
+      files:
+        | { id: string; user_id: string; status: string; expires_at: string | null }
+        | { id: string; user_id: string; status: string; expires_at: string | null }[];
+    }
+
+    const allUserLinks = (shareLinksRes.data as unknown as DbShareLinkStatsRow[] | null) || [];
+    const nowMs = Date.now();
+    const activeShareLinks = allUserLinks.filter((l) => {
+      const file = Array.isArray(l.files) ? l.files[0] : l.files;
+      if (!file || file.status !== "ACTIVE") return false;
+      if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) return false;
+      if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) return false;
+      if (l.max_downloads !== null && l.download_count >= l.max_downloads) return false;
+      return true;
+    });
+
+    const totalDownloads = allUserLinks.reduce(
+      (sum, l) => sum + (Number(l.download_count) || 0),
+      0
+    );
 
     interface DbShareLink {
       id: string;
@@ -167,6 +203,11 @@ export async function GET(req: NextRequest) {
       page,
       pageSize,
       totalPages,
+      stats: {
+        totalFiles: totalCount,
+        activeLinks: activeShareLinks.length,
+        totalDownloads,
+      },
       quota: {
         quota_bytes: currentProfile?.quota_bytes ?? profile.quota_bytes,
         storage_used_bytes: currentProfile?.storage_used_bytes ?? profile.storage_used_bytes,

@@ -16,6 +16,7 @@ import {
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
+import { storageEvents } from "@/lib/storage/events";
 
 export interface ShareLinkItem {
   id: string;
@@ -83,6 +84,10 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
       if (res.ok) {
         setLinks((prev) => prev.filter((l) => l.id !== linkToDelete.id));
+        storageEvents.emit("storage:updated", {
+          storageUsedBytes: 0,
+          source: "local_optimistic",
+        });
         setLinkToDelete(null);
       } else {
         const data = await res.json().catch(() => ({}));

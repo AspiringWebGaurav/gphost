@@ -58,6 +58,19 @@ export function DashboardContent({
   stats,
 }: DashboardContentProps) {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
+  const [overrideStats, setOverrideStats] = useState<DashboardStats | null>(null);
+  const [prevStats, setPrevStats] = useState(stats);
+  if (stats !== prevStats) {
+    setPrevStats(stats);
+    setOverrideStats(null);
+  }
+
+  const dashboardStats = overrideStats || stats || {
+    totalFiles: initialFiles.length,
+    activeLinks: 0,
+    totalDownloads: 0,
+  };
+
   const [showUploadZone, setShowUploadZone] = useState(true);
 
   const liveStorage = useStorageSync();
@@ -75,6 +88,9 @@ export function DashboardContent({
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files || []);
+        if (data.stats) {
+          setOverrideStats(data.stats);
+        }
       }
     } catch (err) {
       console.error("Failed to refresh dashboard data:", err);
@@ -141,33 +157,24 @@ export function DashboardContent({
               const el = document.getElementById("dashboard-upload-zone");
               el?.scrollIntoView({ behavior: "smooth" });
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Upload File</span>
           </button>
-
           <Link
             href="/files"
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-xs font-medium border border-border transition cursor-pointer"
           >
             <Files className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>Files</span>
-          </Link>
-
-          <Link
-            href="/links"
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-medium border border-border transition-colors"
-          >
-            <LinkIcon className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>Links</span>
+            <span>All Files</span>
           </Link>
         </div>
       </div>
 
-      {/* 2. Quick Metrics Grid — Real Telemetry Grounded in Existing Data */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5" data-testid="dashboard-metrics-strip">
-        {/* Storage Quota Card */}
+      {/* 2. Key Metrics Grid — Compact & High Scannability */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-3.5" data-testid="metrics-overview">
+        {/* Storage Used Card */}
         <div className="p-3 sm:p-3.5 rounded-2xl bg-card border border-border shadow-2xs space-y-1.5">
           <div className="flex items-center justify-between text-muted-foreground">
             <span className="text-[11px] font-medium uppercase tracking-wider">Storage</span>
@@ -177,15 +184,21 @@ export function DashboardContent({
             {formatBytes(storageUsed)}
           </div>
           <div className="space-y-1">
-            <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                className={`h-full rounded-full transition-all duration-500 ${
+                  storagePercent > 90
+                    ? "bg-rose-500"
+                    : storagePercent > 75
+                    ? "bg-amber-500"
+                    : "bg-blue-600"
+                }`}
                 style={{ width: `${storagePercent}%` }}
               />
             </div>
-            <div className="text-[10px] text-muted-foreground flex justify-between font-mono">
-              <span>{quota === -1 ? "Unlimited" : `${storagePercent}% used`}</span>
-              <span>{quota === -1 ? "∞" : formatBytes(quota)}</span>
+            <div className="text-[10px] text-muted-foreground flex justify-between">
+              <span>{storagePercent}% used</span>
+              <span>{quota === -1 ? "Unlimited" : formatBytes(quota)}</span>
             </div>
           </div>
         </div>
@@ -200,7 +213,7 @@ export function DashboardContent({
             <Files className="w-3.5 h-3.5 text-emerald-500 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
-            {stats?.totalFiles ?? files.length}
+            {dashboardStats.totalFiles ?? files.length}
           </div>
           <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium flex items-center gap-0.5">
             <span>Manage files</span>
@@ -218,7 +231,7 @@ export function DashboardContent({
             <LinkIcon className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
-            {stats?.activeLinks ?? 0}
+            {dashboardStats.activeLinks}
           </div>
           <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-0.5">
             <span>View active links</span>
@@ -233,7 +246,7 @@ export function DashboardContent({
             <Download className="w-3.5 h-3.5 text-purple-500" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
-            {stats?.totalDownloads ?? 0}
+            {dashboardStats.totalDownloads}
           </div>
           <div className="text-[10px] text-muted-foreground font-mono">
             Direct R2 edge transfers

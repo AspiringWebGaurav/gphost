@@ -28,27 +28,18 @@ export default async function DashboardPage() {
   const adminClient = createAdminClient();
   const nowIso = new Date().toISOString();
 
-  // Reconcile any past-due files to EXPIRED before rendering
-  await Promise.all([
-    adminClient
-      .from("files")
-      .update({ status: "EXPIRED", updated_at: nowIso })
-      .eq("user_id", user.id)
-      .in("status", ["ACTIVE", "EXPIRING"])
-      .not("expires_at", "is", null)
-      .lte("expires_at", nowIso),
-    adminClient
-      .from("share_links")
-      .update({ is_active: false, updated_at: nowIso })
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .not("expires_at", "is", null)
-      .lte("expires_at", nowIso),
-  ]);
+  // Reconcile past-due files to EXPIRED before rendering
+  await adminClient
+    .from("files")
+    .update({ status: "EXPIRED", updated_at: nowIso })
+    .eq("user_id", user.id)
+    .in("status", ["ACTIVE", "EXPIRING"])
+    .not("expires_at", "is", null)
+    .lte("expires_at", nowIso);
 
   const [
     { data: filesRaw, count: totalFilesCount },
-    { data: shareLinks, count: activeLinksCount },
+    { data: shareLinksRaw },
     { data: approvedRequest },
   ] = await Promise.all([
     adminClient
@@ -69,8 +60,12 @@ export default async function DashboardPage() {
       .limit(10),
     adminClient
       .from("share_links")
-      .select("id, download_count", { count: "exact" })
-      .eq("user_id", user.id)
+      .select(
+        `id, download_count, max_downloads, expires_at, is_active,
+         files!inner(id, user_id, status, expires_at)`
+      )
+      .eq("files.user_id", user.id)
+      .eq("files.status", "ACTIVE")
       .eq("is_active", true),
     adminClient
       .from("access_requests")
@@ -81,6 +76,51 @@ export default async function DashboardPage() {
       .limit(1)
       .maybeSingle(),
   ]);
+
+  interface DbShareLinkStatsRow {
+    id: string;
+    download_count: number;
+    max_downloads: number | null;
+    expires_at: string | null;
+    is_active: boolean;
+    files:
+      | { id: string; user_id: string; status: string; expires_at: string | null }
+      | { id: string; user_id: string; status: string; expires_at: string | null }[];
+  }
+
+  const allShareLinks = (shareLinksRaw as unknown as DbShareLinkStatsRow[] | null) || [];
+  const nowMs = new Date(nowIso).getTime();
+  const staleLinkIds: string[] = [];
+
+  const validActiveLinks = allShareLinks.filter((l) => {
+    const file = Array.isArray(l.files) ? l.files[0] : l.files;
+    if (!file || file.status !== "ACTIVE") {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+    if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+    if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+    if (l.max_downloads !== null && l.download_count >= l.max_downloads) {
+      staleLinkIds.push(l.id);
+      return false;
+    }
+    return true;
+  });
+
+  // Background cleanup of any newly discovered stale link IDs
+  if (staleLinkIds.length > 0) {
+    adminClient
+      .from("share_links")
+      .update({ is_active: false })
+      .in("id", staleLinkIds)
+      .then(() => {});
+  }
 
   interface DbShareLink {
     id: string;
@@ -121,7 +161,7 @@ export default async function DashboardPage() {
     };
   });
 
-  const totalDownloads = (shareLinks || []).reduce(
+  const totalDownloads = allShareLinks.reduce(
     (sum, link) => sum + (Number(link.download_count) || 0),
     0
   );
@@ -150,7 +190,7 @@ export default async function DashboardPage() {
       welcomeInfo={welcomeInfo}
       stats={{
         totalFiles: totalFilesCount ?? formattedFiles.length,
-        activeLinks: activeLinksCount ?? (shareLinks ? shareLinks.length : 0),
+        activeLinks: validActiveLinks.length,
         totalDownloads,
       }}
       profile={{

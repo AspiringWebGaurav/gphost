@@ -30,6 +30,7 @@ import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { formatTimeRemaining } from "@/lib/storage/expiry";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
+import { storageEvents } from "@/lib/storage/events";
 
 export interface FileItem {
   id: string;
@@ -192,6 +193,10 @@ export function ShareModal({
 
       const shareData = data.share || data;
       setShareResult(shareData);
+      storageEvents.emit("storage:updated", {
+        storageUsedBytes: 0,
+        source: "local_optimistic",
+      });
       if (onShareCreated) {
         onShareCreated(shareData);
       }

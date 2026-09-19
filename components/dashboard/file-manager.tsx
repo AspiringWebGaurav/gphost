@@ -578,6 +578,10 @@ export function FileManager({
         is_premium: shareData.is_premium || data.is_premium,
         xurl: shareData.xurl || data.xurl,
       });
+      storageEvents.emit("storage:updated", {
+        storageUsedBytes: 0,
+        source: "local_optimistic",
+      });
     } catch (err) {
       console.error("Failed to create share link:", err);
       setShareError("Network error creating share link");

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
+import { storageEvents } from "@/lib/storage/events";
 
 export interface ExistingUploadedFile {
   id: string;
@@ -262,6 +263,11 @@ export function HtmlHostModal({
 
       setDeployProgress(100);
       setDeployPhase("Webpage deployed and live!");
+
+      storageEvents.emit("storage:updated", {
+        storageUsedBytes: 0,
+        source: "local_optimistic",
+      });
 
       setDeployedResult({
         slug: finalSlug,
