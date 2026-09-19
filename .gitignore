@@ -129,3 +129,8 @@ GEMINI.md
 /Makefile
 /scripts/clean.sh
 /scripts/Makefile
+
+# --- Local Testing Artifacts ---
+temp-test/
+temp-test/*
+

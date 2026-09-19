@@ -127,22 +127,22 @@ export function HtmlHostModal({
       });
 
       const initData = await initRes.json();
-      if (!initRes.ok || !initData.success) {
+      if (!initRes.ok || (!initData.presignedUrl && !initData.fileId)) {
         throw new Error(initData.error || initData.message || "Failed to initialize upload.");
       }
 
       setDeployProgress(45);
       setDeployPhase("Streaming HTML directly to Cloudflare R2 edge network...");
 
-      // 2. Direct R2 Presigned Upload
+      // 2. Direct R2 Presigned Upload (Content-Type must match presigned URL signature)
       const uploadRes = await fetch(initData.presignedUrl, {
         method: "PUT",
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html" },
         body: file,
       });
 
       if (!uploadRes.ok) {
-        throw new Error("Failed to transfer static HTML to storage.");
+        throw new Error(`Failed to transfer static HTML to storage (HTTP ${uploadRes.status}).`);
       }
 
       setDeployProgress(75);
@@ -157,7 +157,7 @@ export function HtmlHostModal({
 
       const compData = await compRes.json();
       if (!compRes.ok || !compData.success) {
-        throw new Error(compData.error || "Failed to finalize storage commit.");
+        throw new Error(compData.error || compData.message || "Failed to finalize storage commit.");
       }
 
       setDeployProgress(90);
@@ -170,13 +170,13 @@ export function HtmlHostModal({
         body: JSON.stringify({
           fileId: initData.fileId,
           customSlug: sanitizedSlug,
-          expiryPreset,
+          expiresInPreset: expiryPreset,
         }),
       });
 
       const shareData = await shareRes.json();
       if (!shareRes.ok || !shareData.success) {
-        throw new Error(shareData.error || "Failed to attach custom domain slug.");
+        throw new Error(shareData.error || shareData.message || "Failed to attach custom domain slug.");
       }
 
       const finalSlug = shareData.share?.slug || sanitizedSlug;
@@ -444,8 +444,18 @@ export function HtmlHostModal({
                     <div className="text-xs font-semibold text-foreground truncate" title={file.name}>
                       {file.name}
                     </div>
-                    <div className="text-[11px] text-muted-foreground font-mono">
-                      {formatBytes(file.size)} &bull; HTML Webpage
+                    <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-2 flex-wrap">
+                      <span>{formatBytes(file.size)} &bull; HTML Webpage</span>
+                      <a
+                        href="/temp-preview"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-600 dark:text-cyan-400 hover:underline inline-flex items-center gap-1 font-sans font-medium"
+                        title="Compare and preview in studio"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Compare / Preview Studio</span>
+                      </a>
                     </div>
                   </div>
                 </div>

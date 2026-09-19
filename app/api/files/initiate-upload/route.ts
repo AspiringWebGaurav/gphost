@@ -225,6 +225,7 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({
+        success: true,
         fileId: fileRecord.id,
         uploadType: "multipart" as const,
         uploadId: r2UploadId,
@@ -293,6 +294,7 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({
+        success: true,
         fileId: fileRecord.id,
         uploadType: "single" as const,
         presignedUrl,
