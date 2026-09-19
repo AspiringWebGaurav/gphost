@@ -100,6 +100,15 @@ function getFileTypeDetails(mimeType: string, filename: string) {
       bg: "bg-amber-500/10 border-amber-500/20",
     };
   }
+  if (lowerMime.includes("html") || lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
+    return {
+      type: "website",
+      label: "GP-SITE",
+      icon: Globe,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/20",
+    };
+  }
   if (
     lowerMime.includes("text") ||
     lowerMime.includes("word") ||
@@ -134,6 +143,8 @@ export interface SafeFileItem {
   expiry_preset?: string;
   expires_at: string | null;
   created_at: string;
+  share_slug?: string | null;
+  is_site?: boolean;
 }
 
 interface FileManagerProps {
@@ -569,6 +580,17 @@ export function FileManager({
   const FOLDERS = [
     { id: "all", name: "All Files", count: totalCount },
     {
+      id: "websites",
+      name: "GP-Sites",
+      count: files.filter(
+        (f) =>
+          f.mime_type === "text/html" ||
+          f.sanitized_name?.toLowerCase().endsWith(".html") ||
+          f.sanitized_name?.toLowerCase().endsWith(".htm") ||
+          Boolean(f.is_site)
+      ).length,
+    },
+    {
       id: "images",
       name: "Images",
       count: files.filter((f) => f.mime_type?.startsWith("image/")).length,
@@ -578,9 +600,10 @@ export function FileManager({
       name: "Documents",
       count: files.filter(
         (f) =>
-          f.mime_type?.includes("pdf") ||
-          f.mime_type?.includes("text") ||
-          f.mime_type?.includes("document")
+          (f.mime_type?.includes("pdf") ||
+            f.mime_type?.includes("text") ||
+            f.mime_type?.includes("document")) &&
+          f.mime_type !== "text/html"
       ).length,
     },
     {
@@ -622,7 +645,7 @@ export function FileManager({
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
           {FOLDERS.map((f) => {
             const isSelected = category === f.id;
             return (
@@ -933,6 +956,15 @@ export function FileManager({
                           {file.sanitized_name.toLowerCase().endsWith(".zip") ? "ZIP Archive" : "Compressed"}
                         </span>
                       </div>
+                    ) : fileType.type === "website" ? (
+                      <div className="flex flex-col items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Globe className="w-5 h-5" />
+                        </div>
+                        <span className="text-[10px] font-mono font-semibold uppercase text-emerald-600 dark:text-emerald-400 truncate max-w-[120px]">
+                          {file.share_slug ? `/site/${file.share_slug}` : "GP-SITE"}
+                        </span>
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-blue-600 dark:text-blue-400">
                         <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -965,7 +997,7 @@ export function FileManager({
                           <span>Browse</span>
                         </button>
                       )}
-                      {(file.sanitized_name.toLowerCase().endsWith(".html") || file.mime_type.includes("html")) && (
+                      {(file.sanitized_name.toLowerCase().endsWith(".html") || file.mime_type.includes("html") || file.is_site) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -981,6 +1013,41 @@ export function FileManager({
                       )}
                     </div>
                   </div>
+
+                  {/* Hosted Site Badge & Live Link */}
+                  {(file.share_slug || file.is_site || fileType.type === "website") && (
+                    <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs mb-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span className="font-semibold truncate text-[11px]">
+                          {file.share_slug ? `/site/${file.share_slug}` : "GP-Site Live"}
+                        </span>
+                      </div>
+                      {file.share_slug ? (
+                        <a
+                          href={`/site/${file.share_slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-[10px] transition shadow-2xs cursor-pointer"
+                        >
+                          <span>Launch</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenShare(file);
+                          }}
+                          className="shrink-0 text-[10px] font-semibold underline hover:text-emerald-500 cursor-pointer"
+                        >
+                          Configure
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Card Metadata */}
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 pb-2 border-b border-border/60 gap-2 min-w-0">
@@ -1126,9 +1193,25 @@ export function FileManager({
                       <FileTypeIcon className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
-                        {file.sanitized_name}
-                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
+                          {file.sanitized_name}
+                        </h3>
+                        {file.share_slug && (
+                          <a
+                            href={`/site/${file.share_slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition shrink-0"
+                            title="Open live hosted site in new tab"
+                          >
+                            <Globe className="w-3 h-3 text-emerald-500 animate-pulse" />
+                            <span>/site/{file.share_slug}</span>
+                            <ExternalLink className="w-2.5 h-2.5 opacity-80" />
+                          </a>
+                        )}
+                      </div>
                       <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                         <span className="font-mono">{formatBytes(file.byte_size)}</span>
                         <span>&bull;</span>
@@ -1150,7 +1233,18 @@ export function FileManager({
                       <span className="hidden sm:inline">Details</span>
                     </button>
 
-                    {isExpired ? (
+                    {file.share_slug ? (
+                      <a
+                        href={`/site/${file.share_slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition shadow-xs cursor-pointer shrink-0"
+                        title="Open live hosted website in new tab"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">View Site</span>
+                      </a>
+                    ) : isExpired ? (
                       <button
                         onClick={() => {
                           setSelectedFileForExtend(file);

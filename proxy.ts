@@ -18,9 +18,14 @@ export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30-minute inactivity window (bac
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Immediately bypass Next.js internal paths, static assets, and generated metadata images
+  if (pathname === "/temp-preview/raw") {
+    return NextResponse.redirect(new URL("/temp-preview", request.url));
+  }
+
+  // Immediately bypass Next.js internal paths, static assets, preview routes, and generated metadata images
   if (
     pathname.startsWith("/_next") ||
+    pathname.startsWith("/temp-preview") ||
     pathname === "/favicon.ico" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||

@@ -47,13 +47,22 @@ export default async function DashboardPage() {
   ]);
 
   const [
-    { data: files, count: totalFilesCount },
+    { data: filesRaw, count: totalFilesCount },
     { data: shareLinks, count: activeLinksCount },
     { data: approvedRequest },
   ] = await Promise.all([
     adminClient
       .from("files")
-      .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at", { count: "exact" })
+      .select(
+        `id, sanitized_name, byte_size, mime_type, status, expires_at, created_at,
+         share_links (
+           id,
+           slug,
+           is_active,
+           expires_at
+         )`,
+        { count: "exact" }
+      )
       .eq("user_id", user.id)
       .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
       .order("created_at", { ascending: false })
@@ -72,6 +81,45 @@ export default async function DashboardPage() {
       .limit(1)
       .maybeSingle(),
   ]);
+
+  interface DbShareLink {
+    id: string;
+    slug: string;
+    is_active: boolean;
+    expires_at: string | null;
+  }
+
+  interface DbFileItem {
+    id: string;
+    sanitized_name: string;
+    byte_size: number;
+    mime_type: string;
+    status: string;
+    expires_at: string | null;
+    created_at: string;
+    share_links?: DbShareLink | DbShareLink[] | null;
+  }
+
+  const formattedFiles = ((filesRaw as unknown as DbFileItem[]) || []).map((f) => {
+    const rawShareLinks: DbShareLink[] = Array.isArray(f.share_links)
+      ? f.share_links
+      : f.share_links
+      ? [f.share_links]
+      : [];
+    const activeShare = rawShareLinks.find((s) => s.is_active) || rawShareLinks[0];
+    const shareSlug = activeShare?.slug || null;
+    return {
+      id: f.id,
+      sanitized_name: f.sanitized_name,
+      byte_size: f.byte_size,
+      mime_type: f.mime_type,
+      status: f.status,
+      expires_at: f.expires_at,
+      created_at: f.created_at,
+      share_slug: shareSlug,
+      is_site: f.mime_type === "text/html" || Boolean(shareSlug),
+    };
+  });
 
   const totalDownloads = (shareLinks || []).reduce(
     (sum, link) => sum + (Number(link.download_count) || 0),
@@ -98,10 +146,10 @@ export default async function DashboardPage() {
 
   return (
     <DashboardContent
-      initialFiles={files || []}
+      initialFiles={formattedFiles}
       welcomeInfo={welcomeInfo}
       stats={{
-        totalFiles: totalFilesCount ?? (files ? files.length : 0),
+        totalFiles: totalFilesCount ?? formattedFiles.length,
         activeLinks: activeLinksCount ?? (shareLinks ? shareLinks.length : 0),
         totalDownloads,
       }}

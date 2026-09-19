@@ -31,16 +31,65 @@ export default async function FilesPage() {
 
   // Initial Server-Side Query (Page 1, pageSize 20)
   // STRICT PRIVACY: r2_key, r2_upload_id, r2_etag are strictly omitted from select
-  const { data: initialFiles, count } = await adminClient
+  const { data: initialFilesRaw, count } = await adminClient
     .from("files")
     .select(
-      "id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at",
+      `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+       share_links (
+         id,
+         slug,
+         is_active,
+         expires_at
+       )`,
       { count: "exact" }
     )
     .eq("user_id", user.id)
     .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
     .order("created_at", { ascending: false })
     .range(0, 19);
+
+  interface DbShareLink {
+    id: string;
+    slug: string;
+    is_active: boolean;
+    expires_at: string | null;
+  }
+
+  interface DbFileItem {
+    id: string;
+    filename: string;
+    sanitized_name: string;
+    byte_size: number;
+    mime_type: string;
+    status: string;
+    expiry_preset?: string;
+    expires_at: string | null;
+    created_at: string;
+    share_links?: DbShareLink | DbShareLink[] | null;
+  }
+
+  const initialFiles: SafeFileItem[] = ((initialFilesRaw as unknown as DbFileItem[]) || []).map((f) => {
+    const rawShareLinks: DbShareLink[] = Array.isArray(f.share_links)
+      ? f.share_links
+      : f.share_links
+      ? [f.share_links]
+      : [];
+    const activeShare = rawShareLinks.find((s) => s.is_active) || rawShareLinks[0];
+    const shareSlug = activeShare?.slug || null;
+    return {
+      id: f.id,
+      filename: f.filename,
+      sanitized_name: f.sanitized_name,
+      byte_size: f.byte_size,
+      mime_type: f.mime_type,
+      status: f.status,
+      expiry_preset: f.expiry_preset,
+      expires_at: f.expires_at,
+      created_at: f.created_at,
+      share_slug: shareSlug,
+      is_site: f.mime_type === "text/html" || Boolean(shareSlug),
+    };
+  });
 
   const totalCount = count || 0;
   const totalPages = Math.ceil(totalCount / 20);
@@ -62,7 +111,7 @@ export default async function FilesPage() {
       </div>
 
       <FileManager
-        initialFiles={(initialFiles as SafeFileItem[]) || []}
+        initialFiles={initialFiles}
         initialTotalCount={totalCount}
         initialTotalPages={totalPages}
         canCreatePermanent={profile.can_create_permanent || isAdmin}

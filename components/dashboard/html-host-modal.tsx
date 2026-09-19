@@ -13,6 +13,11 @@ import {
   AlertCircle,
   FileCode,
   RotateCcw,
+  Share2,
+  Server,
+  HardDrive,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -29,6 +34,19 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+function formatExpiryDate(expiresAt: string | null): string {
+  if (!expiresAt) return "Permanent (No expiry)";
+  const d = new Date(expiresAt);
+  if (isNaN(d.getTime())) return expiresAt;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function HtmlHostModal({
@@ -55,6 +73,7 @@ export function HtmlHostModal({
 
   const [copiedSiteUrl, setCopiedSiteUrl] = useState(false);
   const [copiedRawUrl, setCopiedRawUrl] = useState(false);
+  const [copiedSharePayload, setCopiedSharePayload] = useState(false);
   const [showQrCode, setShowQrCode] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -213,6 +232,36 @@ export function HtmlHostModal({
     setDeployPhase("");
   };
 
+  const handleShare = async () => {
+    if (!deployedResult) return;
+    const shareData = {
+      title: `${deployedResult.slug} - GP-Sites Static Webpage`,
+      text: `Hosted static webpage on GPHost: ${deployedResult.siteUrl}`,
+      url: deployedResult.siteUrl,
+    };
+
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.share &&
+      typeof navigator.canShare === "function" &&
+      navigator.canShare(shareData)
+    ) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err: unknown) {
+        if ((err as Error)?.name !== "AbortError") {
+          console.error("Web share error:", err);
+        }
+      }
+    }
+
+    // Fallback: Copy link to clipboard
+    navigator.clipboard.writeText(deployedResult.siteUrl);
+    setCopiedSharePayload(true);
+    setTimeout(() => setCopiedSharePayload(false), 2000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl bg-card border border-border/80 p-5 sm:p-7 shadow-2xl relative space-y-5">
@@ -246,11 +295,11 @@ export function HtmlHostModal({
         </div>
 
         {/* ============================================================ */}
-        {/* VIEW 1: SUCCESS LIVE SHOWCASE                                */}
+        {/* VIEW 1: SUCCESS LIVE SHOWCASE (Direct Link & Metadata)       */}
         {/* ============================================================ */}
         {deployedResult ? (
           <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            {/* Live Banner */}
+            {/* Live Edge Status Header */}
             <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-3 w-3">
@@ -258,8 +307,9 @@ export function HtmlHostModal({
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                 </span>
                 <div>
-                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                    Webpage Live &amp; Globally Distributed
+                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                    <span>Webpage Live &amp; Globally Distributed</span>
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
                   </div>
                   <div className="text-[11px] text-emerald-600/90 dark:text-emerald-400/90 font-mono">
                     Direct R2 Edge CDN Delivery (0 Vercel compute)
@@ -273,58 +323,92 @@ export function HtmlHostModal({
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-xs cursor-pointer active:scale-[0.98]"
               >
-                <span>Launch Live Site</span>
+                <span>Launch in New Tab</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>
 
-            {/* Attached Domain URL Bar */}
-            <div className="space-y-1.5 p-3.5 rounded-2xl bg-muted/40 border border-border">
+            {/* Primary Clickable Live Link & Actions Card */}
+            <div className="p-4 rounded-2xl bg-muted/40 border border-border space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-foreground flex items-center gap-1.5">
                   <Globe className="w-3.5 h-3.5 text-cyan-500" />
-                  <span>Hosted Domain Address</span>
+                  <span>Hosted Public URL</span>
                 </span>
-                <span className="text-[10.5px] font-mono text-muted-foreground">
-                  {formatBytes(deployedResult.byteSize)}
+                <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                  Ready to share
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={deployedResult.siteUrl}
-                  className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-background border border-cyan-500/30 text-xs font-mono text-cyan-600 dark:text-cyan-400 font-semibold select-all focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(deployedResult.siteUrl);
-                    setCopiedSiteUrl(true);
-                    setTimeout(() => setCopiedSiteUrl(false), 2000);
-                  }}
-                  className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+              {/* Clickable URL Card */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <a
+                  href={deployedResult.siteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-background border border-cyan-500/30 hover:border-cyan-500 text-xs font-mono text-cyan-600 dark:text-cyan-400 font-semibold truncate flex items-center justify-between gap-2 group transition cursor-pointer shadow-2xs"
+                  title="Click to open webpage in new page"
                 >
-                  {copiedSiteUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedSiteUrl ? "Copied" : "Copy"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowQrCode(!showQrCode)}
-                  className={`p-2 rounded-xl border text-xs transition cursor-pointer shrink-0 ${
-                    showQrCode
-                      ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
-                      : "bg-background hover:bg-muted text-foreground border-border"
-                  }`}
-                  title="Mobile QR Code"
-                >
-                  <QrCode className="w-4 h-4" />
-                </button>
+                  <span className="truncate">{deployedResult.siteUrl}</span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </a>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Copy Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(deployedResult.siteUrl);
+                      setCopiedSiteUrl(true);
+                      setTimeout(() => setCopiedSiteUrl(false), 2000);
+                    }}
+                    className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                    title="Copy URL"
+                  >
+                    {copiedSiteUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedSiteUrl ? "Copied!" : "Copy"}</span>
+                  </button>
+
+                  {/* Share Button */}
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                    title="Share with native share or copy"
+                  >
+                    {copiedSharePayload ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Share2 className="w-3.5 h-3.5" />}
+                    <span>{copiedSharePayload ? "Copied!" : "Share"}</span>
+                  </button>
+
+                  {/* QR Code Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowQrCode(!showQrCode)}
+                    className={`p-2.5 rounded-xl border text-xs transition cursor-pointer shrink-0 ${
+                      showQrCode
+                        ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
+                        : "bg-background hover:bg-muted text-foreground border-border"
+                    }`}
+                    title="Mobile QR Code"
+                  >
+                    <QrCode className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              {/* Raw CDN Hotlink */}
-              <div className="flex items-center justify-between pt-1 text-[11px] text-muted-foreground">
-                <span className="truncate">Direct CDN stream: <code className="font-mono text-foreground">{deployedResult.rawUrl}</code></span>
+              {/* Direct CDN Stream Hotlink */}
+              <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[11px] text-muted-foreground gap-2">
+                <span className="truncate">
+                  Direct CDN stream:{" "}
+                  <a
+                    href={deployedResult.rawUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-foreground hover:text-cyan-500 underline underline-offset-2"
+                  >
+                    {deployedResult.rawUrl}
+                  </a>
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -332,41 +416,123 @@ export function HtmlHostModal({
                     setCopiedRawUrl(true);
                     setTimeout(() => setCopiedRawUrl(false), 2000);
                   }}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-2 shrink-0"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer shrink-0 font-medium"
                 >
                   {copiedRawUrl ? "Copied raw!" : "Copy raw"}
                 </button>
               </div>
             </div>
 
-            {/* QR Code expansion */}
+            {/* QR Code Expansion Card */}
             {showQrCode && (
-              <div className="p-4 rounded-2xl bg-card border border-border flex items-center gap-4 animate-in fade-in duration-150">
+              <div className="p-4 rounded-2xl bg-card border border-border flex flex-col sm:flex-row items-center gap-4 animate-in fade-in duration-150">
                 <div className="p-2.5 bg-white rounded-xl shadow-xs border shrink-0">
                   <QRCodeSVG value={deployedResult.siteUrl} size={110} />
                 </div>
-                <div className="space-y-1 text-xs">
-                  <div className="font-semibold text-foreground">Mobile Instant Preview</div>
+                <div className="space-y-1 text-xs text-center sm:text-left">
+                  <div className="font-semibold text-foreground">Mobile Instant Scan</div>
                   <p className="text-muted-foreground leading-relaxed">
-                    Scan with your mobile camera to instantly view your hosted HTML page on your phone.
+                    Scan with any smartphone camera to open and test this hosted HTML site directly on mobile.
                   </p>
+                  <div className="pt-1 font-mono text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold truncate">
+                    {deployedResult.siteUrl}
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Live Sandboxed Embedded Preview Frame */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Embedded Sandbox Preview</span>
-                <span className="text-[10.5px]">Isolated iframe</span>
+            {/* Comprehensive Webpage Metadata Grid (Replaces the cramped sandbox preview) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Server className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Deployment Metadata &amp; Edge Specs</span>
+                </span>
+                <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                  Active in production
+                </span>
               </div>
-              <div className="h-64 sm:h-72 w-full rounded-2xl border border-border/80 overflow-hidden bg-white dark:bg-zinc-950 shadow-inner">
-                <iframe
-                  src={deployedResult.rawUrl}
-                  title="Live preview"
-                  sandbox="allow-scripts allow-forms allow-same-origin"
-                  className="w-full h-full border-0"
-                />
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-2xl bg-muted/30 border border-border/80">
+                {/* Meta 1: File Name */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <FileCode className="w-3 h-3 text-cyan-500" /> Source File
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 truncate" title={deployedResult.filename}>
+                    {deployedResult.filename}
+                  </p>
+                </div>
+
+                {/* Meta 2: File Size */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <HardDrive className="w-3 h-3 text-brand-500" /> Payload Size
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 font-mono">
+                    {formatBytes(deployedResult.byteSize)}
+                  </p>
+                </div>
+
+                {/* Meta 3: Custom Slug */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <Globe className="w-3 h-3 text-emerald-500" /> Custom Slug
+                  </span>
+                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1 font-mono truncate">
+                    /{deployedResult.slug}
+                  </p>
+                </div>
+
+                {/* Meta 4: Expiration */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-amber-500" /> Expiry Lifespan
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 truncate" title={formatExpiryDate(deployedResult.expiresAt)}>
+                    {formatExpiryDate(deployedResult.expiresAt)}
+                  </p>
+                </div>
+
+                {/* Meta 5: Storage Tier */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <Server className="w-3 h-3 text-indigo-500" /> Edge Storage
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 truncate">
+                    Cloudflare R2 (Global)
+                  </p>
+                </div>
+
+                {/* Meta 6: Routing Engine */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-violet-500" /> Resolution
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 truncate">
+                    Upstash Redis KV
+                  </p>
+                </div>
+
+                {/* Meta 7: Content Type */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <FileCode className="w-3 h-3 text-rose-500" /> MIME Type
+                  </span>
+                  <p className="text-xs font-semibold text-foreground mt-1 font-mono truncate">
+                    text/html
+                  </p>
+                </div>
+
+                {/* Meta 8: Security / Access */}
+                <div className="p-2.5 rounded-xl bg-background/80 border border-border/60">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-emerald-500" /> Visibility
+                  </span>
+                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+                    Public Edge Site
+                  </p>
+                </div>
               </div>
             </div>
 

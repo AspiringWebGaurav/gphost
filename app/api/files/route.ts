@@ -42,10 +42,17 @@ export async function GET(req: NextRequest) {
     }
 
     // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
+    // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
     let query = adminClient
       .from("files")
       .select(
-        "id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at",
+        `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+         share_links (
+           id,
+           slug,
+           is_active,
+           expires_at
+         )`,
         { count: "exact" }
       )
       .eq("user_id", user.id)
@@ -57,10 +64,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Category filter
-    if (category === "images") {
+    if (category === "websites") {
+      query = query.or("mime_type.eq.text/html,filename.ilike.%.html,filename.ilike.%.htm");
+    } else if (category === "images") {
       query = query.like("mime_type", "image/%");
     } else if (category === "documents") {
       query = query.in("mime_type", [
+        "text/html",
         "application/pdf",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -103,7 +113,49 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Failed to load files" }, { status: 500 });
     }
 
-    const files = filesRes.data || [];
+    interface DbShareLink {
+      id: string;
+      slug: string;
+      is_active: boolean;
+      expires_at: string | null;
+    }
+
+    interface DbFileItem {
+      id: string;
+      filename: string;
+      sanitized_name: string;
+      byte_size: number;
+      mime_type: string;
+      status: string;
+      expiry_preset?: string;
+      expires_at: string | null;
+      created_at: string;
+      share_links?: DbShareLink | DbShareLink[] | null;
+    }
+
+    const files = ((filesRes.data as unknown as DbFileItem[]) || []).map((f) => {
+      const rawShareLinks: DbShareLink[] = Array.isArray(f.share_links)
+        ? f.share_links
+        : f.share_links
+        ? [f.share_links]
+        : [];
+      const activeShare = rawShareLinks.find((s) => s.is_active) || rawShareLinks[0];
+      const shareSlug = activeShare?.slug || null;
+      const isSite = f.mime_type === "text/html" || Boolean(shareSlug);
+      return {
+        id: f.id,
+        filename: f.filename,
+        sanitized_name: f.sanitized_name,
+        byte_size: f.byte_size,
+        mime_type: f.mime_type,
+        status: f.status,
+        expiry_preset: f.expiry_preset,
+        expires_at: f.expires_at,
+        created_at: f.created_at,
+        share_slug: shareSlug,
+        is_site: isSite,
+      };
+    });
     const totalCount = filesRes.count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
     const currentProfile = profileRes.data;
