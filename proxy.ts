@@ -43,10 +43,10 @@ export async function proxy(request: NextRequest) {
   // 1. Generate 128-bit cryptographically random base64 nonce
   const nonce = crypto.randomBytes(16).toString("base64");
 
-  // 2. Build strict Content-Security-Policy
-  // In development, allow 'unsafe-inline', 'unsafe-eval', and 'ws:' / 'wss:' so Turbopack HMR and React hydration function seamlessly on LAN IPs
+  // 2. Build Content-Security-Policy
+  // Allow 'unsafe-inline' and 'unsafe-eval' so Next.js inline hydration scripts ($RC, self.__next_f) and static route replacements execute cleanly without being blocked
   const isDev = process.env.NODE_ENV !== "production";
-  const scriptSrc = `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline' 'unsafe-eval'" : ""} https://challenges.cloudflare.com https://switchyy.eu.cc;`;
+  const scriptSrc = `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://switchyy.eu.cc;`;
   const connectSrc = `connect-src 'self' ${isDev ? "ws: wss: " : ""}https://*.supabase.co https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://switchyy.eu.cc https://xurl.eu.cc;`;
 
   // Only upgrade insecure requests in production when accessed over HTTPS.
