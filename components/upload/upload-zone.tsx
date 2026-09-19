@@ -32,7 +32,8 @@ import { ShareModal, type FileItem } from "@/components/dashboard/share-modal";
 import { optimizeImageInBrowser, isOptimizableImage, type OptimizationResult } from "@/lib/media/optimizer";
 import { savePendingUpload, listPendingUploads, removePendingUpload, type PendingUpload } from "@/lib/storage/upload-resilience";
 import { TerminalUploadModal } from "@/components/dashboard/terminal-upload-modal";
-import { HtmlHostModal } from "@/components/dashboard/html-host-modal";
+import { HtmlHostModal, type ExistingUploadedFile } from "@/components/dashboard/html-host-modal";
+import { isHtmlDocument } from "@/lib/storage/sanitizer";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -83,6 +84,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [showTerminalModal, setShowTerminalModal] = useState(false);
   const [showHtmlHostModal, setShowHtmlHostModal] = useState(false);
+  const [htmlHostFile, setHtmlHostFile] = useState<ExistingUploadedFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileControlsRef = useRef<HTMLDivElement>(null);
@@ -234,7 +236,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         });
       }
 
-      const mimeType = fileToUpload.type || "application/octet-stream";
+      const isHtml = isHtmlDocument(fileToUpload.name, fileToUpload.type);
+      const mimeType = fileToUpload.type || (isHtml ? "text/html" : "application/octet-stream");
 
       // 1. Initiate Upload Route
       const initRes = await fetch("/api/files/initiate-upload", {
@@ -463,27 +466,46 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       setProgress(100);
       setUploadedBytes(fileToUpload.size);
       setEtaSeconds(0);
-      setStatusText("Upload complete and verified!");
-      setSuccessFile({
+      const finalFileName = completedData.file?.sanitized_name || fileToUpload.name;
+      const finalMimeType = completedData.file?.mime_type || mimeType;
+      const finalByteSize = completedData.file?.byte_size || fileToUpload.size;
+      const finalExpiresAt = completedData.file?.expires_at || null;
+
+      const successDetails = {
         id: fileId,
-        filename: completedData.file.sanitized_name || fileToUpload.name,
-        size: completedData.file.byte_size || fileToUpload.size,
-        mimeType: completedData.file.mime_type || mimeType,
-        expiresAt: completedData.file.expires_at || null,
+        filename: finalFileName,
+        size: finalByteSize,
+        mimeType: finalMimeType,
+        expiresAt: finalExpiresAt,
         e2eKeyFragment,
-      });
+      };
+
+      setSuccessFile(successDetails);
       setSelectedFile(null);
 
-      const fileSize = completedData.file.byte_size || fileToUpload.size;
+      const fileSize = finalByteSize;
       storageEvents.emit("file:lifecycle", {
         fileId,
-        filename: completedData.file.sanitized_name || fileToUpload.name,
+        filename: finalFileName,
         size: fileSize,
         action: "created",
       });
 
       if (onUploadSuccess) {
         onUploadSuccess();
+      }
+
+      // Automatic direct redirect to HTML Host modal upon successful HTML upload
+      if (isHtmlDocument(finalFileName, finalMimeType)) {
+        setHtmlHostFile({
+          id: fileId,
+          filename: finalFileName,
+          size: finalByteSize,
+          byteSize: finalByteSize,
+          mimeType: finalMimeType,
+          expiresAt: finalExpiresAt,
+        });
+        setShowHtmlHostModal(true);
       }
     } catch (err: unknown) {
       if (!isCancelledRef.current) {
@@ -506,7 +528,10 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             </span>
             <button
               type="button"
-              onClick={() => setShowHtmlHostModal(true)}
+              onClick={() => {
+                setHtmlHostFile(null);
+                setShowHtmlHostModal(true);
+              }}
               className="px-3 py-1 rounded-lg text-muted-foreground hover:text-cyan-600 dark:hover:text-cyan-400 font-medium transition flex items-center gap-1.5 cursor-pointer hover:bg-card/50"
             >
               <Globe className="w-3.5 h-3.5 text-cyan-500" />
@@ -779,7 +804,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
           )}
 
           {/* GP-Sites HTML Live Hosting Notice */}
-          {selectedFile.name.toLowerCase().endsWith(".html") && (
+          {isHtmlDocument(selectedFile.name, selectedFile.type) && (
             <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-200">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-emerald-500 shrink-0" />
@@ -1006,20 +1031,20 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                 <span>Share with Options</span>
               </button>
 
-              {successFile.filename.toLowerCase().endsWith(".html") && (
+              {isHtmlDocument(successFile.filename, successFile.mimeType) && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setShareFile({
+                  onClick={() => {
+                    setHtmlHostFile({
                       id: successFile.id,
-                      sanitized_name: successFile.filename,
-                      byte_size: successFile.size,
-                      mime_type: successFile.mimeType || "text/html",
-                      status: "ACTIVE",
-                      expires_at: successFile.expiresAt,
-                      created_at: new Date().toISOString(),
-                    })
-                  }
+                      filename: successFile.filename,
+                      size: successFile.size,
+                      byteSize: successFile.size,
+                      mimeType: successFile.mimeType,
+                      expiresAt: successFile.expiresAt,
+                    });
+                    setShowHtmlHostModal(true);
+                  }}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                 >
                   <Globe className="w-3.5 h-3.5" />
@@ -1163,9 +1188,13 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       {/* Dedicated HTML Host Modal with Domain & Custom Slug */}
       <HtmlHostModal
         isOpen={showHtmlHostModal}
-        onClose={() => setShowHtmlHostModal(false)}
+        onClose={() => {
+          setShowHtmlHostModal(false);
+          setHtmlHostFile(null);
+        }}
         canCreatePermanent={canCreatePermanent}
         onSuccess={onUploadSuccess}
+        existingFile={htmlHostFile}
       />
     </div>
   );

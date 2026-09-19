@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import {
   Key,
   Plus,
@@ -29,8 +29,13 @@ export function ApiKeysManager() {
   const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const origin = useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => "https://gphost.app"
+  );
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -108,7 +113,6 @@ export function ApiKeysManager() {
     setTimeout(() => setter(false), 2000);
   };
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://gphost.app";
   const sampleCurl = `curl -H "Authorization: Bearer ${createdRawKey || "gp_live_YOUR_KEY"}" \\\n  -F "file=@screenshot.png" \\\n  ${origin}/api/v1/upload`;
 
   return (
@@ -179,22 +183,24 @@ export function ApiKeysManager() {
         </div>
       )}
 
-      {/* Interactive cURL Snippet */}
-      <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2">
-        <div className="flex items-center justify-between">
+      {/* Interactive cURL Snippet (Notion Clean Code Block Style) */}
+      <div className="rounded-xl border border-border/80 bg-muted/20 overflow-hidden shadow-2xs">
+        <div className="px-3.5 py-2.5 bg-muted/40 border-b border-border/70 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Terminal className="w-3.5 h-3.5 text-blue-500" />
             <span>Upload from Terminal in 1 Line</span>
           </div>
           <button
             onClick={() => copyToClipboard(sampleCurl, setCopiedCurl)}
-            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition cursor-pointer"
+            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition cursor-pointer px-2 py-0.5 rounded-md hover:bg-background/80"
           >
             {copiedCurl ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-            <span>{copiedCurl ? "Copied" : "Copy cURL"}</span>
+            <span className={copiedCurl ? "text-emerald-500 font-medium" : ""}>
+              {copiedCurl ? "Copied" : "Copy cURL"}
+            </span>
           </button>
         </div>
-        <pre className="p-3 rounded-lg bg-zinc-950 text-zinc-100 text-xs font-mono overflow-x-auto select-all">
+        <pre suppressHydrationWarning className="p-3.5 bg-background font-mono text-xs text-foreground/90 leading-relaxed overflow-x-auto select-all">
           {sampleCurl}
         </pre>
       </div>

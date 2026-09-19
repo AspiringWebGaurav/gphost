@@ -172,3 +172,53 @@ export function formatExpiryBadge(
     remaining,
   };
 }
+
+/**
+ * Calculates human-readable elapsed time since an expiration date.
+ * e.g., "3 days ago", "1 day ago", "5 hours ago", "12 minutes ago", "just now"
+ */
+export function formatTimeElapsedSinceExpiry(
+  expiresAt: string | Date | null,
+  baseTime?: Date | number
+): string {
+  if (!expiresAt) return "Permanent";
+  const date = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
+  const now = baseTime !== undefined ? (typeof baseTime === "number" ? new Date(baseTime) : baseTime) : new Date();
+  const diffMs = now.getTime() - date.getTime();
+
+  if (diffMs <= 0) return "just now";
+
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+  const diffHours = Math.floor(diffMs / (60 * 60 * 1000));
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+
+  if (diffDays >= 30) {
+    const months = Math.floor(diffDays / 30);
+    return months === 1 ? "1 month ago" : `${months} months ago`;
+  }
+  if (diffDays >= 7) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+  }
+  if (diffDays > 0) {
+    return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+  }
+  if (diffHours > 0) {
+    return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+  }
+  if (diffMins > 0) {
+    return diffMins === 1 ? "1 minute ago" : `${diffMins} minutes ago`;
+  }
+  return "just now";
+}
+
+/**
+ * Formats a clean, readable UTC expiration timestamp:
+ * e.g. "Wed, 16 Sep 2026, 11:15:00 UTC"
+ */
+export function formatExpiryTimestamp(expiresAt: string | Date | null): string {
+  if (!expiresAt) return "Permanent (No Expiry)";
+  const date = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
+  if (isNaN(date.getTime())) return String(expiresAt);
+  return date.toUTCString().replace("GMT", "UTC");
+}

@@ -302,3 +302,19 @@ export async function createPresignedRawUrl(
   return getSignedUrl(client, command, { expiresIn: expiresInSec });
 }
 
+/**
+ * Fetches an R2 object stream directly for secure backend proxying.
+ * Keeps the browser address bar on the custom-slug link (/site/[slug] or /raw/[slug])
+ * without redirecting or exposing Cloudflare R2 bucket URLs, keys, or presigned tokens.
+ */
+export async function getR2ObjectStream(key: string, range?: string) {
+  const client = getR2Client();
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: key,
+    ...(range ? { Range: range } : {}),
+  });
+
+  return client.send(command);
+}
+

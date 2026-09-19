@@ -8,6 +8,7 @@ export interface TimeRemainingResult {
   status: ExpiryStatus;
   remainingMs: number;
   formatted: string;
+  elapsedAgo?: string;
   isExpired: boolean;
   isExpiring: boolean;
   isPermanent: boolean;
@@ -46,17 +47,39 @@ export function calculateTimeRemaining(
   const diffMs = targetTime - nowMs;
 
   if (diffMs <= 0) {
+    const elapsedMs = Math.abs(diffMs);
+    const diffSecs = Math.floor((elapsedMs % (60 * 1000)) / 1000);
+    const diffMins = Math.floor(elapsedMs / (60 * 1000));
+    const diffHours = Math.floor(elapsedMs / (60 * 60 * 1000));
+    const diffDays = Math.floor(elapsedMs / (24 * 60 * 60 * 1000));
+
+    let elapsedAgo = "just now";
+    if (diffDays >= 30) {
+      const months = Math.floor(diffDays / 30);
+      elapsedAgo = months === 1 ? "1 month ago" : `${months} months ago`;
+    } else if (diffDays >= 7) {
+      const weeks = Math.floor(diffDays / 7);
+      elapsedAgo = weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+    } else if (diffDays > 0) {
+      elapsedAgo = diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+    } else if (diffHours > 0) {
+      elapsedAgo = diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+    } else if (diffMins > 0) {
+      elapsedAgo = diffMins === 1 ? "1 minute ago" : `${diffMins} minutes ago`;
+    }
+
     return {
       status: "expired",
       remainingMs: 0,
-      formatted: "Expired",
+      formatted: `Expired ${elapsedAgo}`,
+      elapsedAgo,
       isExpired: true,
       isExpiring: false,
       isPermanent: false,
-      diffDays: 0,
-      diffHours: 0,
-      diffMins: 0,
-      diffSecs: 0,
+      diffDays,
+      diffHours,
+      diffMins,
+      diffSecs,
     };
   }
 
@@ -107,18 +130,14 @@ export function useTimeRemaining(
     const date = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
     const targetMs = date.getTime();
 
-    // If already expired, no need to run interval
-    if (targetMs - Date.now() <= 0) {
-      return;
-    }
+    // If already expired, poll every 30s to keep elapsed time relatively accurate
+    const isAlreadyExpired = targetMs - Date.now() <= 0;
+    const intervalMs = isAlreadyExpired ? 30000 : 1000;
 
     const interval = setInterval(() => {
       const current = Date.now();
       setNow(current);
-      if (targetMs - current <= 0) {
-        clearInterval(interval);
-      }
-    }, 1000);
+    }, intervalMs);
 
     return () => clearInterval(interval);
   }, [expiresAt]);

@@ -19,8 +19,14 @@ export async function logFileEvent({
   req,
 }: LogEventParams): Promise<void> {
   try {
-    const country = req.headers.get("cf-ipcountry") || null;
-    const city = req.headers.get("cf-ipcity") || null;
+    const country =
+      req.headers.get("cf-ipcountry") ||
+      req.headers.get("x-vercel-ip-country") ||
+      null;
+    const city =
+      req.headers.get("cf-ipcity") ||
+      req.headers.get("x-vercel-ip-city") ||
+      null;
     const referrer = req.headers.get("referer") || null;
     const userAgent = req.headers.get("user-agent") || null;
 

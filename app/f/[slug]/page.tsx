@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { AlertCircle, Clock, Ban, Flame } from "lucide-react";
 import { redis } from "@/lib/redis/client";
+import { formatTimeElapsedSinceExpiry, formatExpiryTimestamp } from "@/lib/storage/expiry";
 
 import { cache } from "react";
 
@@ -253,21 +254,31 @@ export default async function PublicSharePage({ params }: PageProps) {
 
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
-  const isShareExpired = share.expires_at && new Date(share.expires_at).getTime() <= now;
-  const isFileExpired = file.expires_at && new Date(file.expires_at).getTime() <= now;
+  const shareExpTime = share.expires_at ? new Date(share.expires_at).getTime() : Infinity;
+  const fileExpTime = file.expires_at ? new Date(file.expires_at).getTime() : Infinity;
+  const earliestExpTime = Math.min(shareExpTime, fileExpTime);
+  const isExpired = (earliestExpTime !== Infinity && earliestExpTime <= now) || file.status === "EXPIRED";
 
-  if (isShareExpired || isFileExpired) {
+  if (isExpired) {
+    const expiryIso = earliestExpTime !== Infinity
+      ? new Date(earliestExpTime).toISOString()
+      : (share.expires_at || file.expires_at || new Date(now).toISOString());
+    const elapsedAgo = formatTimeElapsedSinceExpiry(expiryIso, now);
+    const formattedUtc = formatExpiryTimestamp(expiryIso);
+
     return (
       <PublicShareLayout>
         <StatusCard
           icon={<Clock className="w-12 h-12 text-amber-500" />}
-          title="Transfer Expired"
-          description="This ephemeral download link has passed its expiration window. In accordance with zero-retention policies, storage objects on Cloudflare R2 have been automatically purged."
-          badgeText="Lifecycle: Expired & Purged"
+          title={`Link Expired (${elapsedAgo})`}
+          description={`This link expired ${elapsedAgo} at ${formattedUtc}. In accordance with zero-retention policies, storage objects on Cloudflare R2 have been safely dismantled and purged.`}
+          badgeText={`Lifecycle: Expired ${elapsedAgo}`}
           badgeColor="amber"
           lifecycleDetails={[
+            `Expired timestamp: ${formattedUtc}`,
+            `Elapsed duration: ${elapsedAgo}`,
             "Time-to-Live (TTL) window has elapsed",
-            "Cloudflare R2 object storage scrubbed",
+            "Cloudflare R2 object storage scrubbed & purged",
             "Zero residual server logs or copies retained",
           ]}
         />

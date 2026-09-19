@@ -59,6 +59,7 @@ export function ExpiryStatusBadge({
   }
 
   if (isExpiredState) {
+    const expiredLabel = result.elapsedAgo ? `Expired ${result.elapsedAgo}` : "Expired";
     return (
       <span
         suppressHydrationWarning
@@ -71,7 +72,7 @@ export function ExpiryStatusBadge({
         )}
       >
         {showIcon && <Lock className={cn(iconSizes, "text-rose-500 shrink-0")} />}
-        <span suppressHydrationWarning>Expired &amp; Locked</span>
+        <span suppressHydrationWarning>{expiredLabel}</span>
       </span>
     );
   }

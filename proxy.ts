@@ -22,10 +22,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/temp-preview", request.url));
   }
 
-  // Immediately bypass Next.js internal paths, static assets, preview routes, and generated metadata images
+  // Immediately bypass Next.js internal paths, static assets, preview routes, direct raw streams, live sites, and generated metadata images
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/temp-preview") ||
+    pathname.startsWith("/raw/") ||
+    pathname.startsWith("/api/raw/") ||
+    pathname.startsWith("/site/") ||
     pathname === "/favicon.ico" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||

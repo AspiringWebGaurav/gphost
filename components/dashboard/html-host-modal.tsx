@@ -20,12 +20,27 @@ import {
   Sparkles,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { isHtmlDocument } from "@/lib/storage/sanitizer";
 
-interface HtmlHostModalProps {
+export interface ExistingUploadedFile {
+  id: string;
+  filename: string;
+  size?: number;
+  byteSize?: number;
+  byte_size?: number;
+  sanitized_name?: string;
+  mimeType?: string;
+  mime_type?: string;
+  expiresAt?: string | null;
+  expires_at?: string | null;
+}
+
+export interface HtmlHostModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
   canCreatePermanent?: boolean;
+  existingFile?: ExistingUploadedFile | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -54,8 +69,11 @@ export function HtmlHostModal({
   onClose,
   onSuccess,
   canCreatePermanent = false,
+  existingFile,
 }: HtmlHostModalProps) {
   const [file, setFile] = useState<File | null>(null);
+  const [existingFileState, setExistingFileState] = useState<ExistingUploadedFile | null>(existingFile ?? null);
+  const [prevExistingFileId, setPrevExistingFileId] = useState<string | null>(existingFile?.id ?? null);
   const [customSlug, setCustomSlug] = useState("");
   const [expiryPreset, setExpiryPreset] = useState("30d");
   const [isDeploying, setIsDeploying] = useState(false);
@@ -79,6 +97,26 @@ export function HtmlHostModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync existingFile prop when provided (render-phase state adjustment)
+  const incomingId = existingFile?.id ?? null;
+  if (incomingId !== prevExistingFileId) {
+    setPrevExistingFileId(incomingId);
+    setExistingFileState(existingFile ?? null);
+    if (existingFile) {
+      setFile(null);
+      setDeployError(null);
+      setDeployedResult(null);
+      const fname = existingFile.filename || existingFile.sanitized_name || "site.html";
+      const base = fname
+        .replace(/\.(html|htm|xhtml)$/i, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "-")
+        .replace(/-+/g, "-")
+      const suffix = incomingId ? incomingId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toLowerCase() : "site";
+      setCustomSlug(base && base !== "index" ? `${base}-${suffix}` : `site-${suffix}`);
+    }
+  }
+
   if (!isOpen) return null;
 
   const currentHost =
@@ -88,16 +126,17 @@ export function HtmlHostModal({
   const origin = `${protocol}//${currentHost}`;
 
   const handleFileSelect = (selected: File) => {
-    if (!selected.name.toLowerCase().endsWith(".html") && !selected.name.toLowerCase().endsWith(".htm")) {
-      setDeployError("Please select a valid HTML file (.html or .htm).");
+    if (!isHtmlDocument(selected.name, selected.type)) {
+      setDeployError("Please select a valid HTML file (.html, .htm, or text/html).");
       return;
     }
     setDeployError(null);
+    setExistingFileState(null);
     setFile(selected);
 
     if (!customSlug) {
       const base = selected.name
-        .replace(/\.(html|htm)$/i, "")
+        .replace(/\.(html|htm|xhtml)$/i, "")
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, "-")
         .replace(/-+/g, "-")
@@ -116,7 +155,15 @@ export function HtmlHostModal({
   };
 
   const handleDeploy = async () => {
-    if (!file) {
+    const activeFileId = existingFileState?.id;
+    const activeFileName = existingFileState
+      ? (existingFileState.filename || existingFileState.sanitized_name || "index.html")
+      : file?.name;
+    const activeFileSize = existingFileState
+      ? (existingFileState.size ?? existingFileState.byteSize ?? existingFileState.byte_size ?? 0)
+      : (file?.size ?? 0);
+
+    if (!file && !activeFileId) {
       setDeployError("Please select an HTML file to host.");
       return;
     }
@@ -130,56 +177,67 @@ export function HtmlHostModal({
     try {
       setIsDeploying(true);
       setDeployError(null);
-      setDeployProgress(15);
-      setDeployPhase("Reserving edge storage and custom web address...");
 
-      // 1. Initiate Upload
-      const initRes = await fetch("/api/files/initiate-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          byte_size: file.size,
-          mime_type: "text/html",
-          expiry_preset: expiryPreset,
-        }),
-      });
+      let targetFileId = activeFileId;
 
-      const initData = await initRes.json();
-      if (!initRes.ok || (!initData.presignedUrl && !initData.fileId)) {
-        throw new Error(initData.error || initData.message || "Failed to initialize upload.");
+      // If file was not already uploaded in normal upload, perform upload sequence
+      if (!targetFileId && file) {
+        setDeployProgress(15);
+        setDeployPhase("Reserving edge storage and custom web address...");
+
+        // 1. Initiate Upload
+        const initRes = await fetch("/api/files/initiate-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            byte_size: file.size,
+            mime_type: "text/html",
+            expiry_preset: expiryPreset,
+          }),
+        });
+
+        const initData = await initRes.json();
+        if (!initRes.ok || (!initData.presignedUrl && !initData.fileId)) {
+          throw new Error(initData.error || initData.message || "Failed to initialize upload.");
+        }
+
+        setDeployProgress(45);
+        setDeployPhase("Streaming HTML directly to Cloudflare R2 edge network...");
+
+        // 2. Direct R2 Presigned Upload (Content-Type must match presigned URL signature)
+        const uploadRes = await fetch(initData.presignedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "text/html" },
+          body: file,
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to transfer static HTML to storage (HTTP ${uploadRes.status}).`);
+        }
+
+        setDeployProgress(75);
+        setDeployPhase("Verifying storage checksum and binding domain route...");
+
+        // 3. Complete Upload
+        const compRes = await fetch("/api/files/complete-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId: initData.fileId }),
+        });
+
+        const compData = await compRes.json();
+        if (!compRes.ok || !compData.success) {
+          throw new Error(compData.error || compData.message || "Failed to finalize storage commit.");
+        }
+
+        targetFileId = initData.fileId;
+      } else {
+        setDeployProgress(40);
+        setDeployPhase("Registering custom web slug on edge router...");
       }
 
-      setDeployProgress(45);
-      setDeployPhase("Streaming HTML directly to Cloudflare R2 edge network...");
-
-      // 2. Direct R2 Presigned Upload (Content-Type must match presigned URL signature)
-      const uploadRes = await fetch(initData.presignedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": "text/html" },
-        body: file,
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error(`Failed to transfer static HTML to storage (HTTP ${uploadRes.status}).`);
-      }
-
-      setDeployProgress(75);
-      setDeployPhase("Verifying storage checksum and binding domain route...");
-
-      // 3. Complete Upload
-      const compRes = await fetch("/api/files/complete-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId: initData.fileId }),
-      });
-
-      const compData = await compRes.json();
-      if (!compRes.ok || !compData.success) {
-        throw new Error(compData.error || compData.message || "Failed to finalize storage commit.");
-      }
-
-      setDeployProgress(90);
+      setDeployProgress(85);
       setDeployPhase(`Registering live site under ${origin}/site/${sanitizedSlug}...`);
 
       // 4. Create Share Link with Custom Slug
@@ -187,7 +245,7 @@ export function HtmlHostModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileId: initData.fileId,
+          fileId: targetFileId,
           customSlug: sanitizedSlug,
           expiresInPreset: expiryPreset,
         }),
@@ -198,7 +256,7 @@ export function HtmlHostModal({
         throw new Error(shareData.error || shareData.message || "Failed to attach custom domain slug.");
       }
 
-      const finalSlug = shareData.share?.slug || sanitizedSlug;
+      const finalSlug = shareData.share?.slug || shareData.slug || sanitizedSlug;
       const liveSiteUrl = `${origin}/site/${finalSlug}`;
       const directRawUrl = `${origin}/raw/${finalSlug}`;
 
@@ -209,8 +267,8 @@ export function HtmlHostModal({
         slug: finalSlug,
         siteUrl: liveSiteUrl,
         rawUrl: directRawUrl,
-        filename: file.name,
-        byteSize: file.size,
+        filename: activeFileName || "index.html",
+        byteSize: activeFileSize,
         expiresAt: shareData.share?.expires_at || null,
       });
 
@@ -225,6 +283,8 @@ export function HtmlHostModal({
 
   const handleReset = () => {
     setFile(null);
+    setExistingFileState(null);
+    setPrevExistingFileId(null);
     setCustomSlug("");
     setDeployError(null);
     setDeployedResult(null);
@@ -573,7 +633,41 @@ export function HtmlHostModal({
               }}
             />
 
-            {!file ? (
+            {existingFileState ? (
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <FileCode className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm font-bold text-foreground truncate" title={existingFileState.filename || existingFileState.sanitized_name}>
+                        {existingFileState.filename || existingFileState.sanitized_name || "index.html"}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shrink-0">
+                        Uploaded &amp; Ready
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                      {formatBytes(existingFileState.size ?? existingFileState.byteSize ?? existingFileState.byte_size ?? 0)} &bull; HTML Webpage &bull; Stored on R2 Edge
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExistingFileState(null);
+                    setFile(null);
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={isDeploying}
+                  className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline font-semibold shrink-0 cursor-pointer"
+                >
+                  Change File
+                </button>
+              </div>
+            ) : !file ? (
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -610,18 +704,8 @@ export function HtmlHostModal({
                     <div className="text-xs font-semibold text-foreground truncate" title={file.name}>
                       {file.name}
                     </div>
-                    <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-2 flex-wrap">
-                      <span>{formatBytes(file.size)} &bull; HTML Webpage</span>
-                      <a
-                        href="/temp-preview"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-cyan-600 dark:text-cyan-400 hover:underline inline-flex items-center gap-1 font-sans font-medium"
-                        title="Compare and preview in studio"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        <span>Compare / Preview Studio</span>
-                      </a>
+                    <div className="text-[11px] text-muted-foreground font-mono">
+                      {formatBytes(file.size)} &bull; HTML Webpage
                     </div>
                   </div>
                 </div>
@@ -769,7 +853,7 @@ export function HtmlHostModal({
                 <button
                   type="button"
                   onClick={handleDeploy}
-                  disabled={!file || isDeploying || !customSlug}
+                  disabled={(!file && !existingFileState) || isDeploying || !customSlug}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition shadow-md shadow-cyan-600/20 hover:shadow-cyan-600/30 cursor-pointer active:scale-[0.98]"
                 >
                   {isDeploying ? (
@@ -780,7 +864,7 @@ export function HtmlHostModal({
                   ) : (
                     <>
                       <Globe className="w-3.5 h-3.5" />
-                      <span>Deploy &amp; Host Webpage</span>
+                      <span>{existingFileState ? "Deploy & Host Webpage" : "Deploy & Host Webpage"}</span>
                     </>
                   )}
                 </button>

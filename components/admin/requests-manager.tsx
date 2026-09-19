@@ -980,7 +980,7 @@ export function RequestsManager({
             <div className="p-2.5 rounded-xl bg-muted/50 border border-border text-left text-[11px] flex items-center justify-between gap-2">
               <div className="truncate">
                 <span className="text-muted-foreground block text-[10px]">Activation Gate URL:</span>
-                <span className="font-mono text-foreground font-medium">
+                <span suppressHydrationWarning className="font-mono text-foreground font-medium">
                   {typeof window !== "undefined" ? `${window.location.origin}/access-gate` : "https://gphost.eu.cc/access-gate"}
                 </span>
               </div>

@@ -52,3 +52,21 @@ export function sanitizeFilename(input: string): string {
 
   return clean;
 }
+
+/**
+ * Authoritative HTML document detection for GPHost.
+ * Checks both extension (.html, .htm, .xhtml) and MIME types (text/html, application/xhtml+xml).
+ */
+export function isHtmlDocument(filename?: string | null, mimeType?: string | null): boolean {
+  const name = (filename || "").toLowerCase().trim();
+  const mime = (mimeType || "").toLowerCase().trim();
+  return (
+    name.endsWith(".html") ||
+    name.endsWith(".htm") ||
+    name.endsWith(".xhtml") ||
+    mime === "text/html" ||
+    mime.startsWith("text/html;") ||
+    mime === "application/xhtml+xml" ||
+    mime.startsWith("application/xhtml+xml;")
+  );
+}

@@ -6,6 +6,7 @@ import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
 import { redis } from "@/lib/redis/client";
+import { formatTimeElapsedSinceExpiry, formatExpiryTimestamp } from "@/lib/storage/expiry";
 
 export const dynamic = "force-dynamic";
 
@@ -93,11 +94,27 @@ export async function GET(
     // 4. Expiration check
     const now = Date.now();
     if (share.expires_at && new Date(share.expires_at).getTime() <= now) {
-      return NextResponse.json({ error: "This share link has expired" }, { status: 410 });
+      const elapsed = formatTimeElapsedSinceExpiry(share.expires_at, now);
+      const formattedUtc = formatExpiryTimestamp(share.expires_at);
+      return NextResponse.json({
+        error: "This share link has expired",
+        status: "expired",
+        expired_at: share.expires_at,
+        expired_at_formatted: formattedUtc,
+        expired_ago: elapsed,
+      }, { status: 410 });
     }
 
     if (file.expires_at && new Date(file.expires_at).getTime() <= now) {
-      return NextResponse.json({ error: "This file has expired" }, { status: 410 });
+      const elapsed = formatTimeElapsedSinceExpiry(file.expires_at, now);
+      const formattedUtc = formatExpiryTimestamp(file.expires_at);
+      return NextResponse.json({
+        error: "This file has expired",
+        status: "expired",
+        expired_at: file.expires_at,
+        expired_at_formatted: formattedUtc,
+        expired_ago: elapsed,
+      }, { status: 410 });
     }
 
     // 5. Download count exhaustion check
@@ -108,12 +125,23 @@ export async function GET(
       );
     }
 
-    // 6. Strict Public Allow-List Metadata Return
-    // Zero internal IDs, R2 keys, user emails, ETags, token hashes, or salts!
     const publicMeta = formatPublicShareMetadata(file, share);
-    try {
-      await redis.set(`share:pub:${slug}`, publicMeta, { ex: 30 });
-    } catch {}
+    const shareExpTime = share.expires_at ? new Date(share.expires_at).getTime() : Infinity;
+    const fileExpTime = file.expires_at ? new Date(file.expires_at).getTime() : Infinity;
+    const earliestExpTime = Math.min(shareExpTime, fileExpTime);
+    const nowMs = Date.now();
+    const remainingSecs = earliestExpTime !== Infinity
+      ? Math.floor((earliestExpTime - nowMs) / 1000)
+      : null;
+
+    if (remainingSecs === null || remainingSecs > 0) {
+      const redisTtl = remainingSecs !== null
+        ? Math.max(1, Math.min(30, remainingSecs))
+        : 30;
+      try {
+        await redis.set(`share:pub:${slug}`, publicMeta, { ex: redisTtl });
+      } catch {}
+    }
     return NextResponse.json(publicMeta);
   } catch (err) {
     console.error("Error reading public share metadata:", err);

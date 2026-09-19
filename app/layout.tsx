@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { RouteLoader } from "@/components/ui/route-loader";
@@ -113,6 +112,7 @@ export default async function RootLayout({
       <head>
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var s=localStorage.getItem('gphost-theme');var d=s?s==='dark'||(s==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches):false;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
           }}
@@ -121,6 +121,7 @@ export default async function RootLayout({
         {isSwitchyyEnabled && switchyyProjectId && (
           <script
             nonce={nonce}
+            suppressHydrationWarning
             dangerouslySetInnerHTML={{
               __html: `(function(){try{sessionStorage.removeItem('switchy_config_${switchyyProjectId}');}catch(e){}})();`,
             }}
@@ -133,11 +134,13 @@ export default async function RootLayout({
               href="https://switchyy.eu.cc/switchy_layouts/glass.js"
               as="script"
               nonce={nonce}
+              suppressHydrationWarning
             />
-            <Script
+            <script
               src={switchyySrc}
-              strategy="beforeInteractive"
               nonce={nonce}
+              async
+              suppressHydrationWarning
             />
           </>
         )}

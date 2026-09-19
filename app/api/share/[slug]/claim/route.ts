@@ -160,6 +160,14 @@ export async function POST(
       req,
     });
 
+    // Invalidate cached metadata so subsequent raw/share requests reflect updated download count or single-use state immediately
+    try {
+      await Promise.all([
+        redis.del(`raw:meta:${slug}`),
+        redis.del(`share:pub:${slug}`),
+      ]);
+    } catch {}
+
     // 4. RETURN: Deliver presigned URL and public metadata only
     // Note: DOWNLOAD_CLAIMED audit logging occurred atomically inside acquire_download_claim_lease RPC!
     // Zero internal IDs, R2 keys, or server secrets leaked!

@@ -33,6 +33,7 @@ import { ZipViewerModal } from "@/components/dashboard/zip-viewer-modal";
 import { importE2EKey, decryptBuffer, extractE2EKeyFromHash } from "@/lib/crypto/e2e";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useTimeRemaining } from "@/lib/hooks/use-time-remaining";
+import { isHtmlDocument } from "@/lib/storage/sanitizer";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 
 function formatBytes(bytes: number, decimals = 2) {
@@ -91,7 +92,7 @@ export function DownloadCard({
   const [showZipViewer, setShowZipViewer] = useState(false);
 
   const isZip = (metadata.filename || "").toLowerCase().endsWith(".zip") || (metadata.mime_type || "").includes("zip");
-  const isHtml = (metadata.filename || "").toLowerCase().endsWith(".html") || (metadata.filename || "").toLowerCase().endsWith(".htm") || (metadata.mime_type || "").includes("text/html");
+  const isHtml = isHtmlDocument(metadata.filename, metadata.mime_type);
 
   // Live reactive real-time expiration tracker
   const { isExpired: isTimeExpired } = useTimeRemaining(

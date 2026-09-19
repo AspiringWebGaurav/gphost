@@ -259,7 +259,16 @@ export function FileList({
   const [copiedXurl, setCopiedXurl] = useState(false);
   const [copiedRaw, setCopiedRaw] = useState(false);
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
+  const [copiedLinkSlug, setCopiedLinkSlug] = useState<string | null>(null);
   const [analyticsFile, setAnalyticsFile] = useState<FileItem | null>(null);
+
+  const handleCopyLink = (slug: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const siteUrl = `${origin}/site/${slug}`;
+    navigator.clipboard.writeText(siteUrl);
+    setCopiedLinkSlug(slug);
+    setTimeout(() => setCopiedLinkSlug(null), 2000);
+  };
 
   const handleDeleteConfirm = async () => {
     if (!fileToDelete) return;
@@ -405,64 +414,116 @@ export function FileList({
               {/* File Info */}
               <div className="flex items-center gap-3 min-w-0">
                 <div
-                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                    isExpired
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    file.is_site || file.share_slug || file.mime_type === "text/html"
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                      : isExpired
                       ? "bg-rose-500/10 text-rose-500 border border-rose-500/20"
-                      : "bg-muted text-muted-foreground"
+                      : "bg-muted text-muted-foreground border border-border/60"
                   }`}
                 >
-                  <FileIcon className="w-4 h-4" />
+                  {file.is_site || file.share_slug || file.mime_type === "text/html" ? (
+                    <Globe className="w-4 h-4" />
+                  ) : (
+                    <FileIcon className="w-4 h-4" />
+                  )}
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-foreground truncate max-w-xs sm:max-w-md">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground truncate max-w-xs sm:max-w-md">
                       {file.sanitized_name}
                     </p>
-                    {(file.is_site || file.mime_type === "text/html" || file.share_slug) && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shrink-0">
-                        <Globe className="w-3 h-3" />
-                        <span>GP-Sites Live</span>
+                    {file.share_slug && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live
                       </span>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                    <span className="font-mono">{formatBytes(file.byte_size)}</span>
-                    <span>•</span>
-                    <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} />
-                    {file.share_slug && (
-                      <>
-                        <span>•</span>
+                    {file.share_slug ? (
+                      <div className="flex items-center gap-1.5 font-mono text-[11px]">
                         <a
                           href={`/site/${file.share_slug}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-cyan-600 dark:text-cyan-400 hover:underline"
-                          title="Open live hosted static page in new tab"
+                          className="inline-flex items-center gap-1 font-medium text-cyan-600 dark:text-cyan-400 hover:underline"
+                          title="Open live website in new tab"
                         >
                           <span>/site/{file.share_slug}</span>
-                          <ExternalLink className="w-3 h-3" />
+                          <ExternalLink className="w-2.5 h-2.5 opacity-60" />
                         </a>
-                      </>
+                        <span className="text-muted-foreground/40">•</span>
+                        <a
+                          href={`/raw/${file.share_slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground hover:underline"
+                          title="Open raw CDN stream in new tab"
+                        >
+                          <span>cdn stream</span>
+                          <ExternalLink className="w-2 h-2 opacity-50" />
+                        </a>
+                      </div>
+                    ) : (
+                      <span>{file.mime_type}</span>
                     )}
+                    <span>•</span>
+                    <span className="font-mono">{formatBytes(file.byte_size)}</span>
+                    <span>•</span>
+                    <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
                   </div>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                {file.share_slug && !isExpired && (
-                  <a
-                    href={`/site/${file.share_slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-                    title="Launch hosted static site in new tab"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>View Site</span>
-                  </a>
-                )}
-                {isExpired ? (
+              <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                {file.share_slug && !isExpired ? (
+                  <>
+                    <a
+                      href={`/site/${file.share_slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition shadow-xs cursor-pointer"
+                      title="Open live hosted site in new tab"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Visit</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(file.share_slug!)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                      title="Copy live site link"
+                    >
+                      {copiedLinkSlug === file.share_slug ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span>Copy Link</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => handleDirectDownload(file)}
+                      disabled={downloadingId === file.id}
+                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                      title="Download file"
+                    >
+                      {downloadingId === file.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </>
+                ) : isExpired ? (
                   <>
                     <button
                       onClick={() => {
@@ -538,12 +599,11 @@ export function FileList({
 
                 <button
                   onClick={() => setAnalyticsFile(file)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/15 text-purple-600 dark:text-purple-400 text-xs font-medium transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg border border-border hover:bg-purple-500/10 hover:border-purple-500/30 text-muted-foreground hover:text-purple-600 dark:hover:text-purple-400 transition cursor-pointer"
                   title="View File Analytics & Downloads"
                   data-testid={`file-analytics-btn-${file.id}`}
                 >
                   <Activity className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Analytics</span>
                 </button>
 
                 <button

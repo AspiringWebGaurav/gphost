@@ -23,6 +23,7 @@ import {
   Layers,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TermsAutoScroll } from "@/components/terms-autoscroll";
 
 export const dynamic = "force-static";
 
@@ -50,6 +51,34 @@ const SECTIONS = [
 export default function TermsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col antialiased transition-colors duration-200">
+      <TermsAutoScroll />
+      <style>{`
+        :target, .highlight-pulse-active {
+          scroll-margin-top: 6rem;
+          border-radius: 1rem;
+          animation: terms-highlight 3.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes terms-highlight {
+          0% {
+            outline: 3px solid rgba(245, 158, 11, 0.95);
+            outline-offset: 6px;
+            background-color: rgba(245, 158, 11, 0.12);
+            box-shadow: 0 0 35px rgba(245, 158, 11, 0.3);
+          }
+          60% {
+            outline: 2px solid rgba(245, 158, 11, 0.65);
+            outline-offset: 6px;
+            background-color: rgba(245, 158, 11, 0.06);
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+          }
+          100% {
+            outline: 1.5px solid rgba(245, 158, 11, 0.35);
+            outline-offset: 6px;
+            background-color: rgba(245, 158, 11, 0.02);
+            box-shadow: none;
+          }
+        }
+      `}</style>
       {/* Top Header */}
       <header className="h-16 border-b border-border/80 bg-background/80 backdrop-blur-xl px-4 sm:px-8 lg:px-12 flex items-center justify-between sticky top-0 z-50">
         <Link
@@ -311,6 +340,20 @@ export default function TermsPage() {
                   4. Smart Burner &amp; Automated Destruction Rules
                 </h2>
               </div>
+
+              {/* Explicit Why You Are Seeing This Callout */}
+              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100 flex items-start gap-3.5 text-xs sm:text-sm">
+                <Flame className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <strong className="font-bold block text-sm sm:text-base text-foreground">
+                    Why you are seeing this: Automated File Destruction
+                  </strong>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Under GPHosting&rsquo;s core privacy architecture, all uploaded files are strictly temporary. Once a link reaches its Time-to-Live (TTL) expiration deadline or download ceiling, the underlying object is permanently purged from Cloudflare R2 and our databases, and visitors are shown the expired notice.
+                  </p>
+                </div>
+              </div>
+
               <p className="text-sm text-muted-foreground leading-relaxed">
                 To guarantee privacy and prevent data accumulation, GPHosting provides autonomous lifecycle policies that trigger irrevocable deletion:
               </p>

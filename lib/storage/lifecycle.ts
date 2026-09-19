@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object, abortR2MultipartUpload } from "@/lib/storage/r2";
+import { redis } from "@/lib/redis/client";
 
 // Minimum interval between opportunistic lifecycle sweeps (default: 5 minutes)
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -29,7 +30,7 @@ export async function executeLifecycleSweep(): Promise<{
     // 1. Deactivate expired share links
     const { data: expiredLinks } = await adminClient
       .from("share_links")
-      .select("id")
+      .select("id, slug")
       .eq("is_active", true)
       .not("expires_at", "is", null)
       .lte("expires_at", nowIso);
@@ -41,6 +42,24 @@ export async function executeLifecycleSweep(): Promise<{
         .update({ is_active: false })
         .in("id", idsToDeactivate);
       expiredLinksCount = idsToDeactivate.length;
+
+      // Invalidate all associated Redis caches
+      try {
+        const delPromises: Promise<unknown>[] = [];
+        for (const link of expiredLinks) {
+          if (link.slug) {
+            delPromises.push(
+              redis.del(`raw:meta:${link.slug}`),
+              redis.del(`share:pub:${link.slug}`),
+              redis.del(`share:slug:${link.slug}`),
+              redis.del(`share_enhancements:${link.slug}`)
+            );
+          }
+        }
+        await Promise.all(delPromises);
+      } catch (redisErr) {
+        console.warn("Failed to invalidate Redis keys during expired links sweep:", redisErr);
+      }
     }
 
     // 2. Reconcile claimed single-use files whose 50-second download lease has expired
@@ -104,6 +123,28 @@ export async function executeLifecycleSweep(): Promise<{
           .eq("id", file.id);
 
         singleUseCount++;
+
+        // Invalidate Redis caches for single-use file and associated shares
+        try {
+          const { data: shares } = await adminClient
+            .from("share_links")
+            .select("slug")
+            .eq("file_id", file.id);
+          const delPromises: Promise<unknown>[] = [redis.del(`analytics:${file.id}`)];
+          if (shares) {
+            for (const s of shares) {
+              if (s.slug) {
+                delPromises.push(
+                  redis.del(`raw:meta:${s.slug}`),
+                  redis.del(`share:pub:${s.slug}`),
+                  redis.del(`share:slug:${s.slug}`),
+                  redis.del(`share_enhancements:${s.slug}`)
+                );
+              }
+            }
+          }
+          await Promise.all(delPromises);
+        } catch {}
       }
     }
 
@@ -154,6 +195,28 @@ export async function executeLifecycleSweep(): Promise<{
         }
 
         expiredFilesCount++;
+
+        // Invalidate Redis caches for purged expired file and associated shares
+        try {
+          const { data: shares } = await adminClient
+            .from("share_links")
+            .select("slug")
+            .eq("file_id", file.id);
+          const delPromises: Promise<unknown>[] = [redis.del(`analytics:${file.id}`)];
+          if (shares) {
+            for (const s of shares) {
+              if (s.slug) {
+                delPromises.push(
+                  redis.del(`raw:meta:${s.slug}`),
+                  redis.del(`share:pub:${s.slug}`),
+                  redis.del(`share:slug:${s.slug}`),
+                  redis.del(`share_enhancements:${s.slug}`)
+                );
+              }
+            }
+          }
+          await Promise.all(delPromises);
+        } catch {}
       }
     }
 
