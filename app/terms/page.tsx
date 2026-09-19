@@ -28,24 +28,24 @@ import { TermsAutoScroll } from "@/components/terms-autoscroll";
 export const dynamic = "force-static";
 
 export const metadata: Metadata = {
-  title: "Terms of Service & AUC — GPHosting",
+  title: "Terms of Service — GPHosting",
   description:
-    "Terms of Service, Acceptable Use Conditions, and legal policies for GPHosting ephemeral direct-transit file hosting.",
+    "Simple, easy-to-understand Terms of Service for GPHosting. Clear rules on temporary file sharing, auto-deletion, and acceptable use.",
 };
 
 const SECTIONS = [
-  { id: "section-agreement", title: "1. Agreement & Direct-Transit Scope", icon: Scale },
-  { id: "section-prohibited", title: "2. Prohibited Content & AUC", icon: Ban },
-  { id: "section-transfers", title: "3. Direct Browser-to-R2 Transfers", icon: Server },
-  { id: "section-burner", title: "4. Smart Burner & Automated Destruction", icon: Flame },
-  { id: "section-raw-cdn", title: "5. Direct Raw & CDN Asset Hosting", icon: Globe },
-  { id: "section-encryption", title: "6. Client-Side Zero-Trust Encryption", icon: Lock },
-  { id: "section-api-keys", title: "7. Developer API Keys & Terminal Uploads", icon: Terminal },
-  { id: "section-admission", title: "8. Onboarding PINs & Account Governance", icon: Key },
-  { id: "section-quotas", title: "9. Storage Quotas & Admission Coordinator", icon: HardDrive },
-  { id: "section-license", title: "10. Source License & Limitation of Liability", icon: FileCode },
-  { id: "section-abuse", title: "11. Abuse Reporting & Rapid Takedowns", icon: LifeBuoy },
-  { id: "section-audit", title: "12. Revision History & Audit Log", icon: History },
+  { id: "section-agreement", title: "1. Welcome & How It Works", icon: Scale },
+  { id: "section-prohibited", title: "2. What You Can & Cannot Upload", icon: Ban },
+  { id: "section-transfers", title: "3. Fast Direct Uploads", icon: Server },
+  { id: "section-burner", title: "4. Auto-Deletion & Expiration", icon: Flame },
+  { id: "section-raw-cdn", title: "5. Direct Links for READMEs & Sites", icon: Globe },
+  { id: "section-encryption", title: "6. Secret End-to-End Encryption", icon: Lock },
+  { id: "section-api-keys", title: "7. Developer API Keys", icon: Terminal },
+  { id: "section-admission", title: "8. Accounts & Invitations", icon: Key },
+  { id: "section-quotas", title: "9. Storage Quotas & Limits", icon: HardDrive },
+  { id: "section-license", title: "10. Open Source & Disclaimers", icon: FileCode },
+  { id: "section-abuse", title: "11. Reporting Abuse & Getting Help", icon: LifeBuoy },
+  { id: "section-audit", title: "12. What Changed Over Time", icon: History },
 ];
 
 export default function TermsPage() {
@@ -79,6 +79,7 @@ export default function TermsPage() {
           }
         }
       `}</style>
+
       {/* Top Header */}
       <header className="h-16 border-b border-border/80 bg-background/80 backdrop-blur-xl px-4 sm:px-8 lg:px-12 flex items-center justify-between sticky top-0 z-50">
         <Link
@@ -92,25 +93,25 @@ export default function TermsPage() {
           <ThemeToggle />
           <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
             <ShieldCheck className="w-3 h-3" />
-            <span>AUC v3.0 Production</span>
+            <span>Terms v3.1 (Plain English)</span>
           </div>
         </div>
       </header>
 
-      {/* Hero Banner — Edge-to-Edge Fluid Container */}
+      {/* Hero Banner */}
       <section className="border-b border-border/60 bg-gradient-to-b from-muted/30 via-background to-background py-10 px-4 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
         <div className="w-full">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-xs font-semibold mb-4">
             <Scale className="w-3.5 h-3.5" />
-            <span>Legal Framework &bull; Acceptable Use Conditions (AUC)</span>
+            <span>Simple Terms &bull; Plain English</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-foreground mb-4">
-            Terms of Service &amp; Acceptable Use Conditions
+            Terms of Service
           </h1>
 
           <p className="text-sm sm:text-base text-muted-foreground max-w-4xl leading-relaxed mb-6">
-            These Terms govern your use of GPHosting&rsquo;s ephemeral, direct-to-storage transit platform, client-side encryption utilities, developer REST APIs, and CDN asset routing.
+            Welcome to GPHosting! These terms explain the simple rules for using our fast, temporary file-sharing platform. We&rsquo;ve written them in plain, human English without complicated legal jargon so you know exactly how everything works.
           </p>
 
           {/* Prominent Dual-Date Revision Strip */}
@@ -121,10 +122,10 @@ export default function TermsPage() {
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
-                  Original Inception Date
+                  Original Launch
                 </span>
                 <strong className="text-xs sm:text-sm font-semibold text-foreground">
-                  September 14, 2026 (v1.0.0)
+                  September 14, 2026 (v1.0)
                 </strong>
               </div>
             </div>
@@ -135,10 +136,10 @@ export default function TermsPage() {
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400 block">
-                  Last Revised &amp; Effective Date
+                  Last Updated &amp; In Effect
                 </span>
                 <strong className="text-xs sm:text-sm font-semibold text-foreground">
-                  September 18, 2026 (v3.0.0)
+                  September 19, 2026 (v3.1)
                 </strong>
               </div>
             </div>
@@ -149,10 +150,10 @@ export default function TermsPage() {
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
-                  Governance Reference
+                  Edition
                 </span>
                 <strong className="text-xs sm:text-sm font-mono font-medium text-foreground">
-                  AUC-2026.09.18-v3.0
+                  TOS-2026.09.19-v3.1
                 </strong>
               </div>
             </div>
@@ -200,7 +201,7 @@ export default function TermsPage() {
                 href="/developers"
                 className="flex items-center justify-between text-xs text-muted-foreground hover:text-foreground hover:underline"
               >
-                <span>API &amp; User Guide</span>
+                <span>User Guide &amp; API</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
@@ -213,9 +214,9 @@ export default function TermsPage() {
               <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
               <div>
                 <strong className="font-bold block mb-1 text-amber-950 dark:text-amber-100 text-sm sm:text-base">
-                  Direct Transit &amp; Ephemeral Architecture Notice
+                  Important: GPHosting is for Temporary Sharing, Not Permanent Storage
                 </strong>
-                GPHosting is engineered strictly as an ephemeral, zero-knowledge, high-speed direct transit platform. It is <strong>not</strong> a permanent storage locker, cold backup depository, or archiving service. Files expire automatically according to configured Time-to-Live (TTL) deadlines, burn upon viewing or single-use download claims, and are permanently wiped from Cloudflare R2 edge storage and Supabase databases. Always retain independent copies of your essential documents and assets.
+                GPHosting is built for quick, secure file sharing. It is <strong>not</strong> a permanent cloud backup drive or storage locker. Files automatically delete when their timer expires, when their download limit is reached, or 60 seconds after viewing if you turn on &ldquo;Burn on Preview&rdquo;. Once a file is deleted, it is gone forever. Please always keep a backup copy of your important files on your own device.
               </div>
             </div>
 
@@ -226,14 +227,14 @@ export default function TermsPage() {
                   <Scale className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  1. Agreement &amp; Direct-Transit Scope
+                  1. Welcome &amp; How GPHosting Works
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                By visiting, accessing, authenticating on, uploading files to, linking assets from, or invoking programmatic developer endpoints on GPHosting (&ldquo;the Service&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;), you expressly agree to be bound by these Terms of Service and Acceptable Use Conditions (&ldquo;AUC&rdquo;). If you disagree with any portion of these conditions, you must immediately terminate access and discontinue use of the platform.
+                By using GPHosting (visiting our website, uploading files, opening download links, or using our developer tools), you agree to these simple terms. If you do not agree with them, please do not use the service.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                These conditions govern all interfaces, including our web application interface, direct presigned upload pipelines, <code>/raw/[slug]</code> content delivery redirects, <code>/f/[slug]</code> preview portals, XURL shortlinks, and developer API routes located at <code>/api/v1/*</code>.
+                These rules apply to everything on GPHosting: our web application, direct download links, preview pages (<code>/f/...</code>), direct raw links for images and files (<code>/raw/...</code>), and our developer API routes.
               </p>
             </section>
 
@@ -244,52 +245,52 @@ export default function TermsPage() {
                   <Ban className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  2. Acceptable Use Conditions (Prohibited Content)
+                  2. What You Can and Cannot Upload (Fair Use)
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                GPHosting is designated for lawful personal, educational, developer, open-source documentation, and temporary transit sharing. You agree not to upload, transit, mirror, or generate share links for any of the following categories:
+                GPHosting is built for helpful, lawful sharing—such as sending documents to friends, sharing screenshots, linking assets in GitHub READMEs, or testing code. You agree that you will <strong>never</strong> upload or share:
               </p>
 
-              {/* Edge-to-Edge Grid of Prohibited Content Cards */}
+              {/* Grid of Prohibited Content Cards */}
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
                 <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 space-y-2">
                   <strong className="text-foreground text-sm font-semibold flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-rose-500" />
-                    A. Malware, Exploits &amp; Toolkits
+                    A. Viruses, Malware &amp; Hacking Tools
                   </strong>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Viruses, trojans, ransomware, worms, keyloggers, rootkits, infostealers, botnet command controllers, uncompiled zero-day exploit payloads, or automated attack scripts designed to compromise system integrity.
+                    Viruses, trojans, ransomware, spyware, keyloggers, botnet tools, or any software designed to damage, hack, or take over someone else&rsquo;s computer or phone.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-2">
                   <strong className="text-foreground text-sm font-semibold flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    B. Copyright &amp; Intellectual Property Infringement
+                    B. Copyrighted Material You Don&rsquo;t Own
                   </strong>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Unlicensed commercial software, cracked digital goods, pirated cinema, proprietary trade secrets, or copyrighted audio/video archives without verified authorization from the legitimate copyright holder.
+                    Pirated movies, cracked software, stolen music albums, paid games, or any other copyrighted content you do not have permission from the creator to share.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 space-y-2">
                   <strong className="text-foreground text-sm font-semibold flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-rose-600" />
-                    C. Child Exploitation, CSAM &amp; Violent Material
+                    C. Illegal, Abusive or Dangerous Material
                   </strong>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Child sexual abuse material (CSAM), non-consensual sexual media, terrorist propaganda, violent extremism, extortion payloads, illegal firearms trafficking, or unlawful controlled substance sales.
+                    Child sexual abuse material (CSAM), non-consensual private pictures, violent extremism, extortion, illegal weapons, or dangerous illegal substances.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-2">
                   <strong className="text-foreground text-sm font-semibold flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                    D. Stolen PII, Credential Dumps &amp; Private Keys
+                    D. Stolen Passwords &amp; Private Information
                   </strong>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Doxxing repositories, intercepted confidential conversations, scraped Personally Identifiable Information (PII) databases, stolen payment credentials, identity documents, or leaked server cryptographic certificates.
+                    Leaked password databases, stolen credit cards, leaked personal ID cards, private medical records, or doxxing someone without their permission.
                   </p>
                 </div>
               </div>
@@ -302,29 +303,29 @@ export default function TermsPage() {
                   <Server className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  3. Direct Browser-to-Cloudflare R2 Transfers
+                  3. Fast Direct Uploads
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                GPHosting utilizes an optimized zero-proxy architecture:
+                We designed GPHosting to be as fast and smooth as possible using direct uploads:
               </p>
               <div className="grid gap-3 sm:grid-cols-3 text-xs">
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
-                  <strong className="text-foreground font-semibold block">Presigned S3 Leases</strong>
+                  <strong className="text-foreground font-semibold block">Direct to Storage</strong>
                   <p className="text-muted-foreground">
-                    Upload authorization occurs through short-lived presigned AWS S3-compatible URLs. Payloads stream straight from your browser to Cloudflare R2 object storage with zero intermediary server buffering.
+                    When you upload, files travel straight from your browser to secure Cloudflare R2 storage. Our web servers never slow down or inspect your transfer.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
-                  <strong className="text-foreground font-semibold block">1 GB Single-File Ceiling</strong>
+                  <strong className="text-foreground font-semibold block">Up to 1 GB per File</strong>
                   <p className="text-muted-foreground">
-                    Multipart chunking enables reliable transfers up to 1 GB per file with client-side verification, SHA-256 fingerprinting, and automatic retry coordination.
+                    You can upload files as large as 1 GB. Large files are safely sent in pieces with automatic retries if your internet blinks.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
-                  <strong className="text-foreground font-semibold block">Zero Server Bandwidth Saturation</strong>
+                  <strong className="text-foreground font-semibold block">Fast for Everyone</strong>
                   <p className="text-muted-foreground">
-                    Because application servers never proxy file bytes, uploads and downloads remain immune to server CPU throttling or memory starvation.
+                    Because our web servers don&rsquo;t bottleneck your bandwidth, downloads and uploads stay fast and reliable even during busy hours.
                   </p>
                 </div>
               </div>
@@ -337,7 +338,7 @@ export default function TermsPage() {
                   <Flame className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  4. Smart Burner &amp; Automated Destruction Rules
+                  4. Auto-Deletion &amp; How Files Expire
                 </h2>
               </div>
 
@@ -346,16 +347,16 @@ export default function TermsPage() {
                 <Flame className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <strong className="font-bold block text-sm sm:text-base text-foreground">
-                    Why you are seeing this: Automated File Destruction
+                    Why files disappear: Built-In Privacy &amp; Cleanliness
                   </strong>
                   <p className="text-muted-foreground leading-relaxed">
-                    Under GPHosting&rsquo;s core privacy architecture, all uploaded files are strictly temporary. Once a link reaches its Time-to-Live (TTL) expiration deadline or download ceiling, the underlying object is permanently purged from Cloudflare R2 and our databases, and visitors are shown the expired notice.
+                    We don&rsquo;t hoard your files forever. When an expiration timer ends, a download limit is reached, or a burner file is viewed, it is completely erased from our storage and databases.
                   </p>
                 </div>
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                To guarantee privacy and prevent data accumulation, GPHosting provides autonomous lifecycle policies that trigger irrevocable deletion:
+                You can choose exactly how and when your files disappear:
               </p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                 <div className="p-3.5 rounded-xl border border-amber-500/20 bg-amber-500/5 space-y-1">
@@ -364,37 +365,37 @@ export default function TermsPage() {
                     <span>Burn on Preview</span>
                   </div>
                   <p className="text-muted-foreground">
-                    The first viewing opens an autonomous 60-second destruction window. Upon expiry, the file and share links are completely wiped.
+                    The file starts a 60-second self-destruct timer the moment someone views it. When 60 seconds are up, the file is completely wiped.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <div className="font-bold text-foreground flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Single-Use Claim</span>
+                    <span>Single-Use Download</span>
                   </div>
                   <p className="text-muted-foreground">
-                    The file object is purged from Cloudflare R2 storage immediately upon the first completed file download stream.
+                    The file vanishes permanently the very second someone finishes downloading it once.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <div className="font-bold text-foreground flex items-center gap-1.5">
                     <HardDrive className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Download Ceilings</span>
+                    <span>Download Limits</span>
                   </div>
                   <p className="text-muted-foreground">
-                    Set explicit download limits (e.g. 5 or 25 downloads). Once reached, the file is decommissioned and purged automatically.
+                    Pick a download limit (like 5 or 25 downloads). Once that number of downloads is hit, the file is automatically deleted.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <div className="font-bold text-foreground flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-purple-500" />
-                    <span>Configurable TTL</span>
+                    <span>Expiration Timers</span>
                   </div>
                   <p className="text-muted-foreground">
-                    Preset expirations (1h, 24h, 7d, 30d, 90d, custom, or permanent for authorized users) are swept continuously.
+                    Set a time limit: 1 hour, 24 hours, 7 days, 30 days, 90 days, or keep it forever if you are signed in.
                   </p>
                 </div>
               </div>
@@ -407,21 +408,21 @@ export default function TermsPage() {
                   <Globe className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  5. Direct Raw &amp; CDN Asset Hosting (/raw/[slug])
+                  5. Direct Links for READMEs &amp; Sites (<code>/raw/...</code>)
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Users may generate direct raw links (<code>/raw/[slug]</code>) to embed public assets in documentation, GitHub README files, developer portfolios, and static websites:
+                You can create direct raw links (like <code>/raw/your-file-name</code>) to display images, icons, or documentation directly on your GitHub projects, personal website, or blog:
               </p>
               <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-muted-foreground">
                 <li>
-                  <strong>Edge CDN Routing:</strong> Direct raw URLs respond with an HTTP 307 temporary redirect to Cloudflare global edge storage with 1-hour CDN caching (<code>Cache-Control: public, max-age=3600</code>).
+                  <strong>Fast Global Delivery:</strong> Images and assets load quickly worldwide using Cloudflare&rsquo;s global content network with automatic 1-hour caching.
                 </li>
                 <li>
-                  <strong>Content-Disposition Sandboxing:</strong> Non-media file types are forced to download attachments to prevent cross-site scripting (XSS) vectors.
+                  <strong>Safe File Handling:</strong> Files that could run unsafe code are safely served as regular downloads instead of opening directly inside a web browser.
                 </li>
                 <li>
-                  <strong>Fair Use &amp; Prohibited Bandwidth Abuse:</strong> Direct raw hosting is intended for legitimate developer and documentation embeds. Leveraging direct raw links for commercial video streaming networks, ad tech pixels, or automated bot scraping networks is prohibited.
+                  <strong>Fair Usage:</strong> Raw links are meant for normal websites, README files, and documentation. Please do not use them to run commercial streaming services, ad tracking networks, or automated scrapers.
                 </li>
               </ul>
             </section>
@@ -433,28 +434,28 @@ export default function TermsPage() {
                   <Lock className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  6. Client-Side End-to-End Zero-Trust Encryption
+                  6. Secret End-to-End Encryption
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                When enabling Client-Side Encryption, cryptographic operations occur strictly in your browser using the native Web Crypto API:
+                When you turn on Client-Side Encryption, your file is scrambled directly on your own computer before it ever leaves your device:
               </p>
               <div className="grid gap-4 sm:grid-cols-2 text-xs sm:text-sm">
                 <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-2">
                   <strong className="text-foreground font-semibold block text-sm">
-                    A. URL Hash Fragment Key Isolation
+                    A. The Secret Key Stays with You
                   </strong>
                   <p className="text-muted-foreground leading-relaxed">
-                    Decryption keys are embedded exclusively in the URL hash fragment (e.g. <code>#key=...</code>). Per RFC 3986, browsers do not transmit URL hash fragments over the wire to servers. GPHosting servers never receive, log, or store your decryption keys.
+                    The secret password to unlock your file lives only in the link after the <code>#</code> symbol. Web browsers never send that part to our servers. That means we cannot see your password and we cannot view your file contents.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-2">
                   <strong className="text-foreground font-semibold block text-sm">
-                    B. Zero Password Recovery Guarantee
+                    B. No Password Recovery
                   </strong>
                   <p className="text-muted-foreground leading-relaxed">
-                    Because GPHosting operates with zero knowledge of your encryption keys, we cannot reset passwords, decrypt files, or recover links if you lose the URL hash key. You bear sole responsibility for retaining your keys.
+                    Because only you have the secret key, we have no way to reset or recover it for you. If you lose the link with the secret key, the file cannot be recovered by anyone, including our team.
                   </p>
                 </div>
               </div>
@@ -467,18 +468,18 @@ export default function TermsPage() {
                   <Terminal className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  7. Developer API Keys &amp; Terminal Uploads
+                  7. Developer API Keys
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Approved accounts may generate Developer API Keys (formatted <code>gp_live_...</code>) for terminal scripts, CI/CD pipelines, and headless automation via <code>/api/v1/upload</code>:
+                Developers can generate API keys (starting with <code>gp_live_...</code>) to upload files automatically from terminal scripts, command-line tools, or CI/CD pipelines:
               </p>
               <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-muted-foreground">
                 <li>
-                  <strong>Bearer Authentication:</strong> API keys must be passed in the <code>Authorization: Bearer gp_live_...</code> header. The raw key is displayed once upon creation and stored exclusively as a one-way SHA-256 hash.
+                  <strong>Safe Key Storage:</strong> Your key is shown once when you create it. We only save a secure one-way hash in our database, so no one can read your real key if they look at our records.
                 </li>
                 <li>
-                  <strong>Edge Rate Limiting:</strong> All API requests pass through Upstash Redis sliding-window limiters. Circumventing rate limiters through distributed proxies or credential abuse triggers automatic key revocation.
+                  <strong>Speed &amp; Rate Limits:</strong> Automated uploads are protected by fair rate limits to ensure that scripts don&rsquo;t overload the service or slow it down for others.
                 </li>
               </ul>
             </section>
@@ -490,23 +491,23 @@ export default function TermsPage() {
                   <Key className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  8. Onboarding PINs &amp; Account Governance
+                  8. Accounts &amp; Invitations
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                To prevent automated spam and infrastructure abuse, user registration is managed via Google OAuth (PKCE) combined with an invitation PIN access gate or administrator approval queue:
+                To keep our servers clean and prevent spam bots, we use simple Google Sign-In combined with an invitation PIN or admin approval:
               </p>
               <div className="grid gap-3 sm:grid-cols-2 text-xs">
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
-                  <strong className="text-foreground font-medium block">Invite PIN Verification</strong>
+                  <strong className="text-foreground font-medium block">Simple Sign-In with Google</strong>
                   <p className="text-muted-foreground">
-                    Valid single-use or multi-use onboarding PINs admit verified users to the platform with instant quota allocation.
+                    Enter an invitation PIN or request access from the administrator. Once approved, your account is immediately active with full storage quota.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
-                  <strong className="text-foreground font-medium block">Unilateral Suspension Right</strong>
+                  <strong className="text-foreground font-medium block">Keeping the Platform Clean</strong>
                   <p className="text-muted-foreground">
-                    We reserve the unilateral right to approve, reject, rate limit, or terminate any account or access credential if policy violations or suspicious activities are detected.
+                    We reserve the right to suspend or remove any account or access key that breaks our fair use rules or tries to spam or abuse the system.
                   </p>
                 </div>
               </div>
@@ -519,18 +520,18 @@ export default function TermsPage() {
                   <HardDrive className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  9. Storage Quotas &amp; Admission Coordinator
+                  9. Storage Quotas &amp; Limits
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Accounts operate under allocated storage quotas (default 5 GB capacity) and individual file ceilings (up to 1 GB). Uploads are managed by our real-time admission coordinator:
+                Each registered account has an allocated storage space (usually 5 GB) and a 1 GB maximum size for any individual file:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
                 <li>
-                  <strong>Quota Reservation:</strong> Before receiving an S3 presigned lease, required bytes are temporarily reserved. Abandoned uploads are automatically released back to the user balance.
+                  <strong>Live Storage Balance:</strong> Your available space updates as you upload or delete files. If an upload gets interrupted or canceled, your storage balance is automatically restored.
                 </li>
                 <li>
-                  <strong>Sybil Attack Prevention:</strong> Registering multiple alternate accounts to circumvent storage limits or bypass rate limits is strictly forbidden.
+                  <strong>Fair Play:</strong> Please do not create multiple fake accounts to bypass storage limits or bypass upload limits.
                 </li>
               </ul>
             </section>
@@ -542,18 +543,18 @@ export default function TermsPage() {
                   <FileCode className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  10. Source-Available License &amp; Limitation of Liability
+                  10. Open Source &amp; Disclaimers
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                The GPHosting codebase is published under the <strong>GPHosting Source-Available Reference License</strong>. You may inspect, audit, and clone the repository for personal, educational, and security research purposes. Commercial distribution, unauthorized public SaaS re-hosting, and trademark removal are prohibited.
+                The GPHosting codebase is open for everyone to review, learn from, and audit for security. However, you may not copy the service to run a paid clone or remove our branding for commercial re-hosting.
               </p>
               <div className="p-4 rounded-xl border border-border/80 bg-muted/40 text-xs text-muted-foreground leading-relaxed space-y-2">
                 <strong className="text-foreground uppercase tracking-wide block">
-                  Disclaimer of Warranties &amp; Limitation of Damages
+                  Service Disclaimer (As-Is)
                 </strong>
                 <p>
-                  THE SERVICE IS PROVIDED &ldquo;AS IS&rdquo; AND &ldquo;AS AVAILABLE&rdquo; WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED. TO THE MAXIMUM EXTENT PERMITTED BY LAW, GPHOSTING AND ITS MAINTAINERS SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES, INCLUDING LOSS OF DATA, CORRUPTION OF ASSETS, OR SERVICE INTERRUPTIONS ARISING OUT OF USE OF THE SERVICE.
+                  GPHosting is provided free of charge on an &ldquo;as-is&rdquo; and &ldquo;as-available&rdquo; basis. While we do everything we can to keep the service fast, secure, and always online, we cannot guarantee that the service will never have bugs or downtime. We are not responsible for any lost files or data. Always keep a personal copy of your important documents!
                 </p>
               </div>
             </section>
@@ -565,25 +566,25 @@ export default function TermsPage() {
                   <LifeBuoy className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  11. Abuse Reporting &amp; Rapid Takedowns
+                  11. Reporting Abuse &amp; Getting Help
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                If you encounter content hosted on GPHosting that violates these Acceptable Use Conditions, infringes upon your copyright, or compromises personal safety, submit a notice containing:
+                If you ever see a file hosted on GPHosting that violates these rules, infringes on your copyright, or makes you feel unsafe, please let us know right away. When reporting, please include:
               </p>
               <div className="p-4 rounded-xl border border-border/80 bg-card/60 text-xs space-y-2">
                 <div className="flex items-center gap-2 text-foreground font-semibold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span>Required Takedown Details:</span>
+                  <span>What to Include in Your Report:</span>
                 </div>
                 <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                  <li>Exact URL or link slug (e.g. <code>https://gphost.eu.cc/f/[slug]</code> or <code>/raw/[slug]</code>).</li>
-                  <li>Clear description of the alleged violation or infringement.</li>
-                  <li>Evidence of copyright ownership or legal representation authority.</li>
-                  <li>Direct contact email for verification.</li>
+                  <li>The exact link to the file (such as <code>https://gphost.eu.cc/f/...</code> or <code>/raw/...</code>).</li>
+                  <li>A brief explanation of what is wrong with the file.</li>
+                  <li>If it is a copyright issue, proof that you own the work.</li>
+                  <li>Your email address so we can reply to you.</li>
                 </ul>
                 <p className="text-muted-foreground pt-1">
-                  Report all abuse directly to the site administrator. Confirmed violations result in immediate asset termination and permanent edge purge.
+                  We review reports quickly. Once verified, violating files are immediately deleted forever from both our storage and our databases.
                 </p>
               </div>
             </section>
@@ -595,11 +596,11 @@ export default function TermsPage() {
                   <History className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  12. Revision History &amp; Audit Log
+                  12. What Changed Over Time
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                GPHosting maintains an open audit record of terms and policy adjustments:
+                We believe in full transparency. Here is the history of updates to our terms:
               </p>
 
               <div className="overflow-x-auto rounded-xl border border-border/80">
@@ -607,9 +608,9 @@ export default function TermsPage() {
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/50 font-semibold text-foreground">
                       <th className="p-3">Version</th>
-                      <th className="p-3">Publication Date</th>
+                      <th className="p-3">Date</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3">Key Changes &amp; Architectural Additions</th>
+                      <th className="p-3">Summary of Changes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -618,11 +619,11 @@ export default function TermsPage() {
                       <td className="p-3 text-muted-foreground">September 14, 2026</td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
-                          Original Inception
+                          Original Launch
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Initial platform release: basic ephemeral transit, file lifecycles, and core acceptable use rules.
+                        Initial release with basic temporary file sharing, auto-deletion timers, and core fair use rules.
                       </td>
                     </tr>
                     <tr className="bg-card/40">
@@ -634,7 +635,7 @@ export default function TermsPage() {
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Added 360° brand identity, PWA suite, direct Cloudflare CDN raw routing (<code>/raw/[slug]</code>), and client-side encryption.
+                        Added direct raw links (<code>/raw/...</code>) for GitHub READMEs, client-side secret encryption, and modern dark mode.
                       </td>
                     </tr>
                     <tr className="bg-card/40">
@@ -646,19 +647,31 @@ export default function TermsPage() {
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Introduced Smart Burner (Burn on Preview 60s lease), single-use download claims, download limits, and beginner how-to guide.
+                        Added &ldquo;Burn on Preview&rdquo; (60-second destruction), single-use downloads, and custom download limits.
+                      </td>
+                    </tr>
+                    <tr className="bg-card/40">
+                      <td className="p-3 font-mono font-semibold text-foreground">v3.0.0</td>
+                      <td className="p-3 text-muted-foreground">September 18, 2026</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
+                          Superseded
+                        </span>
+                      </td>
+                      <td className="p-3 text-muted-foreground">
+                        Added developer API keys, 1 GB file uploads, bot protection, edge speed optimizations, and modern Node 24 runtime.
                       </td>
                     </tr>
                     <tr className="bg-emerald-500/5">
-                      <td className="p-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">v3.0.0</td>
-                      <td className="p-3 font-medium text-foreground">September 18, 2026</td>
+                      <td className="p-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">v3.1.0</td>
+                      <td className="p-3 font-medium text-foreground">September 19, 2026</td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
                           Active &amp; Effective
                         </span>
                       </td>
                       <td className="p-3 text-foreground font-medium">
-                        Developer API Keys (<code>/api/v1/upload</code>), Upstash Redis rate limiting, Cloudflare Turnstile, 1 GB multipart R2 upload ceilings, edge-to-edge layout, and Node.js 24.x LTS runtime parity.
+                        Rewrote all terms into clear, simple, human English so anyone can easily understand our rules without needing a law degree.
                       </td>
                     </tr>
                   </tbody>
@@ -676,7 +689,7 @@ export default function TermsPage() {
           <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
           <Link href="/developers" className="hover:text-foreground transition-colors">User Guide &amp; API</Link>
         </div>
-        &copy; {new Date().getFullYear()} GPHosting. Ephemeral, Direct-Transit &amp; Zero-Knowledge.
+        &copy; {new Date().getFullYear()} GPHosting. Fast, Temporary &amp; Private File Sharing.
       </footer>
     </div>
   );

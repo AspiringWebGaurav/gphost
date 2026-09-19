@@ -1,6 +1,6 @@
 # ==============================================================================
 # GPHOST - Comprehensive .gitignore
-# Next.js 16 (Turbopack) | TypeScript | TailwindCSS | Supabase | Vercel
+# Next.js (Turbopack) | TypeScript | TailwindCSS | Supabase | Vercel | Cloudflare
 # ==============================================================================
 
 # --- Environment Variables & Secrets ---
@@ -32,16 +32,19 @@ node_modules/
 .pnpm-store/
 
 # --- Next.js Build Output & Caches ---
+.next/
 /.next/
 /out/
 /build/
 /dist/
 .turbo/
+.cache/
 
 # --- Deployment & Cloud Platforms ---
 .vercel/
 .netlify/
 .wrangler/
+.cloudflare/
 
 # --- TypeScript Build Cache ---
 *.tsbuildinfo
@@ -133,4 +136,3 @@ GEMINI.md
 # --- Local Testing Artifacts ---
 temp-test/
 temp-test/*
-

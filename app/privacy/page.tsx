@@ -25,20 +25,20 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Privacy Policy — GPHosting",
   description:
-    "Privacy Policy and Zero-Knowledge Architecture of GPHosting. Direct-to-storage transfers, client-side encryption, and zero data harvesting.",
+    "Simple, clear Privacy Policy for GPHosting. Zero tracking, zero ads, direct storage uploads, and client-side encryption explained in plain English.",
 };
 
 const PRIVACY_SECTIONS = [
-  { id: "section-promise", title: "1. Zero-Harvesting Commitment", icon: Shield },
-  { id: "section-direct-transit", title: "2. Direct-to-Storage Architecture", icon: Server },
-  { id: "section-encryption", title: "3. Zero-Knowledge Client Cryptography", icon: Lock },
-  { id: "section-deletion", title: "4. Autonomous Irreversible Purging", icon: Trash2 },
-  { id: "section-telemetry", title: "5. Privacy-Preserving Telemetry", icon: EyeOff },
-  { id: "section-account-data", title: "6. Account & Identity Data Stored", icon: UserCheck },
-  { id: "section-turnstile", title: "7. Bot Mitigation (Cloudflare Turnstile)", icon: Cpu },
-  { id: "section-subprocessors", title: "8. Subprocessors & Cloud Infrastructure", icon: Database },
-  { id: "section-rights", title: "9. Your Rights & Instant Account Purge", icon: FileText },
-  { id: "section-audit", title: "10. Revision History & Audit Log", icon: History },
+  { id: "section-promise", title: "1. Our Privacy Promise", icon: Shield },
+  { id: "section-direct-transit", title: "2. How Your Files Travel", icon: Server },
+  { id: "section-encryption", title: "3. Secret Client-Side Encryption", icon: Lock },
+  { id: "section-deletion", title: "4. Permanent File Deletion", icon: Trash2 },
+  { id: "section-telemetry", title: "5. Minimal Stats We Collect", icon: EyeOff },
+  { id: "section-account-data", title: "6. Account Information We Store", icon: UserCheck },
+  { id: "section-turnstile", title: "7. Bot Protection Without Annoying Puzzles", icon: Cpu },
+  { id: "section-subprocessors", title: "8. Trusted Cloud Partners", icon: Database },
+  { id: "section-rights", title: "9. Your Rights & Total Deletion", icon: FileText },
+  { id: "section-audit", title: "10. What Changed Over Time", icon: History },
 ];
 
 export default function PrivacyPage() {
@@ -57,12 +57,12 @@ export default function PrivacyPage() {
           <ThemeToggle />
           <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400">
             <Shield className="w-3 h-3" />
-            <span>Privacy v3.0 Production</span>
+            <span>Privacy v3.1 (Plain English)</span>
           </div>
         </div>
       </header>
 
-      {/* Hero Banner — Edge-to-Edge Fluid Container */}
+      {/* Hero Banner */}
       <section className="border-b border-border/60 bg-gradient-to-b from-muted/30 via-background to-background py-10 px-4 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
         <div className="w-full">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-semibold mb-4">
@@ -71,11 +71,11 @@ export default function PrivacyPage() {
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-foreground mb-4">
-            Privacy Policy &amp; Zero-Knowledge Architecture
+            Privacy Policy
           </h1>
 
           <p className="text-sm sm:text-base text-muted-foreground max-w-4xl leading-relaxed mb-6">
-            GPHosting is built from the ground up to respect user autonomy. We do not track you, run advertisements, profile behavior, or retain your unencrypted files.
+            At GPHosting, we believe your personal files and privacy belong entirely to you. We don&rsquo;t track you, we don&rsquo;t sell your data, and we don&rsquo;t show advertisements. Here is our entire privacy policy explained in plain, simple English.
           </p>
 
           {/* Prominent Dual-Date Revision Strip */}
@@ -89,7 +89,7 @@ export default function PrivacyPage() {
                   Original Inception Date
                 </span>
                 <strong className="text-xs sm:text-sm font-semibold text-foreground">
-                  September 14, 2026 (v1.0.0)
+                  September 14, 2026 (v1.0)
                 </strong>
               </div>
             </div>
@@ -100,10 +100,10 @@ export default function PrivacyPage() {
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-blue-600 dark:text-blue-400 block">
-                  Last Revised &amp; Effective Date
+                  Last Updated &amp; In Effect
                 </span>
                 <strong className="text-xs sm:text-sm font-semibold text-foreground">
-                  September 18, 2026 (v3.0.0)
+                  September 19, 2026 (v3.1)
                 </strong>
               </div>
             </div>
@@ -114,10 +114,10 @@ export default function PrivacyPage() {
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
-                  Policy Reference
+                  Edition
                 </span>
                 <strong className="text-xs sm:text-sm font-mono font-medium text-foreground">
-                  PRIV-2026.09.18-v3.0
+                  PRIV-2026.09.19-v3.1
                 </strong>
               </div>
             </div>
@@ -180,29 +180,29 @@ export default function PrivacyPage() {
                   <CheckCircle2 className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  1. Our Core Privacy Promise
+                  1. Our Simple Privacy Promise
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                GPHosting is designed to operate on minimal necessary data. We do not sell, rent, monetize, or broker your personal information. We do not execute third-party ad-tracking beacons, fingerprint browser hardware, or maintain surveillance dossiers.
+                GPHosting is designed to collect only the absolute bare minimum information needed to deliver your files. We do not sell, rent, or monetize your personal data. We do not place ad-tracking cookies, record your screen, or build behavioral profiles about you.
               </p>
               <div className="grid gap-3 sm:grid-cols-3 text-xs">
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <strong className="text-foreground font-semibold block">Zero Ad Trackers</strong>
                   <p className="text-muted-foreground">
-                    No Google Analytics, no Facebook Pixels, no behavioral trackers.
+                    No Google Analytics, no Facebook Pixels, and no sneaky marketing cookies.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <strong className="text-foreground font-semibold block">Zero Cross-Site Cookies</strong>
                   <p className="text-muted-foreground">
-                    Only strictly essential session cookies are used for authenticated dashboard access.
+                    We only use a single secure session cookie to keep you signed into your account.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1">
-                  <strong className="text-foreground font-semibold block">Zero Commercial Profiling</strong>
+                  <strong className="text-foreground font-semibold block">Zero Data Selling</strong>
                   <p className="text-muted-foreground">
-                    Your files, share links, and download frequency are never monetized.
+                    Your files, links, and downloads are never sold or shared with advertisers.
                   </p>
                 </div>
               </div>
@@ -215,18 +215,18 @@ export default function PrivacyPage() {
                   <Server className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  2. Direct-to-Storage Architecture &amp; Buffer-Free Transit
+                  2. How Your Files Travel (Direct to Storage)
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Traditional file hosting services proxy all file transfers through their central servers, allowing them to inspect, virus-scan, read, or cache your documents on host disks.
+                On most traditional file hosting websites, your file passes through their central servers first, meaning the company can read, inspect, or save copies of your files.
               </p>
               <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 text-xs sm:text-sm text-muted-foreground space-y-2">
                 <strong className="text-foreground font-semibold block">
                   How GPHosting Direct Transit Protects You:
                 </strong>
                 <p>
-                  GPHosting uses presigned AWS S3-compatible leases. Uploads and downloads travel <strong>directly</strong> between your web browser and Cloudflare R2 global object storage. Our Next.js application servers never buffer file contents into memory, write bytes to application disks, or inspect document bodies.
+                  GPHosting uses direct storage transfers. When you upload or download a file, the data travels <strong>straight between your browser and Cloudflare R2 storage</strong>. Our web servers never receive the file bytes, never save your files onto server hard drives, and never read your content.
                 </p>
               </div>
             </section>
@@ -238,23 +238,23 @@ export default function PrivacyPage() {
                   <Lock className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  3. Zero-Knowledge Client-Side Cryptography
+                  3. Secret Client-Side Encryption (Zero-Knowledge)
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                When you activate Client-Side Encryption, your files are encrypted on your local computer using the browser&rsquo;s native Web Crypto API (AES-GCM 256) before leaving your machine:
+                If you choose to turn on Client-Side Encryption, your file is scrambled directly on your computer using military-grade encryption (AES-GCM 256) before it is uploaded:
               </p>
               <div className="grid gap-4 sm:grid-cols-2 text-xs sm:text-sm">
                 <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 space-y-1.5">
-                  <strong className="text-foreground font-semibold block">URL Hash Isolation (RFC 3986)</strong>
+                  <strong className="text-foreground font-semibold block">The Key Stays in Your Link</strong>
                   <p className="text-muted-foreground">
-                    The symmetric decryption key is placed strictly inside the URL hash fragment (e.g. <code>#key=...</code>). Because web browsers never send URL hash fragments to web servers in HTTP requests, GPHosting servers never see, receive, or store your key.
+                    The secret unlock key is added after the <code>#</code> mark in the link. Web browsers never send the <code>#</code> part of a link to any web server. Because of this, our servers never see, receive, or store your unlock key.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
-                  <strong className="text-foreground font-semibold block">Zero Server Knowledge</strong>
+                  <strong className="text-foreground font-semibold block">True Zero-Knowledge</strong>
                   <p className="text-muted-foreground">
-                    Stored R2 objects are pure encrypted ciphertext. Even in the event of an infrastructure subpoena or database breach, stored files cannot be decrypted without the client-side URL hash key.
+                    All our storage sees is scrambled mathematical code. Even if our servers were subpoenaed or breached, nobody could decrypt your files without the secret link that only you possess.
                   </p>
                 </div>
               </div>
@@ -267,16 +267,16 @@ export default function PrivacyPage() {
                   <Trash2 className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  4. Autonomous Irreversible Purging
+                  4. Permanent File Deletion
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                When a file reaches its TTL expiration date, completes a single-use download claim, or expires its 60-second Burn on Preview timer, it is permanently and irreversibly purged:
+                When a file expires, reaches its download limit, or finishes its 60-second Burn on Preview countdown, it is permanently erased:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                <li>Database metadata, download logs, and access tokens are deleted via Supabase PostgreSQL cascading triggers.</li>
-                <li>The underlying binary object is deleted from the Cloudflare R2 bucket via S3 API calls.</li>
-                <li>No hidden tape archives, cold snapshot backups, or shadow copies of deleted files are retained.</li>
+                <li>The file data is deleted immediately from Cloudflare R2 storage.</li>
+                <li>All links, database records, and download logs for that file are completely wiped.</li>
+                <li>We do not keep hidden shadow backups or cold archive copies. Once a file is deleted, it is gone forever.</li>
               </ul>
             </section>
 
@@ -287,23 +287,23 @@ export default function PrivacyPage() {
                   <EyeOff className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  5. Privacy-Preserving Telemetry &amp; Anonymous Metrics
+                  5. Minimal Stats We Collect
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                To provide file owners with aggregate view counters and download analytics, our edge routing layer records non-invasive summaries:
+                We only collect basic, privacy-friendly numbers so you can see how many people viewed your file:
               </p>
               <div className="grid gap-3 sm:grid-cols-2 text-xs">
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
-                  <strong className="text-foreground font-semibold block">Coarse Geographic Approximations</strong>
+                  <strong className="text-foreground font-semibold block">Approximate Country Only</strong>
                   <p className="text-muted-foreground">
-                    Derived from Cloudflare edge headers (<code>cf-ipcountry</code>, <code>cf-ipcity</code>). We do NOT record or store raw user IP addresses in persistent download logs.
+                    We display general location stats (like country) provided by Cloudflare. We do NOT save your visitors&rsquo; exact IP addresses in permanent download records.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
-                  <strong className="text-foreground font-semibold block">Transient Rate Limit Hashes</strong>
+                  <strong className="text-foreground font-semibold block">Temporary Anti-Spam Counters</strong>
                   <p className="text-muted-foreground">
-                    To safeguard quotas and prevent brute-force attacks, client IP hashes are stored in Upstash Redis cache strictly on short sliding windows (expiring in minutes).
+                    To prevent bots from attacking the service, we keep temporary rate-limit counters in Upstash Redis. These counters automatically expire and reset after a few minutes.
                   </p>
                 </div>
               </div>
@@ -316,16 +316,16 @@ export default function PrivacyPage() {
                   <UserCheck className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  6. Account &amp; Identity Data Stored
+                  6. Account Information We Store
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                For users who create an account via Google OAuth or Onboarding PINs:
+                If you choose to create an account by signing in with Google:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                <li><strong>Identity:</strong> Email address, Google display name, avatar URL, and Supabase auth UID.</li>
-                <li><strong>Quota &amp; Balances:</strong> Assigned storage limit (e.g. 5 GB) and current bytes utilized.</li>
-                <li><strong>API Keys:</strong> SHA-256 cryptographic hashes of generated keys (raw keys are never stored).</li>
+                <li><strong>Your Profile:</strong> Your email address, your name, and your avatar image from Google.</li>
+                <li><strong>Your Storage Space:</strong> How much space you have used out of your total quota (such as 5 GB).</li>
+                <li><strong>API Keys:</strong> If you create a developer API key, we only store a secure one-way hash (we can never see your actual key).</li>
               </ul>
             </section>
 
@@ -336,11 +336,11 @@ export default function PrivacyPage() {
                   <Cpu className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  7. Bot Mitigation (Cloudflare Turnstile)
+                  7. Bot Protection Without Annoying Puzzles
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                To prevent automated upload abuse without annoying visual CAPTCHAs, we employ Cloudflare Turnstile. Turnstile validates browser authenticity without cross-site tracking or storing personal behavioral cookies.
+                We use Cloudflare Turnstile to stop spam bots from overloading the website. Unlike older CAPTCHA systems, Turnstile protects the site quietly in the background without tracking your browsing habits across the internet or asking you to click pictures of traffic lights.
               </p>
             </section>
 
@@ -351,41 +351,41 @@ export default function PrivacyPage() {
                   <Database className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  8. Subprocessors &amp; Cloud Infrastructure
+                  8. Trusted Cloud Partners
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                We partner strictly with industry-standard, security-compliant infrastructure vendors:
+                We only work with trusted, industry-leading cloud infrastructure providers:
               </p>
               <div className="overflow-x-auto rounded-xl border border-border/80 text-xs">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/50 font-semibold text-foreground">
                       <th className="p-3">Partner</th>
-                      <th className="p-3">Function</th>
-                      <th className="p-3">Data Processed</th>
+                      <th className="p-3">Purpose</th>
+                      <th className="p-3">What They Handle</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 text-muted-foreground">
                     <tr>
                       <td className="p-3 font-semibold text-foreground">Cloudflare, Inc.</td>
-                      <td className="p-3">R2 Object Storage &amp; Turnstile</td>
-                      <td className="p-3">Encrypted / raw file objects, transit bot tokens</td>
+                      <td className="p-3">Storage &amp; Bot Defense</td>
+                      <td className="p-3">Stores your files securely in R2 and blocks automated bots via Turnstile.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-semibold text-foreground">Supabase, Inc.</td>
-                      <td className="p-3">PostgreSQL Database &amp; Auth</td>
-                      <td className="p-3">User profiles, share metadata, quota records</td>
+                      <td className="p-3">Database &amp; Logins</td>
+                      <td className="p-3">Handles secure Google logins and keeps records of your active file links.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-semibold text-foreground">Upstash, Inc.</td>
-                      <td className="p-3">Serverless Redis</td>
-                      <td className="p-3">Transient sliding-window rate limit counters</td>
+                      <td className="p-3">Speed &amp; Anti-Spam Cache</td>
+                      <td className="p-3">Keeps temporary counters to prevent spam and protect server performance.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-semibold text-foreground">Vercel, Inc.</td>
-                      <td className="p-3">Next.js Edge &amp; Serverless Hosting</td>
-                      <td className="p-3">Application routing, HTTP execution</td>
+                      <td className="p-3">Web Hosting</td>
+                      <td className="p-3">Runs our web application and delivers pages to your browser quickly.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -399,15 +399,16 @@ export default function PrivacyPage() {
                   <FileText className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  9. Your Rights &amp; Instant Account Purge (GDPR &amp; CCPA)
+                  9. Your Rights &amp; Total Deletion (GDPR &amp; CCPA)
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Under global privacy standards including GDPR and CCPA, you retain complete sovereignty over your data:
+                You have 100% control over your data at all times:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                <li><strong>Right of Access &amp; Portability:</strong> View and export all your files and active share links directly from the management dashboard.</li>
-                <li><strong>Right of Total Erasure:</strong> Delete individual files or purge your complete account profile with zero latency. Deletion is irrevocable.</li>
+                <li><strong>See Your Files:</strong> You can view all your uploaded files and active links directly in your personal dashboard.</li>
+                <li><strong>Delete Anytime:</strong> You can delete any individual file with one click at any time.</li>
+                <li><strong>Delete Your Account:</strong> You can completely delete your entire account in your account settings. Once confirmed, all your files, links, and profile details are permanently wiped with zero delay.</li>
               </ul>
             </section>
 
@@ -418,7 +419,7 @@ export default function PrivacyPage() {
                   <History className="w-5 h-5" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                  10. Revision History &amp; Audit Log
+                  10. What Changed Over Time
                 </h2>
               </div>
               <div className="overflow-x-auto rounded-xl border border-border/80 text-xs">
@@ -426,9 +427,9 @@ export default function PrivacyPage() {
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/50 font-semibold text-foreground">
                       <th className="p-3">Version</th>
-                      <th className="p-3">Publication Date</th>
+                      <th className="p-3">Date</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3">Privacy Highlights</th>
+                      <th className="p-3">Summary of Privacy Updates</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -437,7 +438,7 @@ export default function PrivacyPage() {
                       <td className="p-3 text-muted-foreground">September 14, 2026</td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px]">
-                          Original Inception
+                          Original Launch
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
@@ -453,7 +454,7 @@ export default function PrivacyPage() {
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Documented Client-Side Zero-Trust AES-GCM 256 encryption and URL hash isolation.
+                        Documented client-side zero-knowledge encryption and secret key isolation in the link hash.
                       </td>
                     </tr>
                     <tr className="bg-card/40">
@@ -465,19 +466,31 @@ export default function PrivacyPage() {
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Added Burn on Preview (60s lease) and Single-Use download claim irreversible purge details.
+                        Added auto-deletion details for Burn on Preview (60s countdown) and single-use downloads.
+                      </td>
+                    </tr>
+                    <tr className="bg-card/40">
+                      <td className="p-3 font-mono font-semibold text-foreground">v3.0.0</td>
+                      <td className="p-3 text-muted-foreground">September 18, 2026</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px]">
+                          Superseded
+                        </span>
+                      </td>
+                      <td className="p-3 text-muted-foreground">
+                        Added Upstash Redis anti-spam rate limiting, Cloudflare Turnstile privacy, and hashed API keys.
                       </td>
                     </tr>
                     <tr className="bg-blue-500/5">
-                      <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">v3.0.0</td>
-                      <td className="p-3 font-medium text-foreground">September 18, 2026</td>
+                      <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">v3.1.0</td>
+                      <td className="p-3 font-medium text-foreground">September 19, 2026</td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
                           Active &amp; Effective
                         </span>
                       </td>
                       <td className="p-3 text-foreground font-medium">
-                        Added Upstash Redis rate limiting telemetry specifics, Cloudflare Turnstile bot privacy, SHA-256 hashed API key handling, and full edge-to-edge layout parity.
+                        Rewrote the privacy policy in plain, simple English so anyone can easily understand how their data and privacy are protected.
                       </td>
                     </tr>
                   </tbody>
@@ -495,7 +508,7 @@ export default function PrivacyPage() {
           <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
           <Link href="/developers" className="hover:text-foreground transition-colors">User Guide &amp; API</Link>
         </div>
-        &copy; {new Date().getFullYear()} GPHosting. Ephemeral, Direct-Transit &amp; Zero-Knowledge.
+        &copy; {new Date().getFullYear()} GPHosting. Fast, Temporary &amp; Private File Sharing.
       </footer>
     </div>
   );
