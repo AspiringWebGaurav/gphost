@@ -75,8 +75,22 @@ function LoginForm() {
 
   const mode = searchParams.get("mode");
   const tab = searchParams.get("tab");
+  const reason = searchParams.get("reason");
+  const isWrongLogin =
+    Boolean(rawError) ||
+    reason === "unapproved" ||
+    reason === "denied" ||
+    reason === "unauthorized" ||
+    reason === "revoked";
+
   const [showRequestModal, setShowRequestModal] = useState<boolean>(
     () => mode === "request" || tab === "request"
+  );
+  const [showDynamicAccessPrompt, setShowDynamicAccessPrompt] = useState<boolean>(
+    () => isWrongLogin || mode === "request" || tab === "request"
+  );
+  const [showAccessToast, setShowAccessToast] = useState<boolean>(
+    () => isWrongLogin
   );
 
   // Clean up error query param from browser address bar without reload
@@ -203,8 +217,47 @@ function LoginForm() {
         Welcome to GPHosting
       </h1>
       <p className="text-xs sm:text-sm text-muted-foreground mt-2 max-w-xs leading-relaxed">
-        Fast, simple &amp; secure file sharing with zero third-party telemetry.
+        Fast, simple &amp; secure file sharing. 100% private, no ads, no tracking.
       </p>
+
+      {/* Floating Dynamic Access Toast Notification — ONLY shown dynamically if wrong/unapproved login */}
+      {showAccessToast && isWrongLogin && (
+        <aside
+          role="status"
+          aria-label="Account access notification"
+          className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] p-3 rounded-2xl bg-card/95 border border-blue-500/40 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-4 duration-300"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+            </span>
+            <span className="text-foreground font-medium truncate">
+              Account not approved yet? <strong className="font-semibold text-blue-600 dark:text-blue-400">Approval or PIN required</strong> to upload.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setShowRequestModal(true);
+                setShowAccessToast(false);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] transition-colors shadow-xs cursor-pointer"
+            >
+              Get Access
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAccessToast(false)}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* Error Banner */}
       {errorMessage && (
@@ -246,8 +299,60 @@ function LoginForm() {
         </div>
       )}
 
-      {/* Primary Google Login Button */}
-      <div className="w-full mt-7 space-y-3">
+      {/* Highlighted Need Access Dynamic Callout Card — ONLY rendered dynamically on unapproved login or when requested */}
+      {showDynamicAccessPrompt && (
+        <div className="w-full mt-6 p-4 rounded-2xl bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-purple-500/10 border-2 border-blue-500/35 dark:border-blue-500/45 text-left relative overflow-hidden shadow-sm hover:border-blue-500/60 transition-all duration-300 animate-in fade-in zoom-in-95 group">
+          <div className="absolute -top-6 -right-6 w-24 h-24 bg-blue-500/15 rounded-full blur-xl pointer-events-none group-hover:bg-blue-500/25 transition-colors" />
+
+          <div className="flex items-start gap-3 relative z-10">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles className="w-4 h-4 text-blue-500 animate-pulse" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-foreground">Need Access to Upload?</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 animate-pulse">
+                    Approval Required
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowDynamicAccessPrompt(false)}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                    aria-label="Dismiss callout"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed">
+                GPHosting is private. You need an approved account or invite PIN before uploading files.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-xs cursor-pointer group/btn"
+                >
+                  <span>Request Access</span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGoogleLogin("/access-gate?tab=pin")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-xs font-medium border border-border/70 transition-colors cursor-pointer"
+                >
+                  <KeyRound className="w-3 h-3 text-purple-500" />
+                  <span>Enter PIN</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Primary Google Login Section */}
+      <div className="w-full mt-6 space-y-3">
         <button
           type="button"
           id="google-login-btn"
@@ -321,22 +426,24 @@ function LoginForm() {
             </button>
           </div>
         )}
-      </div>
 
-      {/* Onboarding Link & Disclaimer */}
-      <div className="mt-6 space-y-2">
-        <div className="text-xs text-muted-foreground">
+        {/* Clear prompt for users without account */}
+        <p className="text-xs text-muted-foreground pt-1">
           Don&apos;t have an approved account yet?{" "}
           <button
             type="button"
             onClick={() => setShowRequestModal(true)}
-            className="font-semibold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 transition-colors cursor-pointer"
+            className="text-blue-600 dark:text-blue-400 font-semibold hover:underline inline-flex items-center gap-0.5 cursor-pointer"
           >
             <span>Request Access</span>
             <ArrowRight className="w-3 h-3" />
           </button>
-        </div>
-        <p className="text-[11px] text-muted-foreground/60">
+        </p>
+      </div>
+
+      {/* Terms Disclaimer */}
+      <div className="mt-4 space-y-2">
+        <p className="text-[11px] text-muted-foreground/70">
           By signing in, you agree to our Terms and Privacy Policy.
         </p>
       </div>
@@ -365,7 +472,7 @@ function LoginForm() {
                   Request Account Access
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Private cloud storage clearance &amp; fast-track verification
+                  Get approved to start uploading and sharing files
                 </p>
               </div>
             </div>
@@ -373,15 +480,15 @@ function LoginForm() {
             {/* Explanation box */}
             <div className="p-3.5 rounded-xl bg-muted/50 border border-border/80 text-xs text-muted-foreground space-y-2 leading-relaxed">
               <p>
-                To prevent automated bot abuse and resource exhaustion, GPHosting accounts require administrator clearance or an invitation code.
+                GPHosting accounts are private to keep uploads ultra-fast and spam-free for everyone. Getting access is quick and easy:
               </p>
               <div className="flex items-center gap-2 text-foreground font-medium pt-1">
                 <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                <span>2-step instant onboarding workflow:</span>
+                <span>2 simple steps to get started:</span>
               </div>
-              <ol className="list-decimal list-inside space-y-1 pl-1 text-[11px]">
-                <li>Connect your Google identity to verify your email.</li>
-                <li>Enter a 4-digit PIN for instant access, or submit a request note for manual review.</li>
+              <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11.5px]">
+                <li>Sign in with your Google account so we can verify your email.</li>
+                <li>Enter an invite PIN for instant access, or send a quick note to get approved.</li>
               </ol>
             </div>
 
@@ -491,15 +598,15 @@ export default function LoginPage() {
               <h1 className="text-3xl xl:text-4xl 2xl:text-5xl font-extrabold tracking-tight text-foreground leading-[1.15]">
                 Private by design.{" "}
                 <span className="bg-gradient-to-r from-blue-600 via-indigo-500 to-cyan-500 bg-clip-text text-transparent">
-                  Secure by default.
+                  Simple by default.
                 </span>
               </h1>
               <p className="text-sm xl:text-base text-muted-foreground leading-relaxed">
-                Fast, encrypted file sharing with custom access locks and disappearing links.
+                Send files up to 1 GB with secret passwords, auto-delete links, and complete privacy.
               </p>
             </div>
 
-            {/* Simple Lock Framework Card */}
+            {/* Simple Privacy & Smart Controls Card */}
             <div className="p-5 rounded-2xl bg-card/75 border border-border/80 shadow-xl backdrop-blur-xl space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-border/60">
                 <div className="flex items-center gap-2.5">
@@ -507,12 +614,12 @@ export default function LoginPage() {
                     <Lock className="w-3.5 h-3.5" />
                   </div>
                   <span className="text-xs font-semibold text-foreground tracking-tight">
-                    Security &amp; Lock Framework
+                    Built-In Privacy &amp; Protection
                   </span>
                 </div>
                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Active
+                  Always Active
                 </span>
               </div>
 
@@ -523,9 +630,9 @@ export default function LoginPage() {
                     <ShieldCheck className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Client Encryption</div>
+                    <div className="text-xs font-semibold text-foreground">Private by Default</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Files are encrypted on transfer. No one else can read your files.
+                      Your files stay 100% private. Only you and the people you share with can open them.
                     </p>
                   </div>
                 </div>
@@ -535,9 +642,9 @@ export default function LoginPage() {
                     <KeyRound className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Access PIN &amp; Password Lock</div>
+                    <div className="text-xs font-semibold text-foreground">Password &amp; PIN Locks</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Secure any shared link with single-use pins or private passwords.
+                      Protect any link with a secret password or 4-digit PIN so only your chosen person can open it.
                     </p>
                   </div>
                 </div>
@@ -547,9 +654,9 @@ export default function LoginPage() {
                     <Timer className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Auto-Destruct &amp; Expiry</div>
+                    <div className="text-xs font-semibold text-foreground">Self-Destructing Links</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Links automatically expire and delete after your set download limit.
+                      Links automatically delete forever after 1 download or when your timer runs out.
                     </p>
                   </div>
                 </div>
@@ -560,7 +667,7 @@ export default function LoginPage() {
           {/* Left subtle brand note */}
           <div className="text-xs text-muted-foreground max-w-xl relative z-10 flex items-center gap-2">
             <Shield className="w-3.5 h-3.5 text-blue-500" />
-            <span>Encrypted cloud architecture powered by Cloudflare R2</span>
+            <span>Fast, private &amp; secure file sharing</span>
           </div>
         </div>
 

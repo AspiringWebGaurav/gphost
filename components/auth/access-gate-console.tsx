@@ -277,14 +277,14 @@ export function AccessGateConsole({
         <div className="space-y-4 animate-in fade-in duration-200">
           <div className="text-left">
             <h2 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
-              <span>Onboarding Fast-Track</span>
+              <span>Enter Invite PIN</span>
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
                 <Sparkles className="w-2.5 h-2.5" />
                 Instant Access
               </span>
             </h2>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Enter the 4-digit authorization code issued for{" "}
+              Enter the 4-digit invite PIN sent for{" "}
               <span className="text-foreground font-medium font-mono">{userEmail}</span>.
             </p>
           </div>
@@ -294,10 +294,10 @@ export function AccessGateConsole({
             <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-blue-500/15 border border-emerald-500/30 text-left space-y-1.5 animate-in fade-in duration-300 shadow-2xs">
               <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-                <span>Access Request Approved by Administrator!</span>
+                <span>Access Request Approved!</span>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Your account request has been approved. Enter your issued 4-digit Onboarding PIN below to unlock your encrypted file vault and activate your account.
+                Your account has been approved. Enter your 4-digit invite PIN below to unlock your account and start uploading.
               </p>
               {approvalDecision && (
                 <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300 pt-0.5">
@@ -446,7 +446,7 @@ export function AccessGateConsole({
                 </>
               ) : (
                 <>
-                  <span>Unlock Storage Vault</span>
+                  <span>Unlock Account &amp; Start Uploading</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
@@ -455,13 +455,13 @@ export function AccessGateConsole({
 
           {/* Quick link to switch */}
           <div className="pt-2 text-center text-xs text-muted-foreground">
-            Don&apos;t have an invitation code?{" "}
+            Don&apos;t have an invite PIN?{" "}
             <button
               type="button"
               onClick={() => setActiveTab("request")}
               className="text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
             >
-              Request manual access &rarr;
+              Request approval instead &rarr;
             </button>
           </div>
         </div>

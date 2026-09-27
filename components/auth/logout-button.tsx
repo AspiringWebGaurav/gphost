@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
@@ -12,8 +12,8 @@ import {
   Unlink2,
   CheckCircle2,
   ChevronRight,
-  Shield,
   Sparkles,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -31,6 +31,7 @@ export function LogoutButton({
   label = "Sign out",
 }: LogoutButtonProps) {
   const router = useRouter();
+  const [showConfirm, setShowConfirm] = useState(false);
   const [isDetaching, setIsDetaching] = useState(false);
   const [detachmentPhase, setDetachmentPhase] = useState<number>(0);
   const [progress, setProgress] = useState<number>(0);
@@ -39,6 +40,23 @@ export function LogoutButton({
     () => true,
     () => false
   );
+
+  // Lock body scroll and handle Escape key while confirmation modal is open
+  useEffect(() => {
+    if (!showConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowConfirm(false);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showConfirm]);
 
   const handleInitiateLogout = async () => {
     if (isDetaching) return;
@@ -96,7 +114,7 @@ export function LogoutButton({
         <button
           type="button"
           id="sidebar-logout-btn"
-          onClick={handleInitiateLogout}
+          onClick={() => setShowConfirm(true)}
           disabled={isDetaching}
           className={`group relative w-full flex items-center justify-between p-2.5 rounded-xl border border-border bg-card/60 hover:bg-rose-500/10 hover:border-rose-500/30 text-foreground transition-all duration-200 cursor-pointer shadow-xs disabled:opacity-50 ${className || ""}`}
           title="Sign out and detach current session"
@@ -106,10 +124,10 @@ export function LogoutButton({
               <LogOut className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
             </div>
             <div className="text-left min-w-0">
-              <p className="text-xs font-semibold text-foreground group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors leading-tight">
+              <p className="text-sm font-semibold text-foreground group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors leading-tight">
                 {label}
               </p>
-              <p className="text-[10px] text-muted-foreground truncate max-w-[125px]">
+              <p className="text-xs text-muted-foreground truncate max-w-[130px]">
                 {userEmail || "End active session"}
               </p>
             </div>
@@ -119,6 +137,18 @@ export function LogoutButton({
             <ChevronRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
           </div>
         </button>
+
+        {mounted && showConfirm && createPortal(
+          <LogoutConfirmationModal
+            userEmail={userEmail}
+            onConfirm={() => {
+              setShowConfirm(false);
+              handleInitiateLogout();
+            }}
+            onCancel={() => setShowConfirm(false)}
+          />,
+          document.body
+        )}
 
         {mounted && isDetaching && createPortal(
           <DetachmentOverlay
@@ -145,7 +175,7 @@ export function LogoutButton({
       <button
         type="button"
         id="logout-btn"
-        onClick={handleInitiateLogout}
+        onClick={() => setShowConfirm(true)}
         disabled={isDetaching}
         className={`py-2 px-3 rounded-xl text-xs font-medium inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${baseStyle} ${className || ""}`}
       >
@@ -157,6 +187,18 @@ export function LogoutButton({
         <span>{label}</span>
       </button>
 
+      {mounted && showConfirm && createPortal(
+        <LogoutConfirmationModal
+          userEmail={userEmail}
+          onConfirm={() => {
+            setShowConfirm(false);
+            handleInitiateLogout();
+          }}
+          onCancel={() => setShowConfirm(false)}
+        />,
+        document.body
+      )}
+
       {mounted && isDetaching && createPortal(
         <DetachmentOverlay
           phase={detachmentPhase}
@@ -166,6 +208,140 @@ export function LogoutButton({
         document.body
       )}
     </>
+  );
+}
+
+/**
+ * Minimalist Vercel/Geist-Style Confirmation Dialog
+ */
+function LogoutConfirmationModal({
+  userEmail,
+  onConfirm,
+  onCancel,
+}: {
+  userEmail?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      onCancel();
+    }, 120);
+  }, [isClosing, onCancel]);
+
+  const handleConfirm = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      onConfirm();
+    }, 120);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleClose]);
+
+  return (
+    <div
+      id="confirm-logout-modal"
+      className={`fixed inset-0 z-[99999] flex items-center justify-center p-4 transition-all duration-150 ease-out ${
+        isClosing
+          ? "bg-black/0 backdrop-blur-none pointer-events-none"
+          : "bg-black/45 backdrop-blur-xs"
+      }`}
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-logout-title"
+    >
+      {/* Vercel-Style Robust Framed Dialog */}
+      <div
+        className={`relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-border/80 bg-card shadow-2xl ring-1 ring-black/5 dark:ring-white/10 transition-all duration-150 ease-out ${
+          isClosing
+            ? "opacity-0 scale-95 translate-y-1 pointer-events-none"
+            : "opacity-100 scale-100 translate-y-0 animate-in fade-in zoom-in-95 duration-150"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Upper Body Area */}
+        <div className="p-5 pb-4">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center justify-center shrink-0">
+                <LogOut className="w-4 h-4" />
+              </div>
+              <h2
+                id="confirm-logout-title"
+                className="text-base font-semibold text-foreground tracking-tight"
+              >
+                Sign out of GPHost
+              </h2>
+            </div>
+            <button
+              type="button"
+              id="confirm-logout-close-btn"
+              onClick={handleClose}
+              aria-label="Close dialog"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Description */}
+          <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+            Are you sure you want to end your current session? You will need to sign back in with your credentials to access your dashboard and files.
+          </p>
+
+          {/* Account Pill (Tight, cohesive layout with avatar — no empty gap) */}
+          {userEmail && (
+            <div className="mt-3.5 py-2 px-3 rounded-xl bg-muted/40 border border-border/70 flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold text-[10px] flex items-center justify-center shrink-0 border border-rose-500/25">
+                {userEmail.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[11px] text-muted-foreground font-medium shrink-0">Account:</span>
+                <span className="font-mono text-foreground font-semibold text-xs truncate">
+                  {userEmail}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Robust Framed Footer Toolbar */}
+        <div className="px-5 py-3 bg-muted/30 dark:bg-muted/20 border-t border-border/70 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            id="confirm-logout-no-btn"
+            onClick={handleClose}
+            className="h-8.5 px-3.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold transition cursor-pointer shadow-2xs active:scale-[0.98]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            id="confirm-logout-yes-btn"
+            onClick={handleConfirm}
+            className="h-8.5 px-4 rounded-lg bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-semibold transition cursor-pointer shadow-xs active:scale-[0.98] inline-flex items-center gap-1.5"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -194,12 +370,7 @@ function DetachmentOverlay({
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-rose-500 to-purple-500" />
 
         {/* Top Header */}
-        <div className="text-center space-y-1.5">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold tracking-wider uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            <Shield className="w-3 h-3 text-rose-500" />
-            <span>Session Detachment</span>
-          </div>
-
+        <div className="text-center space-y-1">
           <h3 className="text-base font-bold text-foreground tracking-tight">
             {phase === 3 ? "Session Decoupled" : "Detaching Active Session"}
           </h3>

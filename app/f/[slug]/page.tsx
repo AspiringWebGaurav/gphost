@@ -271,14 +271,14 @@ export default async function PublicSharePage({ params }: PageProps) {
         <StatusCard
           icon={<Clock className="w-12 h-12 text-amber-500" />}
           title={`Link Expired (${elapsedAgo})`}
-          description={`This link expired ${elapsedAgo} at ${formattedUtc}. In accordance with zero-retention policies, storage objects on Cloudflare R2 have been safely dismantled and purged.`}
+          description={`This link expired ${elapsedAgo} at ${formattedUtc}. In accordance with privacy policies, the file has been safely and permanently deleted from storage.`}
           badgeText={`Lifecycle: Expired ${elapsedAgo}`}
           badgeColor="amber"
           lifecycleDetails={[
             `Expired timestamp: ${formattedUtc}`,
             `Elapsed duration: ${elapsedAgo}`,
             "Time-to-Live (TTL) window has elapsed",
-            "Cloudflare R2 object storage scrubbed & purged",
+            "Secure cloud storage scrubbed & purged",
             "Zero residual server logs or copies retained",
           ]}
         />
@@ -335,7 +335,7 @@ export default async function PublicSharePage({ params }: PageProps) {
           badgeColor="neutral"
           lifecycleDetails={[
             "Access manually revoked by file creator",
-            "Signed presigned claims disabled",
+            "Direct download link disabled",
             "File deactivated",
           ]}
         />

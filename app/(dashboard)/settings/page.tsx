@@ -22,18 +22,21 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      <div>
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-medium mb-1.5">
-          <Settings className="w-3 h-3" />
-          <span>Settings</span>
+    <div className="space-y-2.5 sm:space-y-3 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <Settings className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate">
+              Account &amp; Developer Settings
+            </h1>
+            <p className="text-xs text-muted-foreground truncate">
+              Manage your profile, credentials, and developer API keys for terminal uploads.
+            </p>
+          </div>
         </div>
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-          Account &amp; Developer Settings
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Manage your profile, credentials, and developer API keys for terminal uploads.
-        </p>
       </div>
 
       <SettingsForm

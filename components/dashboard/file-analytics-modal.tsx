@@ -73,7 +73,7 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                 </span>
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Real-time Cloudflare edge telemetry & geographical request breakdown
+                Real-time visitor analytics &amp; geographical request breakdown
               </p>
             </div>
           </div>
@@ -144,14 +144,14 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
 
                 <div className="p-3.5 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center justify-between text-muted-foreground mb-1">
-                    <span className="text-[11px] font-medium uppercase tracking-wider">Direct CDN</span>
+                    <span className="text-[11px] font-medium uppercase tracking-wider">Direct Views</span>
                     <Radio className="w-3.5 h-3.5 text-purple-500" />
                   </div>
                   <div className="text-xl font-bold font-mono text-foreground">
                     {data.summary.rawViews}
                   </div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
-                    0 MB Vercel egress
+                    Direct media streaming
                   </div>
                 </div>
 
@@ -181,14 +181,14 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                       <Globe2 className="w-3.5 h-3.5 text-blue-500" />
                       Top Visitor Countries
                     </h4>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      Cloudflare Edge
+                    <span className="text-[10px] text-muted-foreground">
+                      Global Visitors
                     </span>
                   </div>
 
                   {data.countries.length === 0 ? (
                     <p className="text-xs text-muted-foreground py-4 text-center">
-                      No country telemetry logged yet.
+                      No visitor data recorded yet.
                     </p>
                   ) : (
                     <div className="space-y-2.5">

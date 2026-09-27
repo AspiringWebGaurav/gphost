@@ -150,3 +150,71 @@ export async function revokeApiKey(userId: string, keyId: string): Promise<boole
 
   return true;
 }
+
+/**
+ * Rotates an API key: Revokes the old key and generates a new raw key with the same name.
+ */
+export async function rotateApiKey(
+  userId: string,
+  keyId: string
+): Promise<{ keyItem: ApiKeyItem; rawKey: string }> {
+  const adminClient = createAdminClient();
+
+  const { data: existing, error: fetchErr } = await adminClient
+    .from("user_api_keys")
+    .select("name, key_hash")
+    .eq("id", keyId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .single();
+
+  if (fetchErr || !existing) {
+    throw new Error("Active API key not found to rotate");
+  }
+
+  // Revoke old key
+  await revokeApiKey(userId, keyId);
+
+  // Create new key with same name
+  return createApiKey(userId, existing.name);
+}
+
+/**
+ * Emergency revokes all active API keys for a user and purges all Redis caches.
+ */
+export async function revokeAllApiKeys(userId: string): Promise<{ success: boolean; count: number }> {
+  const adminClient = createAdminClient();
+
+  const { data: activeKeys } = await adminClient
+    .from("user_api_keys")
+    .select("id, key_hash")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (!activeKeys || activeKeys.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  const { error } = await adminClient
+    .from("user_api_keys")
+    .update({ is_active: false })
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (error) {
+    throw new Error(error.message || "Failed to revoke all API keys");
+  }
+
+  // Evict all keys from Redis
+  if (redis) {
+    for (const k of activeKeys) {
+      if (k.key_hash) {
+        try {
+          await redis.del(`apikey:${k.key_hash}`);
+        } catch {}
+      }
+    }
+  }
+
+  return { success: true, count: activeKeys.length };
+}

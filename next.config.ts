@@ -18,6 +18,7 @@ try {
 }
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   reactStrictMode: true,
   poweredByHeader: false,
   allowedDevOrigins: [

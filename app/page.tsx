@@ -15,7 +15,6 @@ import {
   Clock,
   Activity,
   ShieldCheck,
-  Terminal,
   HardDrive,
   FileText,
   LayoutDashboard,
@@ -81,7 +80,7 @@ export default async function HomePage() {
 
               {/* Dynamic Subtitle */}
               <p className="text-xs sm:text-base text-muted-foreground max-w-xl leading-relaxed mb-5 sm:mb-6">
-                Your direct storage and secure share links are ready. Your session is active and automatically renews with each action.
+                Your files and secure share links are ready. Start uploading new files or manage your links in your dashboard.
               </p>
 
               {/* Dynamic Action Buttons */}
@@ -116,7 +115,7 @@ export default async function HomePage() {
 
               {/* Subtitle */}
               <p className="text-xs sm:text-base text-muted-foreground max-w-xl leading-relaxed mb-5 sm:mb-6">
-                Fast, direct uploads up to 1 GB. Get instant share links, direct CDN hotlinking, password protection, self-destructing links, and live download analytics.
+                Fast uploads up to 1 GB. Get instant sharing links, direct media links, password protection, self-destructing links, and live view stats.
               </p>
 
               {/* Action Buttons (Directly below subtitle for instant 1-screen landing) */}
@@ -174,9 +173,9 @@ export default async function HomePage() {
                       <div className="p-1 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shrink-0">
                         <Globe className="w-3.5 h-3.5" />
                       </div>
-                      <span className="truncate">Raw CDN</span>
+                      <span className="truncate">Direct Link</span>
                     </div>
-                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Direct hotlinks for web &amp; markdown</span>
+                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Direct links for photos, audio &amp; videos</span>
                   </div>
 
                   {/* Service 3 */}
@@ -198,7 +197,7 @@ export default async function HomePage() {
                       </div>
                       <span className="truncate">Password</span>
                     </div>
-                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Custom PIN or passphrase lock</span>
+                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Custom PIN or password lock</span>
                   </div>
 
                   {/* Service 5 */}
@@ -220,7 +219,7 @@ export default async function HomePage() {
                       </div>
                       <span className="truncate">Live Stats</span>
                     </div>
-                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Real-time views &amp; geo telemetry</span>
+                    <span className="text-muted-foreground text-[10px] leading-tight line-clamp-2">Real-time view counts &amp; visitor countries</span>
                   </div>
                 </div>
               </div>
@@ -240,7 +239,7 @@ export default async function HomePage() {
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">Instant</div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">Share &amp; Raw CDN Links</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">Share &amp; Direct Links</div>
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">Smart</div>
@@ -249,23 +248,23 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* Features Section - World-Class Bento Grid Showcase */}
+        {/* Features Section - Bento Grid Showcase */}
         <section id="features" className="py-14 sm:py-20 px-4 sm:px-6 max-w-6xl mx-auto">
           {/* Section Kicker & Title */}
           <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-semibold uppercase tracking-wider mb-4">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Next-Gen File Hosting &amp; Link Superpowers</span>
+              <span>Smart File Sharing &amp; Link Tools</span>
             </div>
             <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-foreground mb-3 sm:mb-4">
-              Engineered for pure speed.{" "}
+              Fast, simple file sharing.{" "}
               <br className="hidden sm:inline" />
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 dark:from-blue-400 dark:via-indigo-300 dark:to-cyan-300">
-                Built for total link control.
+                Built for total privacy and control.
               </span>
             </h2>
             <p className="text-sm sm:text-lg text-muted-foreground leading-relaxed">
-              Direct edge cloud ingestion up to 1 GB without middleman bottlenecks. Instant preview pages, raw CDN streaming, burn links, and zero-trust encryption in one cohesive platform.
+              Upload files up to 1 GB in seconds with no slow waiting. Get instant preview links, direct download links, auto-delete links, and simple password protection all in one place.
             </p>
           </div>
 
@@ -283,18 +282,18 @@ export default async function HomePage() {
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[11px] sm:text-xs font-semibold border border-blue-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    Direct S3 Presigned • 0 Server RAM
+                    Ultra Fast • High Speed Uploads
                   </span>
                 </div>
 
                 <h3 className="text-lg sm:text-2xl font-bold text-foreground mb-2">
-                  Direct Ingestion to Cloudflare R2 Edge
+                  Lightning Fast Direct Uploads
                 </h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-xl mb-5 sm:mb-6">
-                  Upload large files up to 1 GB with zero gateway bottlenecks. Your browser streams directly to edge storage buckets with automated multi-part chunking.
+                  Upload large videos, photos, and documents up to 1 GB without any lag. Files transfer smoothly and safely straight to secure cloud storage.
                 </p>
 
-                {/* Interactive File Ingestion Studio Mockup */}
+                {/* Interactive File Upload Studio Mockup */}
                 <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl bg-background/80 border border-border/90 shadow-2xs space-y-3">
                   <div className="flex items-center justify-between text-xs font-medium">
                     <div className="flex items-center gap-2 sm:gap-2.5">
@@ -303,13 +302,13 @@ export default async function HomePage() {
                       </div>
                       <div>
                         <div className="font-semibold text-foreground truncate max-w-[140px] xs:max-w-[200px] sm:max-w-xs text-xs sm:text-sm">
-                          master_cut_production_4k.mp4
+                          Vacation_Memories_4K.mp4
                         </div>
                         <div className="text-[10px] sm:text-[11px] text-muted-foreground">842.6 MB • Video File</div>
                       </div>
                     </div>
                     <span className="text-[10px] sm:text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 sm:px-2.5 py-0.5 rounded-full shrink-0">
-                      100% Ingested
+                      100% Uploaded
                     </span>
                   </div>
 
@@ -318,11 +317,11 @@ export default async function HomePage() {
                     <div className="h-full w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 rounded-full" />
                   </div>
 
-                  {/* Telemetry Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1 text-[10px] sm:text-[11px] text-muted-foreground font-mono">
+                  {/* Status Badges */}
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1 text-[10px] sm:text-[11px] text-muted-foreground">
                     <span className="px-2 py-0.5 rounded-md bg-muted/60 border border-border">Speed: 64 MB/s</span>
-                    <span className="px-2 py-0.5 rounded-md bg-muted/60 border border-border">Latency: 14ms</span>
-                    <span className="px-2 py-0.5 rounded-md bg-muted/60 border border-border">Chunk 42/42 Verified</span>
+                    <span className="px-2 py-0.5 rounded-md bg-muted/60 border border-border">Status: Completed</span>
+                    <span className="px-2 py-0.5 rounded-md bg-muted/60 border border-border">Safe &amp; Verified</span>
                   </div>
                 </div>
               </div>
@@ -330,20 +329,20 @@ export default async function HomePage() {
               <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-border flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Multi-part Chunking
+                  Up to 1 GB Files
                 </span>
                 <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Direct Edge Ingestion
+                  Smooth Fast Transfer
                 </span>
                 <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  1 GB Max File Size
+                  Original Quality Saved
                 </span>
               </div>
             </div>
 
-            {/* Bento Card 2: Direct Raw CDN Links (1 Col on Desktop) */}
+            {/* Bento Card 2: Direct Media Links (1 Col on Desktop) */}
             <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-card via-card/90 to-muted/20 border border-border/80 shadow-xs hover:border-cyan-500/40 hover:shadow-xl transition-all duration-300 flex flex-col justify-between group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-60 h-60 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none -z-10 group-hover:bg-cyan-500/10 transition-colors" />
 
@@ -352,31 +351,31 @@ export default async function HomePage() {
                   <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <Globe className="w-5 h-5" />
                   </div>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold border border-emerald-500/20 font-mono">
-                    200 OK • HIT
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold border border-emerald-500/20">
+                    Fast Streaming
                   </span>
                 </div>
 
-                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Direct Raw CDN</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Direct Media Links</h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-4 sm:mb-5">
-                  Hotlink images, audio, video files, or raw code directly into your apps, websites, or markdown documents with pure asset streaming.
+                  Get clean direct links to display photos, stream audio, or watch videos on websites, blogs, and apps without annoying wrapper pages.
                 </p>
 
-                {/* Developer Terminal Snippet */}
-                <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-muted/40 border border-border text-[11px] font-mono space-y-1.5 overflow-hidden">
+                {/* Direct Link Preview Box */}
+                <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-muted/40 border border-border text-[11px] space-y-1.5 overflow-hidden">
                   <div className="flex items-center gap-1.5 text-muted-foreground mb-2 pb-1.5 border-b border-border/60">
-                    <Terminal className="w-3 h-3 text-cyan-500" />
-                    <span>Edge CDN Header</span>
+                    <Globe className="w-3 h-3 text-cyan-500" />
+                    <span>Direct Link Preview</span>
                   </div>
-                  <div className="text-cyan-600 dark:text-cyan-400 truncate">GET /api/raw/hero-asset.webp</div>
-                  <div className="text-muted-foreground text-[10px]">CF-Cache-Status: HIT (Edge POP)</div>
-                  <div className="text-muted-foreground text-[10px]">Content-Type: image/webp</div>
+                  <div className="text-cyan-600 dark:text-cyan-400 font-mono text-[11px] truncate">https://gphost.eu.cc/raw/sample-photo.jpg</div>
+                  <div className="text-muted-foreground text-[10px]">Type: High Resolution Photo</div>
+                  <div className="text-muted-foreground text-[10px]">Playback: Instant without waiting</div>
                 </div>
               </div>
 
               <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>Zero wrapper, pure asset streaming</span>
+                <span>Instant direct playback &amp; embedding</span>
               </div>
             </div>
 
@@ -391,34 +390,34 @@ export default async function HomePage() {
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold border border-amber-500/20">
                     <Flame className="w-3 h-3" />
-                    Burner Active
+                    Auto-Delete Active
                   </span>
                 </div>
 
-                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Self-Destruct Burn Links</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Self-Destructing Links</h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-4 sm:mb-5">
-                  Send confidential documents that permanently delete themselves after 1 download or 60 seconds after preview.
+                  Send private documents that automatically delete themselves permanently after 1 download or 60 seconds after preview.
                 </p>
 
                 {/* Self-Destruct Mockup */}
                 <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2 text-xs">
                   <div className="flex items-center justify-between font-semibold text-amber-600 dark:text-amber-400">
-                    <span>Burn Policy</span>
-                    <span className="font-mono text-[11px]">1 View Remaining</span>
+                    <span>Delete Rule</span>
+                    <span className="font-mono text-[11px]">1 View Allowed</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-snug">
-                    Once downloaded, keys in Redis and R2 are permanently purged with zero digital trace.
+                    Once opened or downloaded, the file is permanently erased from the cloud with zero digital trace left behind.
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>Single-use &amp; smart burner</span>
+                <span>Auto-erased after first download</span>
               </div>
             </div>
 
-            {/* Bento Card 4: Password Protection & Zero-Trust (1 Col on Desktop) */}
+            {/* Bento Card 4: Password Protection (1 Col on Desktop) */}
             <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-card via-card/90 to-muted/20 border border-border/80 shadow-xs hover:border-rose-500/40 hover:shadow-xl transition-all duration-300 flex flex-col justify-between group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-60 h-60 bg-rose-500/5 rounded-full blur-3xl pointer-events-none -z-10 group-hover:bg-rose-500/10 transition-colors" />
 
@@ -429,13 +428,13 @@ export default async function HomePage() {
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-500/20">
                     <ShieldCheck className="w-3 h-3" />
-                    AES-GCM-256
+                    Private &amp; Locked
                   </span>
                 </div>
 
                 <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Password Protection</h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-4 sm:mb-5">
-                  Require a custom PIN or passphrase before anyone can view or download. Includes client-side zero-trust Web Crypto encryption.
+                  Protect your files with a secret password or 4-digit PIN. Only people with your password can view or download the file.
                 </p>
 
                 {/* Password Mockup */}
@@ -443,7 +442,7 @@ export default async function HomePage() {
                   <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                     <span>Protected File</span>
                     <span className="text-emerald-500 font-semibold flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Encrypted
+                      <Lock className="w-3 h-3" /> Locked &amp; Safe
                     </span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-muted/60 border border-border font-mono text-xs tracking-widest text-muted-foreground">
@@ -455,11 +454,11 @@ export default async function HomePage() {
 
               <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>Custom passphrases &amp; PINs</span>
+                <span>Simple password or 4-digit PIN lock</span>
               </div>
             </div>
 
-            {/* Bento Card 5: Live Edge Analytics (1 Col on Desktop) */}
+            {/* Bento Card 5: Live Stats (1 Col on Desktop) */}
             <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-card via-card/90 to-muted/20 border border-border/80 shadow-xs hover:border-emerald-500/40 hover:shadow-xl transition-all duration-300 flex flex-col justify-between group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none -z-10 group-hover:bg-emerald-500/10 transition-colors" />
 
@@ -470,16 +469,16 @@ export default async function HomePage() {
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold border border-emerald-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live Edge Telemetry
+                    Real-Time Insights
                   </span>
                 </div>
 
-                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Live Download Analytics</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">Live Download Stats</h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-4 sm:mb-5">
-                  Track download velocity, visitor country heatmaps, and referrer statistics powered by low-latency Redis hyperloglog counters.
+                  See how many people downloaded your files, when they accessed them, and which countries they visited from in real time.
                 </p>
 
-                {/* Telemetry Mockup */}
+                {/* Stats Mockup */}
                 <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-background/80 border border-border/90 space-y-2.5">
                   <div className="flex items-baseline justify-between">
                     <div>
@@ -490,7 +489,7 @@ export default async function HomePage() {
                       +28% this week
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                     <span className="px-1.5 py-0.5 rounded bg-muted/60">🇺🇸 US 46%</span>
                     <span className="px-1.5 py-0.5 rounded bg-muted/60">🇪🇺 EU 32%</span>
                     <span className="px-1.5 py-0.5 rounded bg-muted/60">🇮🇳 IN 18%</span>
@@ -500,11 +499,11 @@ export default async function HomePage() {
 
               <div className="mt-5 sm:mt-6 pt-3.5 sm:pt-4 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>View metrics &amp; geo telemetry</span>
+                <span>Track total views &amp; visitor countries</span>
               </div>
             </div>
 
-            {/* Bento Card 6: Instant Share Links Showcase (Full 3-Column Banner on Desktop) */}
+            {/* Bento Card 6: Clean Share Links (Full 3-Column Banner on Desktop) */}
             <div className="lg:col-span-3 p-5 sm:p-8 md:p-9 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-card via-card/95 to-muted/20 border border-border/80 shadow-xs hover:border-indigo-500/40 hover:shadow-xl transition-all duration-300 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-6 sm:gap-8 group relative overflow-hidden">
               <div className="absolute top-0 right-1/4 w-96 h-96 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none -z-10 group-hover:bg-indigo-500/10 transition-colors" />
 
@@ -513,16 +512,16 @@ export default async function HomePage() {
                   <Share2 className="w-5 h-5" />
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-foreground mb-2.5 sm:mb-3">
-                  Instant Share Links with Rich Media Previews
+                  Clean Share Links with Instant Preview
                 </h3>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-5 sm:mb-6">
-                  Recipients never encounter forced ad redirects or confusing captchas. Clean, branded preview pages display video streaming, image galleries, audio players, and PDF viewers natively.
+                  Your recipients never see annoying pop-up ads or slow countdown timers. They get a clean, beautiful page with built-in preview for videos, photos, music, and documents.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    Discord &amp; WhatsApp Cards
+                    WhatsApp &amp; Social Previews
                   </span>
                   <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -530,12 +529,12 @@ export default async function HomePage() {
                   </span>
                   <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    Bundle ZIP Downloads
+                    Download All as ZIP
                   </span>
                 </div>
               </div>
 
-              {/* Realistic Share Link Preview Browser Window */}
+              {/* Share Link Preview Window */}
               <div className="w-full md:w-auto md:min-w-[320px] lg:min-w-[340px] max-w-sm rounded-xl sm:rounded-2xl bg-background border border-border/90 shadow-xl p-3.5 sm:p-4 space-y-3 shrink-0">
                 <div className="flex items-center justify-between pb-2 border-b border-border text-[11px] text-muted-foreground font-mono">
                   <span className="truncate">gphost.app/f/project-deck</span>
@@ -574,10 +573,10 @@ export default async function HomePage() {
             </div>
 
             <h3 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground mb-2.5 sm:mb-3">
-              Ready to experience modern file hosting?
+              Ready to start sharing your files?
             </h3>
             <p className="text-xs sm:text-base text-muted-foreground max-w-xl mb-6 sm:mb-7 leading-relaxed">
-              Start uploading files up to 1 GB in seconds. No credit card required. Clean links, direct CDN streams, and total control.
+              Start uploading files up to 1 GB in seconds. Free to use, no credit card required. Clean links, fast downloads, and complete privacy.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">

@@ -6,7 +6,7 @@ import {
   Terminal,
   Copy,
   Check,
-  Key,
+  ShieldCheck,
 } from "lucide-react";
 
 interface TerminalUploadModalProps {
@@ -58,11 +58,18 @@ export function TerminalUploadModal({
     curl: {
       language: "bash",
       filename: "terminal.sh",
-      code: `# 1-line file upload via curl
+      code: `# Standard file upload via curl
 curl -X POST "${origin}/api/v1/upload" \\
   -H "Authorization: Bearer ${displayKey}" \\
   -F "file=@/path/to/document.pdf" \\
-  -F "expiry=30d"`,
+  -F "expiry=30d"
+
+# Tamper-Proof Mode (verifies SHA-256 integrity):
+# HASH=$(sha256sum document.pdf | awk '{print $1}')
+# curl -X POST "${origin}/api/v1/upload" \\
+#   -H "Authorization: Bearer ${displayKey}" \\
+#   -H "X-Content-SHA256: $HASH" \\
+#   -F "file=@/path/to/document.pdf"`,
     },
     powershell: {
       language: "powershell",
@@ -78,11 +85,18 @@ Invoke-RestMethod -Uri "${origin}/api/v1/upload" -Method Post -Headers $Headers 
     python: {
       language: "python",
       filename: "upload.py",
-      code: `import requests
+      code: `import hashlib, requests
 
 url = "${origin}/api/v1/upload"
-headers = {"Authorization": "Bearer ${displayKey}"}
-files = {"file": open("document.pdf", "rb")}
+with open("document.pdf", "rb") as f:
+    content = f.read()
+
+sha256 = hashlib.sha256(content).hexdigest()
+headers = {
+    "Authorization": "Bearer ${displayKey}",
+    "X-Content-SHA256": sha256  # Anti-tamper verification
+}
+files = {"file": ("document.pdf", content)}
 data = {"expiry": "30d"}
 
 response = requests.post(url, headers=headers, files=files, data=data)
@@ -110,8 +124,14 @@ print(response.json())`,
               <Terminal className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Upload via Terminal</h3>
-              <p className="text-[11px] text-muted-foreground">Minimal cURL, PowerShell &amp; Python CLI snippets</p>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">Upload via Terminal</h3>
+                <span className="px-1.5 py-0.2 rounded-full text-[9.5px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  Anti-Tamper Active
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Minimal cURL, PowerShell &amp; Python CLI snippets with SHA-256 integrity</p>
             </div>
           </div>
 
@@ -181,7 +201,7 @@ print(response.json())`,
               </button>
             </div>
 
-            {/* Code Body: Clean Notion-blended light/dark typography */}
+            {/* Code Body */}
             <div className="p-3.5 bg-background font-mono text-xs text-foreground/90 overflow-x-auto selection:bg-blue-500/20 leading-relaxed">
               <pre suppressHydrationWarning className="whitespace-pre">
                 {snippets[activeTab].code.split("\n").map((line, idx) => {
@@ -196,18 +216,20 @@ print(response.json())`,
             </div>
           </div>
 
-          {/* Expected JSON Response (Matching Notion Clean Card) */}
+          {/* Expected JSON Response with sha256 checksum */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono px-0.5">
               <span>Expected JSON Response (HTTP 201)</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium">Ready to pipe to jq</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">Anti-Tamper Verified</span>
             </div>
             <pre suppressHydrationWarning className="p-3 rounded-xl bg-background border border-border/80 font-mono text-[11px] text-foreground/80 overflow-x-auto leading-relaxed shadow-2xs">
 {`{
   "success": true,
-  "id": "e4a7d65b-...",
+  "fileId": "e4a7d65b-...",
   "filename": "document.pdf",
-  "shareUrl": "${origin}/f/a1b2c3d4",
+  "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+  "integrity": "verified_authentic",
+  "downloadUrl": "${origin}/f/a1b2c3d4",
   "rawUrl": "${origin}/raw/a1b2c3d4",
   "expiresAt": "2026-10-18T12:00:00.000Z"
 }`}
@@ -218,8 +240,8 @@ print(response.json())`,
         {/* Footer */}
         <div className="p-3 border-t border-border bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
-            <Key className="w-3.5 h-3.5 text-amber-500" />
-            <span className="text-[11px]">Manage your API keys in Settings &rarr; API Keys.</span>
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="text-[11px]">Protected against tampering, executable execution, webshells &amp; DoS flood.</span>
           </div>
 
           <button

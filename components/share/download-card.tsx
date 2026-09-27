@@ -204,7 +204,7 @@ export function DownloadCard({
 
       const t1 = setTimeout(() => {
         setDownloadProgress((prev) => (prev < 60 ? 60 : prev));
-        setDownloadPhase("Connecting to Cloudflare R2 edge network...");
+        setDownloadPhase("Connecting to secure server...");
       }, 150);
 
       const res = await fetch(`/api/share/${encodeURIComponent(slug)}/claim`, {
@@ -237,11 +237,11 @@ export function DownloadCard({
       }
 
       setDownloadProgress(100);
-      setDownloadPhase("Direct R2 stream initiated!");
+      setDownloadPhase("Download stream initiated!");
       setClaiming(false);
 
       if (e2eKey) {
-        setDownloadPhase("Decrypting with zero-trust key in browser...");
+        setDownloadPhase("Decrypting file on your device...");
         try {
           const fetchRes = await fetch(data.downloadUrl);
           const encryptedBuf = await fetchRes.arrayBuffer();
@@ -455,7 +455,7 @@ export function DownloadCard({
                 <span>Transfer Expired</span>
               </div>
               <p className="text-[11px] text-rose-600/90 dark:text-rose-400/90 leading-relaxed">
-                The time-to-live has elapsed. Cloudflare R2 storage has been automatically scrubbed.
+                The time-to-live has elapsed. The file has been automatically and permanently deleted.
               </p>
             </div>
           )}
@@ -575,7 +575,7 @@ export function DownloadCard({
                           {downloadSuccess ? "Download Stream Established" : "Preparing Secure Download"}
                         </p>
                         <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
-                          {downloadPhase || (downloadSuccess ? "Direct R2 Edge Delivery" : "Connecting to CDN...")}
+                          {downloadPhase || (downloadSuccess ? "Fast Secure Delivery" : "Connecting to server...")}
                         </p>
                       </div>
                     </div>
@@ -622,7 +622,7 @@ export function DownloadCard({
                       ) : (
                         <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                           <Zap className="w-3 h-3" />
-                          <span>Cloudflare R2</span>
+                          <span>Fast Cloud</span>
                         </span>
                       )}
                     </div>
@@ -751,7 +751,7 @@ export function DownloadCard({
                     <div>
                       <strong className="text-foreground">Time Expiry (TTL):</strong>
                       <p className="text-muted-foreground leading-relaxed">
-                        Files are automatically scrubbed from Cloudflare R2 edge servers worldwide once the timer expires.
+                        Files are automatically and permanently deleted from secure cloud servers once the timer expires.
                       </p>
                     </div>
                   </div>

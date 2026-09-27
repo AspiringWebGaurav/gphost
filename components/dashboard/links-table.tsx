@@ -117,9 +117,9 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   if (visibleLinks.length === 0) {
     return (
       <div className="p-10 text-center rounded-2xl border border-border bg-card shadow-2xs text-muted-foreground">
-        <LinkIcon className="w-9 h-9 mx-auto mb-2.5 opacity-30" />
-        <p className="text-sm font-medium text-foreground">No active share links</p>
-        <p className="text-xs mt-0.5">Create a share link from your files to share them with others.</p>
+        <LinkIcon className="w-10 h-10 mx-auto mb-2 opacity-40 text-blue-500" />
+        <p className="text-base sm:text-lg font-bold text-foreground">No active share links</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Create a share link from your files to share them with others.</p>
       </div>
     );
   }
@@ -137,7 +137,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
             >
               <div className="space-y-1.5 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-foreground text-sm truncate max-w-sm">
+                  <span className="font-semibold text-foreground text-sm sm:text-base truncate max-w-sm">
                     {link.file_name}
                   </span>
                   <span className="text-xs text-muted-foreground">({formatBytes(link.byte_size)})</span>
@@ -145,20 +145,20 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
                 {/* URL and Badges */}
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                  <span className="font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20 font-semibold">
                     /f/{link.slug}
                   </span>
 
                   {link.is_single_use && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                      <Flame className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold px-2 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                      <Flame className="w-3.5 h-3.5" />
                       <span>Single-Use</span>
                     </span>
                   )}
 
                   {link.is_password_protected && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                      <Lock className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                      <Lock className="w-3.5 h-3.5" />
                       <span>Protected</span>
                     </span>
                   )}

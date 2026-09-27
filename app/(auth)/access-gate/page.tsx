@@ -113,7 +113,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
                 </span>
               </h1>
               <p className="text-sm xl:text-base text-muted-foreground leading-relaxed">
-                Your Google identity is authenticated. Enter a 4-digit invitation PIN to unlock your encrypted file vault immediately, or submit a request for manual review.
+                Your Google account is connected. Enter your 4-digit invite PIN for instant access, or submit a quick request to get approved.
               </p>
             </div>
 
@@ -125,7 +125,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
                     <Lock className="w-3.5 h-3.5" />
                   </div>
                   <span className="text-xs font-semibold text-foreground tracking-tight">
-                    Onboarding Verification Status
+                    Account Setup Status
                   </span>
                 </div>
                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
@@ -142,9 +142,9 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Google Identity Verified</div>
+                    <div className="text-xs font-semibold text-foreground">Google Account Connected</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Authenticated as <span className="font-mono text-foreground font-medium">{user.email}</span>
+                      Signed in as <span className="font-mono text-foreground font-medium">{user.email}</span>
                     </p>
                   </div>
                 </div>
@@ -155,9 +155,9 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
                     <Clock className="w-3.5 h-3.5 animate-spin" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Onboarding PIN Authorization</div>
+                    <div className="text-xs font-semibold text-foreground">Approval or Invite PIN</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Enter 4-digit invitation PIN or submit request for account clearance.
+                      Enter your 4-digit invite PIN or request approval to start uploading.
                     </p>
                   </div>
                 </div>
@@ -168,9 +168,9 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
                     <Shield className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-foreground">Cloudflare R2 Encrypted Vault</div>
+                    <div className="text-xs font-semibold text-foreground">Ready to Upload</div>
                     <p className="text-[11px] text-muted-foreground leading-snug">
-                      Unlocks full upload privileges, password locks, and auto-destruct links.
+                      Unlock full upload access, password locks, and self-destructing links.
                     </p>
                   </div>
                 </div>
@@ -181,7 +181,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
           {/* Left subtle footer info */}
           <div className="text-xs text-muted-foreground max-w-xl relative z-10 flex items-center gap-2">
             <Shield className="w-3.5 h-3.5 text-blue-500" />
-            <span>Argon2id Salted PIN Security • Protected by Cloudflare Turnstile</span>
+            <span>Private PIN Protection &bull; Smart Bot Defense</span>
           </div>
         </div>
 

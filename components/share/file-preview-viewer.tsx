@@ -306,7 +306,7 @@ export function FilePreviewViewer({
                 <span>
                   {downloadSuccess
                     ? `Direct download active! Secure transfer slot valid for ${leaseSeconds ?? 50}s to initiate.`
-                    : "Connecting to Cloudflare R2 edge network..."}
+                    : "Connecting to secure download server..."}
                 </span>
               </div>
               <span className="font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">

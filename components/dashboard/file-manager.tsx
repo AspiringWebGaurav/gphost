@@ -339,7 +339,7 @@ export function FileManager({
     const t1 = setTimeout(() => {
       setActiveDownload((prev) =>
         prev && prev.id === file.id
-          ? { ...prev, progress: 65, status: "Connecting to Cloudflare R2..." }
+          ? { ...prev, progress: 65, status: "Connecting to secure storage..." }
           : prev
       );
     }, 150);
@@ -685,8 +685,8 @@ export function FileManager({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold truncate">{f.name}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">
+                  <div className="text-sm font-semibold truncate">{f.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">
                     {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
                   </div>
                 </div>
@@ -699,9 +699,9 @@ export function FileManager({
       {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
         {/* Windows 11 Breadcrumb / Address Bar */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground font-mono select-none">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none">
           <span className="flex items-center gap-1 text-foreground font-medium">
-            <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+            <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
             <span>Storage</span>
           </span>
           <span>/</span>
@@ -720,7 +720,7 @@ export function FileManager({
               placeholder="Search files..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-7 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition"
+              className="w-full pl-9 pr-7 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition"
             />
             {searchQuery && (
               <button
@@ -1828,21 +1828,16 @@ export function FileManager({
                           <div className="flex items-center gap-1.5">
                             <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                             <label className="text-xs font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
-                              <span>Direct Raw / CDN URL</span>
+                              <span>Direct Media Link</span>
                               <InfoTooltip
                                 variant="purple"
-                                title="Direct Raw / CDN Hotlink"
-                                content="Pure asset streaming with zero HTML wrapper or website branding. Streams raw binary bytes directly from Cloudflare R2 edge servers with instant edge caching. Perfect for markdown images ![](url), HTML <img> tags, video players, and software downloads."
+                                title="Direct Media Link"
+                                content="Pure file link with zero HTML wrapper or website branding. Directly stream photos, audio, video, or documents anywhere."
                               />
                             </label>
                           </div>
-                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
-                            0 Vercel Egress
-                            <InfoTooltip
-                              variant="purple"
-                              title="Zero Vercel Egress (No Bandwidth Cost)"
-                              content="Zero bandwidth cost on your Vercel hosting bill! All file downloads stream directly from Cloudflare R2's global edge network without passing through your Vercel serverless compute."
-                            />
+                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                            Direct Stream
                           </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-snug mb-2">
@@ -2350,7 +2345,7 @@ export function FileManager({
                             <InfoTooltip
                               variant="purple"
                               title="Direct Download Mode"
-                              content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading via HTTP 302 directly to Cloudflare R2 (0 Vercel bandwidth used)."
+                              content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading without any intermediate pages."
                             />
                           </div>
                           <input

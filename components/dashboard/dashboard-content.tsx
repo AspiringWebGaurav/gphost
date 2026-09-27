@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   UploadCloud,
@@ -9,10 +10,9 @@ import {
   Files,
   Link as LinkIcon,
   Download,
-  LayoutDashboard,
   Plus,
+  Clock,
 } from "lucide-react";
-import { UploadZone } from "@/components/upload/upload-zone";
 import { FileList, FileItem } from "@/components/dashboard/file-list";
 import {
   ApprovalWelcomeBanner,
@@ -57,6 +57,7 @@ export function DashboardContent({
   welcomeInfo,
   stats,
 }: DashboardContentProps) {
+  const router = useRouter();
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [overrideStats, setOverrideStats] = useState<DashboardStats | null>(null);
   const [prevStats, setPrevStats] = useState(stats);
@@ -70,8 +71,6 @@ export function DashboardContent({
     activeLinks: 0,
     totalDownloads: 0,
   };
-
-  const [showUploadZone, setShowUploadZone] = useState(true);
 
   const liveStorage = useStorageSync();
 
@@ -112,13 +111,6 @@ export function DashboardContent({
     };
   }, [refreshData]);
 
-  const handleUploadSuccess = useCallback(() => {
-    refreshData();
-    if (liveStorage) {
-      liveStorage.broadcastStorageUpdate();
-    }
-  }, [refreshData, liveStorage]);
-
   const handleFileDeleted = useCallback(() => {
     refreshData();
     if (liveStorage) {
@@ -133,54 +125,51 @@ export function DashboardContent({
     quota === -1 ? 0 : Math.min(100, Math.round((storageUsed / Math.max(1, quota)) * 100));
 
   return (
-    <div className="space-y-4 sm:space-y-5 max-w-5xl w-full mx-auto" data-testid="dashboard-container">
-      {/* 1. Dashboard Identity / Header — Unmistakable Overview */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-border/60">
+    <div className="space-y-3 sm:space-y-3.5 max-w-5xl w-full mx-auto" data-testid="dashboard-container">
+      {/* 1. Dashboard Identity / Header — Overview Title & Direct Tab Redirects */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-border/60">
         <div className="space-y-0.5 min-w-0">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium mb-1">
-            <LayoutDashboard className="w-3 h-3" />
-            <span>Console Overview</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate" data-testid="dashboard-header-title">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground truncate" data-testid="dashboard-header-title">
             Dashboard
           </h1>
-          <p className="text-xs text-muted-foreground truncate">
-            Welcome back, <span className="text-foreground font-medium">{profile.full_name || profile.email.split("@")[0]}</span>. Here is your storage and sharing overview.
+          <p className="text-sm text-muted-foreground truncate">
+            Welcome back, <span className="text-foreground font-semibold">{profile.full_name || profile.email.split("@")[0]}</span>. Here is your storage and sharing overview.
           </p>
         </div>
 
-        {/* Quick Navigation Shortcuts */}
+        {/* Quick Navigation Shortcuts — Direct Tab Redirects */}
         <div className="flex items-center gap-2 shrink-0">
-          <button
+          <Link
+            href="/upload?pick=1"
             onClick={() => {
-              setShowUploadZone(true);
-              const el = document.getElementById("dashboard-upload-zone");
-              el?.scrollIntoView({ behavior: "smooth" });
+              if (typeof window !== "undefined") {
+                sessionStorage.setItem("gphost_auto_pick", Date.now().toString());
+              }
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-xs transition cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             <span>Upload File</span>
-          </button>
+          </Link>
           <Link
             href="/files"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-xs font-medium border border-border transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-muted/60 hover:bg-muted text-foreground text-sm font-semibold border border-border transition cursor-pointer"
           >
-            <Files className="w-3.5 h-3.5 text-muted-foreground" />
+            <Files className="w-4 h-4 text-muted-foreground" />
             <span>All Files</span>
           </Link>
         </div>
       </div>
 
       {/* 2. Key Metrics Grid — Compact & High Scannability */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-3.5" data-testid="metrics-overview">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3" data-testid="metrics-overview">
         {/* Storage Used Card */}
         <div className="p-3 sm:p-3.5 rounded-2xl bg-card border border-border shadow-2xs space-y-1.5">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Storage</span>
-            <HardDrive className="w-3.5 h-3.5 text-blue-500" />
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Storage</span>
+            <HardDrive className="w-4 h-4 text-blue-500" />
           </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
+          <div className="text-2xl sm:text-3xl font-bold font-mono text-foreground leading-tight">
             {formatBytes(storageUsed)}
           </div>
           <div className="space-y-1">
@@ -196,7 +185,7 @@ export function DashboardContent({
                 style={{ width: `${storagePercent}%` }}
               />
             </div>
-            <div className="text-[10px] text-muted-foreground flex justify-between">
+            <div className="text-xs font-medium text-muted-foreground flex justify-between">
               <span>{storagePercent}% used</span>
               <span>{quota === -1 ? "Unlimited" : formatBytes(quota)}</span>
             </div>
@@ -209,15 +198,15 @@ export function DashboardContent({
           className="p-3 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-blue-500/40 shadow-2xs hover:shadow-xs transition space-y-1.5 group cursor-pointer"
         >
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Active Files</span>
-            <Files className="w-3.5 h-3.5 text-emerald-500 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Files</span>
+            <Files className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
+          <div className="text-2xl sm:text-3xl font-bold font-mono text-foreground leading-tight">
             {dashboardStats.totalFiles ?? files.length}
           </div>
-          <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium flex items-center gap-0.5">
+          <div className="text-xs text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1">
             <span>Manage files</span>
-            <ArrowRight className="w-2.5 h-2.5" />
+            <ArrowRight className="w-3 h-3" />
           </div>
         </Link>
 
@@ -227,29 +216,29 @@ export function DashboardContent({
           className="p-3 sm:p-3.5 rounded-2xl bg-card border border-border hover:border-indigo-500/40 shadow-2xs hover:shadow-xs transition space-y-1.5 group cursor-pointer"
         >
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Share Links</span>
-            <LinkIcon className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Share Links</span>
+            <LinkIcon className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
+          <div className="text-2xl sm:text-3xl font-bold font-mono text-foreground leading-tight">
             {dashboardStats.activeLinks}
           </div>
-          <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-0.5">
+          <div className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1">
             <span>View active links</span>
-            <ArrowRight className="w-2.5 h-2.5" />
+            <ArrowRight className="w-3 h-3" />
           </div>
         </Link>
 
         {/* Total Downloads Card */}
         <div className="p-3 sm:p-3.5 rounded-2xl bg-card border border-border shadow-2xs space-y-1.5">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Downloads</span>
-            <Download className="w-3.5 h-3.5 text-purple-500" />
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Downloads</span>
+            <Download className="w-4 h-4 text-purple-500" />
           </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-foreground leading-tight">
+          <div className="text-2xl sm:text-3xl font-bold font-mono text-foreground leading-tight">
             {dashboardStats.totalDownloads}
           </div>
-          <div className="text-[10px] text-muted-foreground font-mono">
-            Direct R2 edge transfers
+          <div className="text-xs font-medium text-muted-foreground">
+            Direct secure transfers
           </div>
         </div>
       </div>
@@ -259,26 +248,27 @@ export function DashboardContent({
         <ApprovalWelcomeBanner
           info={welcomeInfo}
           onUploadClick={() => {
-            setShowUploadZone(true);
-            const el = document.getElementById("dashboard-upload-zone");
-            el?.scrollIntoView({ behavior: "smooth" });
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem("gphost_auto_pick", Date.now().toString());
+            }
+            router.push("/upload?pick=1");
           }}
         />
       )}
 
-      {/* 3. Recent Files Section — Prominent on Mobile & Desktop */}
-      <div className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-2xs space-y-3" data-testid="recent-files-section">
+      {/* 3. Recent Files Section — Compact Overview View */}
+      <div className="rounded-2xl bg-card border border-border p-3.5 sm:p-4 shadow-2xs space-y-2.5" data-testid="recent-files-section">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Recent Files ({files.length})</h2>
-            <p className="text-[11px] text-muted-foreground">Manage, share, and track analytics for your files</p>
+            <h2 className="text-base sm:text-lg font-bold text-foreground">Recent Files ({files.length})</h2>
+            <p className="text-xs sm:text-sm text-muted-foreground">Manage, share, and track analytics for your files</p>
           </div>
           <Link
             href="/files"
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold"
           >
             <span>View all in Files</span>
-            <ArrowRight className="w-3 h-3" />
+            <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
@@ -286,55 +276,65 @@ export function DashboardContent({
           files={files}
           onFileDeleted={handleFileDeleted}
           hideHeader={true}
-          maxHeight="max-h-[300px]"
+          maxHeight="max-h-[190px]"
           isPremium={isPremium}
         />
       </div>
 
-      {/* 4. Streamlined Upload Section */}
-      <div
-        id="dashboard-upload-zone"
-        className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-2xs space-y-3"
-        data-testid="dashboard-upload-section"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500">
+      {/* 4. Quick Actions / Feature Navigation Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3" data-testid="overview-quick-actions">
+        <Link
+          href="/upload?pick=1"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem("gphost_auto_pick", Date.now().toString());
+            }
+          }}
+          className="p-3 rounded-2xl bg-card border border-border hover:border-blue-500/40 shadow-2xs hover:shadow-xs transition group cursor-pointer flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
               <UploadCloud className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">Quick Upload</h2>
-              <p className="text-[11px] text-muted-foreground">Direct browser-to-cloud transfer up to 1 GB</p>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-foreground truncate">Upload Files</div>
+              <p className="text-xs text-muted-foreground truncate">Direct cloud upload up to 1 GB</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              data-testid="quick-upload-toggle"
-              onClick={() => setShowUploadZone(!showUploadZone)}
-              className="text-xs text-muted-foreground hover:text-foreground font-medium cursor-pointer"
-            >
-              {showUploadZone ? "Collapse" : "Expand"}
-            </button>
-            <span className="text-muted-foreground/40">•</span>
-            <Link
-              href="/upload"
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium"
-            >
-              <span>Full Page</span>
-              <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-        </div>
+          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </Link>
 
-        {showUploadZone && (
-          <UploadZone
-            canCreatePermanent={profile.can_create_permanent}
-            isAdmin={isAdmin}
-            onUploadSuccess={handleUploadSuccess}
-            compact={true}
-          />
-        )}
+        <Link
+          href="/links"
+          className="p-3 rounded-2xl bg-card border border-border hover:border-indigo-500/40 shadow-2xs hover:shadow-xs transition group cursor-pointer flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <LinkIcon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-foreground truncate">Shared Links</div>
+              <p className="text-xs text-muted-foreground truncate">Track downloads and passwords</p>
+            </div>
+          </div>
+          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </Link>
+
+        <Link
+          href="/expiring"
+          className="p-3 rounded-2xl bg-card border border-border hover:border-purple-500/40 shadow-2xs hover:shadow-xs transition group cursor-pointer flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-foreground truncate">Expiring Files</div>
+              <p className="text-xs text-muted-foreground truncate">Review auto-destruct timers</p>
+            </div>
+          </div>
+          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </Link>
       </div>
     </div>
   );

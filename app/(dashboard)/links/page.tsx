@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LinksTable, ShareLinkItem } from "@/components/dashboard/links-table";
-import { Link as LinkIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -138,14 +137,10 @@ export default async function LinksPage() {
   return (
     <div className="space-y-6 max-w-6xl w-full mx-auto">
       <div>
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-medium mb-1.5">
-          <LinkIcon className="w-3 h-3" />
-          <span>Share Links</span>
-        </div>
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           Active Share Links
         </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-sm text-muted-foreground mt-0.5">
           View, copy, or delete links you&apos;ve created to share your files.
         </p>
       </div>

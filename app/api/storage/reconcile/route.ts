@@ -18,7 +18,7 @@ export async function POST() {
 
     return NextResponse.json({
       success: true,
-      message: "Storage successfully reconciled with Cloudflare R2",
+      message: "Storage successfully audited and reconciled",
       data: result,
     });
   } catch (err: unknown) {

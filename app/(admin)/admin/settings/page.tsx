@@ -4,7 +4,6 @@ import { redis } from "@/lib/redis/client";
 import { getR2Client, R2_BUCKET_NAME } from "@/lib/storage/r2";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { PlatformHealth, PlatformHealthData } from "@/components/admin/platform-health";
-import { ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -89,10 +88,6 @@ export default async function AdminSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-primary text-xs font-semibold uppercase tracking-wider mb-1">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Infrastructure Diagnostics</span>
-        </div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight">
           Platform Health & Telemetry
         </h1>

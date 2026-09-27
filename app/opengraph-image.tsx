@@ -90,10 +90,10 @@ export default async function OpenGraphImage() {
         {/* Feature Badges */}
         <div style={{ display: "flex", gap: 16 }}>
           {[
-            "Direct Cloudflare R2",
-            "Argon2id Vaults",
+            "Ultra Fast Uploads",
+            "Password Protected",
             "Self-Destructing Links",
-            "Zero-Knowledge",
+            "Private & Secure",
           ].map((feature) => (
             <div
               key={feature}

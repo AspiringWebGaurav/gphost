@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   UploadCloud,
   File as FileIcon,
@@ -90,13 +91,47 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
   const [deployedSiteSlug, setDeployedSiteSlug] = useState<string | null>(null);
   const [copiedSiteUrl, setCopiedSiteUrl] = useState<boolean>(false);
 
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const fileControlsRef = useRef<HTMLDivElement>(null);
   const successHubRef = useRef<HTMLDivElement>(null);
   const progressCardRef = useRef<HTMLDivElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const isCancelledRef = useRef<boolean>(false);
   const startTimeRef = useRef<number>(0);
+
+  // Auto-trigger native file directory dialog when redirected with auto-pick signal
+  useEffect(() => {
+    const hasAutoPick = searchParams?.get("pick") === "1" || searchParams?.get("auto") === "1";
+    const sessionAutoPick = typeof window !== "undefined" ? sessionStorage.getItem("gphost_auto_pick") : null;
+
+    if (hasAutoPick || sessionAutoPick) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("gphost_auto_pick");
+        if (hasAutoPick) {
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
+      const timer = setTimeout(() => {
+        if (!uploading && fileInputRef.current) {
+          fileInputRef.current.click();
+        }
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, uploading]);
+
+  // Listen for in-app or cross-tab file picker trigger events
+  useEffect(() => {
+    const handleTrigger = () => {
+      if (!uploading && fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+    };
+    window.addEventListener("gphost:trigger-file-pick", handleTrigger);
+    return () => window.removeEventListener("gphost:trigger-file-pick", handleTrigger);
+  }, [uploading]);
 
   // Check for pending incomplete uploads in IndexedDB on mount
   useEffect(() => {
@@ -280,7 +315,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
       if (uploadType === "single") {
         // Direct Single-Part Upload via XMLHttpRequest
-        setStatusText("Uploading directly to Cloudflare R2 edge...");
+        setStatusText("Uploading file securely...");
         startTimeRef.current = Date.now();
         setUploadedBytes(0);
         setUploadSpeed("");
@@ -318,7 +353,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
           xhr.onerror = () => {
             reject(
               new Error(
-                "Network error during direct upload to R2 (CORS not configured on this bucket). Please add a CORS policy in your Cloudflare R2 bucket settings."
+                "Network error during file upload. Please check your connection and try again."
               )
             );
           };
@@ -330,7 +365,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         });
       } else {
         // Multipart Upload Flow (>= 100 MB)
-        setStatusText("Preparing multipart chunks for Cloudflare R2...");
+        setStatusText("Preparing file upload...");
         startTimeRef.current = Date.now();
         setUploadedBytes(0);
         setUploadSpeed("");
@@ -448,7 +483,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         await Promise.all(workers);
 
         // Finalize Multipart Parts
-        setStatusText("Assembling and verifying multipart chunks on R2...");
+        setStatusText("Finishing and verifying upload...");
         const compPartsRes = await fetch("/api/files/multipart/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -618,6 +653,21 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               disabled={uploading}
             />
 
+            <input
+              ref={folderInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is standard across all modern browsers
+              webkitdirectory=""
+              directory=""
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleFileChange(e.target.files[0]);
+                }
+              }}
+              disabled={uploading}
+            />
+
             <div
               className={`${
                 compact ? "w-10 h-10 mb-2.5" : "w-12 sm:w-14 h-12 sm:h-14 mb-3 sm:mb-4"
@@ -626,12 +676,40 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               <UploadCloud className={compact ? "w-5 h-5" : "w-6 sm:w-7 h-6 sm:h-7"} />
             </div>
 
-            <h3 className={`${compact ? "text-sm" : "text-sm sm:text-base"} font-semibold text-foreground mb-1`}>
+            <h3 className={`${compact ? "text-base" : "text-base sm:text-lg"} font-bold text-foreground mb-1`}>
               {isDragOver ? "Drop file to upload" : "Drag and drop your file here, or browse"}
             </h3>
-            <p className="text-xs text-muted-foreground max-w-sm">
+            <p className="text-sm text-muted-foreground max-w-sm mb-3">
               Maximum single-file size: 1 GB. Fast direct upload.
             </p>
+
+            {/* Quick Action Buttons: Files and Directory */}
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition shadow-xs cursor-pointer active:scale-[0.98]"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Browse Files</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  folderInputRef.current?.click();
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted text-foreground text-sm font-semibold transition shadow-2xs cursor-pointer hover:border-blue-500/30"
+                title="Select a directory or folder to upload"
+              >
+                <Files className="w-4 h-4 text-blue-500" />
+                <span>Upload Directory</span>
+              </button>
+            </div>
           </div>
         ) : (
           /* Sleek collapsed trigger banner when file is chosen */
@@ -1204,15 +1282,15 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
-                      <span>Zero-Trust AES-GCM 256 Encryption Active</span>
+                      <span>End-to-End Encryption Active</span>
                       <InfoTooltip
                         variant="emerald"
-                        title="What is Zero-Trust Encryption?"
-                        content="Your file was encrypted inside your web browser before uploading. The decryption key exists only on your device and was NEVER sent across the internet to our servers. Even GPHosting and Cloudflare cannot view your file content."
+                        title="What is End-to-End Encryption?"
+                        content="Your file is encrypted inside your web browser before uploading. The decryption key exists only on your device and was never sent to any server. No one can view your file without your key."
                       />
                     </div>
                     <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                      Encrypted in-browser • Server holds 0 unencrypted bytes
+                      Encrypted on your device • 100% Private
                     </span>
                   </div>
                 </div>

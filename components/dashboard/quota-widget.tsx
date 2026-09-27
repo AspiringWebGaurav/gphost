@@ -75,25 +75,25 @@ export function QuotaWidget(props: QuotaWidgetProps) {
   };
 
   return (
-    <div className="p-3.5 rounded-xl bg-muted/40 border border-border transition-all duration-200 space-y-2.5">
+    <div className="p-3.5 rounded-xl bg-muted/40 border border-border transition-all duration-200 space-y-2">
       {/* 1. Header Row: Title on left, Status on right */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-md bg-blue-500/10 text-blue-500 dark:text-blue-400 flex items-center justify-center">
-            <HardDrive className="w-3 h-3" />
+            <HardDrive className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-semibold text-foreground tracking-tight">Storage</span>
+          <span className="text-sm font-semibold text-foreground tracking-tight">Storage</span>
         </div>
 
-        <span className="font-mono text-[11px] text-muted-foreground font-medium">
+        <span className="font-mono text-xs text-muted-foreground font-semibold">
           {isUnlimited ? "Unlimited" : `${percent}%`}
         </span>
       </div>
 
       {/* 2. Numerical Byte Usage */}
-      <div className="flex items-baseline justify-between text-sm font-semibold text-foreground tracking-tight">
+      <div className="flex items-baseline justify-between text-base font-bold text-foreground tracking-tight">
         <span>{formatBytes(storageUsedBytes)}</span>
-        <span className="text-[11px] font-normal text-muted-foreground">
+        <span className="text-xs font-normal text-muted-foreground">
           / {isUnlimited ? "Unlimited" : formatBytes(quotaBytes)}
         </span>
       </div>
@@ -107,13 +107,13 @@ export function QuotaWidget(props: QuotaWidgetProps) {
       </div>
 
       {/* 4. Elegant Footer: Live indicator on left, Sync button on right */}
-      <div className="flex items-center justify-between pt-0.5 text-[10px] text-muted-foreground">
+      <div className="flex items-center justify-between pt-0.5 text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <span className="relative flex h-1.5 w-1.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
           </span>
-          <span className="font-mono text-[10px] text-muted-foreground">Live Cloud Sync</span>
+          <span className="font-mono text-xs text-muted-foreground">Live Sync</span>
         </div>
 
         {liveStorage && (
@@ -121,18 +121,18 @@ export function QuotaWidget(props: QuotaWidgetProps) {
             type="button"
             onClick={handleManualSync}
             disabled={isSyncing}
-            className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors disabled:opacity-50"
-            title="Audit and sync physical Cloudflare R2 storage"
+            className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors disabled:opacity-50 text-xs"
+            title="Audit and sync storage"
           >
             {syncFeedback ? (
               <>
-                <Check className="w-2.5 h-2.5 text-emerald-500" />
-                <span className="text-emerald-600 dark:text-emerald-400">Synced</span>
+                <Check className="w-3 h-3 text-emerald-500" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Synced</span>
               </>
             ) : (
               <>
-                <RefreshCw className={`w-2.5 h-2.5 ${isSyncing ? "animate-spin text-blue-500" : ""}`} />
-                <span>{isSyncing ? "Auditing..." : "Sync R2"}</span>
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin text-blue-500" : ""}`} />
+                <span>{isSyncing ? "Auditing..." : "Sync Storage"}</span>
               </>
             )}
           </button>

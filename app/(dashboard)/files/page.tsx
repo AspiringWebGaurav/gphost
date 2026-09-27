@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
-import { Files } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -98,14 +97,10 @@ export default async function FilesPage() {
     <div className="space-y-6 max-w-6xl w-full mx-auto">
       {/* Page Header */}
       <div>
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-medium mb-1.5">
-          <Files className="w-3 h-3" />
-          <span>Your Files</span>
-        </div>
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           File Manager
         </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-sm text-muted-foreground mt-0.5">
           View, search, and manage all your uploaded files in one place.
         </p>
       </div>

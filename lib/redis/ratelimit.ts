@@ -86,6 +86,18 @@ export const uploadInitiateRatelimit = createResilientLimiter({
 });
 
 /**
+ * Developer API & CLI Upload Rate Limiter:
+ * Allows a maximum of 60 upload requests per minute per user/API key
+ * to support fast legitimate automated CLI operations while strictly stopping DDoS flood attacks.
+ */
+export const cliUploadRatelimit = createResilientLimiter({
+  redis,
+  limiter: Ratelimit.slidingWindow(60, "1 m"),
+  analytics: false,
+  prefix: "gphost:ratelimit:cli_upload",
+});
+
+/**
  * Multipart Part Signing Rate Limiter:
  * Allows a maximum of 600 part signings per hour per user.
  */

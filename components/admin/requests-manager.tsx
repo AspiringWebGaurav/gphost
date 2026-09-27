@@ -930,10 +930,6 @@ export function RequestsManager({
             </div>
 
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 mb-1.5">
-                <Sparkles className="w-3 h-3" />
-                <span>Fast-Track Access Granted</span>
-              </div>
               <h3 className="text-lg font-bold text-foreground tracking-tight">
                 Request Approved &amp; PIN Issued!
               </h3>

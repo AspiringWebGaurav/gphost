@@ -6,7 +6,6 @@ import {
   ShieldCheck,
   FileBox,
   HardDrive,
-  CheckCircle2,
   X,
   UploadCloud,
   ArrowRight,
@@ -146,10 +145,6 @@ export function ApprovalWelcomeBanner({
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 mb-1">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Access Request Approved by Administrator</span>
-            </div>
             <h2 className="text-base sm:text-lg font-bold text-foreground tracking-tight">
               Welcome to GPHosting, {info.userName}!
             </h2>
@@ -210,7 +205,7 @@ export function ApprovalWelcomeBanner({
             Active &amp; Ready
           </div>
           <div className="text-[11px] text-muted-foreground">
-            Direct browser-to-cloud R2 upload
+            Fast direct cloud upload
           </div>
         </div>
       </div>

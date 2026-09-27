@@ -77,9 +77,9 @@ export default function StandaloneSiteHostPage() {
             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
               <Zap className="w-5 h-5" />
             </div>
-            <h2 className="font-bold text-sm text-foreground">Direct R2 Edge Streaming</h2>
+            <h2 className="font-bold text-sm text-foreground">Lightning-Fast Web Delivery</h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Consumes 0 bytes of Vercel bandwidth! Your webpage streams straight from Cloudflare R2 worldwide edge storage with sub-millisecond latency.
+              Your webpage streams instantly worldwide with ultra-low latency and smooth high-speed performance.
             </p>
           </div>
 

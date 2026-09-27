@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createApiKey, revokeApiKey, ApiKeyItem } from "@/lib/auth/api-keys";
+import {
+  createApiKey,
+  revokeApiKey,
+  rotateApiKey,
+  revokeAllApiKeys,
+  ApiKeyItem,
+} from "@/lib/auth/api-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +44,20 @@ export async function POST(req: NextRequest) {
   try {
     const { user } = await requireApprovedUser();
     const body = await req.json().catch(() => ({}));
-    const name = typeof body.name === "string" ? body.name.trim() : "CLI Key";
 
+    // Action 1: Rotate Key
+    if (body.action === "rotate" && body.keyId) {
+      const { keyItem, rawKey } = await rotateApiKey(user.id, body.keyId);
+      return NextResponse.json({
+        success: true,
+        rotated: true,
+        key: keyItem,
+        rawKey,
+      });
+    }
+
+    // Action 2: Standard Key Generation
+    const name = typeof body.name === "string" ? body.name.trim() : "CLI Key";
     const { keyItem, rawKey } = await createApiKey(user.id, name);
 
     return NextResponse.json({
@@ -55,7 +73,7 @@ export async function POST(req: NextRequest) {
     if (errorMsg.startsWith("ACCESS_DENIED")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-    return NextResponse.json({ error: "Failed to generate API key" }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to process API key" }, { status: 500 });
   }
 }
 
@@ -63,8 +81,15 @@ export async function DELETE(req: NextRequest) {
   try {
     const { user } = await requireApprovedUser();
     const body = await req.json().catch(() => ({}));
-    const keyId = body.keyId;
 
+    // Emergency Revoke All
+    if (body.all === true) {
+      const { success, count } = await revokeAllApiKeys(user.id);
+      return NextResponse.json({ success, count, revokedAll: true });
+    }
+
+    // Single Key Revocation
+    const keyId = body.keyId;
     if (!keyId || typeof keyId !== "string") {
       return NextResponse.json({ error: "Invalid API key ID" }, { status: 400 });
     }

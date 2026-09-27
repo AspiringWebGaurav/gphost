@@ -12,7 +12,6 @@ import {
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
-  ShieldCheck,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -78,10 +77,6 @@ export default async function AdminOverviewPage() {
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Overview Header */}
       <div>
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 text-xs font-medium mb-3">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Platform Administration &amp; Oversight</span>
-        </div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground mb-2">
           Control Center Overview
         </h1>

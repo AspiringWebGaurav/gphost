@@ -226,7 +226,7 @@ export default function PrivacyPage() {
                   How GPHosting Direct Transit Protects You:
                 </strong>
                 <p>
-                  GPHosting uses direct storage transfers. When you upload or download a file, the data travels <strong>straight between your browser and Cloudflare R2 storage</strong>. Our web servers never receive the file bytes, never save your files onto server hard drives, and never read your content.
+                  GPHosting uses direct storage transfers. When you upload or download a file, the data travels <strong>straight between your browser and secure cloud storage</strong>. Our web servers never receive the file bytes, never save your files onto server hard drives, and never read your content.
                 </p>
               </div>
             </section>
@@ -274,7 +274,7 @@ export default function PrivacyPage() {
                 When a file expires, reaches its download limit, or finishes its 60-second Burn on Preview countdown, it is permanently erased:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                <li>The file data is deleted immediately from Cloudflare R2 storage.</li>
+                <li>The file data is deleted immediately and permanently from secure cloud storage.</li>
                 <li>All links, database records, and download logs for that file are completely wiped.</li>
                 <li>We do not keep hidden shadow backups or cold archive copies. Once a file is deleted, it is gone forever.</li>
               </ul>
@@ -297,13 +297,13 @@ export default function PrivacyPage() {
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <strong className="text-foreground font-semibold block">Approximate Country Only</strong>
                   <p className="text-muted-foreground">
-                    We display general location stats (like country) provided by Cloudflare. We do NOT save your visitors&rsquo; exact IP addresses in permanent download records.
+                    We display general location stats (like country). We do NOT save your visitors&rsquo; exact IP addresses in permanent download records.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-1">
                   <strong className="text-foreground font-semibold block">Temporary Anti-Spam Counters</strong>
                   <p className="text-muted-foreground">
-                    To prevent bots from attacking the service, we keep temporary rate-limit counters in Upstash Redis. These counters automatically expire and reset after a few minutes.
+                    To prevent bots from attacking the service, we keep temporary rate-limit counters in secure high-speed memory. These counters automatically expire and reset after a few minutes.
                   </p>
                 </div>
               </div>
@@ -340,7 +340,7 @@ export default function PrivacyPage() {
                 </h2>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                We use Cloudflare Turnstile to stop spam bots from overloading the website. Unlike older CAPTCHA systems, Turnstile protects the site quietly in the background without tracking your browsing habits across the internet or asking you to click pictures of traffic lights.
+                We use privacy-preserving smart bot protection to stop spam bots from overloading the website. Unlike older CAPTCHA systems, it protects the site quietly in the background without tracking your browsing habits across the internet or asking you to click pictures of traffic lights.
               </p>
             </section>
 
@@ -361,29 +361,29 @@ export default function PrivacyPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/50 font-semibold text-foreground">
-                      <th className="p-3">Partner</th>
+                      <th className="p-3">Partner Role</th>
                       <th className="p-3">Purpose</th>
                       <th className="p-3">What They Handle</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 text-muted-foreground">
                     <tr>
-                      <td className="p-3 font-semibold text-foreground">Cloudflare, Inc.</td>
-                      <td className="p-3">Storage &amp; Bot Defense</td>
-                      <td className="p-3">Stores your files securely in R2 and blocks automated bots via Turnstile.</td>
+                      <td className="p-3 font-semibold text-foreground">Encrypted Cloud Storage</td>
+                      <td className="p-3">Storage &amp; Abuse Defense</td>
+                      <td className="p-3">Stores your files securely and blocks automated abuse.</td>
                     </tr>
                     <tr>
-                      <td className="p-3 font-semibold text-foreground">Supabase, Inc.</td>
+                      <td className="p-3 font-semibold text-foreground">Authentication &amp; Records</td>
                       <td className="p-3">Database &amp; Logins</td>
                       <td className="p-3">Handles secure Google logins and keeps records of your active file links.</td>
                     </tr>
                     <tr>
-                      <td className="p-3 font-semibold text-foreground">Upstash, Inc.</td>
+                      <td className="p-3 font-semibold text-foreground">High-Speed Memory Cache</td>
                       <td className="p-3">Speed &amp; Anti-Spam Cache</td>
-                      <td className="p-3">Keeps temporary counters to prevent spam and protect server performance.</td>
+                      <td className="p-3">Keeps temporary counters to prevent spam and protect service performance.</td>
                     </tr>
                     <tr>
-                      <td className="p-3 font-semibold text-foreground">Vercel, Inc.</td>
+                      <td className="p-3 font-semibold text-foreground">Global Web Hosting</td>
                       <td className="p-3">Web Hosting</td>
                       <td className="p-3">Runs our web application and delivers pages to your browser quickly.</td>
                     </tr>
@@ -478,7 +478,7 @@ export default function PrivacyPage() {
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">
-                        Added Upstash Redis anti-spam rate limiting, Cloudflare Turnstile privacy, and hashed API keys.
+                        Added smart anti-spam rate limiting, privacy-first bot protection, and hashed API keys.
                       </td>
                     </tr>
                     <tr className="bg-blue-500/5">

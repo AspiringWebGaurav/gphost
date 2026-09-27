@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, Home } from "lucide-react";
+import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, Home, BookOpen } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -132,6 +132,14 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
               </Link>
             </>
           )}
+          <Link
+            href="/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground transition-colors duration-150"
+          >
+            Docs
+          </Link>
           <Link
             href="/privacy"
             target="_blank"
@@ -303,6 +311,16 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
                 </Link>
               </>
             )}
+            <Link
+              href="/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+            >
+              <BookOpen className="w-4 h-4 text-blue-500" />
+              <span>Docs</span>
+            </Link>
             <Link
               href="/privacy"
               target="_blank"

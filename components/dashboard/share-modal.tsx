@@ -646,7 +646,7 @@ export function ShareModal({
                           <InfoTooltip
                             variant="purple"
                             title="Direct Download Mode"
-                            content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading via HTTP 302 directly to Cloudflare R2 (0 Vercel bandwidth used)."
+                            content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading without any intermediate pages."
                           />
                         </div>
                         <input
@@ -1019,16 +1019,16 @@ export function ShareModal({
                         <div className="flex items-center gap-1.5">
                           <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                           <label className="text-xs font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
-                            <span>Direct Raw / CDN URL</span>
+                            <span>Direct Media Link</span>
                             <InfoTooltip
                               variant="purple"
-                              title="Direct Raw / CDN Hotlink"
-                              content="Pure asset streaming with zero HTML wrapper or website branding. Streams raw binary bytes directly from Cloudflare R2 edge servers with instant edge caching."
+                              title="Direct Media Link"
+                              content="Pure file link with no HTML wrapper or website branding. Directly stream photos, audio, video, or documents anywhere."
                             />
                           </label>
                         </div>
-                        <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
-                          0 Vercel Egress
+                        <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                          Direct Stream
                         </span>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug mb-2">

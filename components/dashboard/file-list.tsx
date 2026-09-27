@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   File as FileIcon,
   Trash2,
   Share2,
   Copy,
   Check,
+  Plus,
   Clock,
   HardDrive,
   Loader2,
@@ -159,7 +161,7 @@ export function FileList({
     const t1 = setTimeout(() => {
       setActiveDownload((prev) =>
         prev && prev.id === file.id
-          ? { ...prev, progress: 65, status: "Connecting to Cloudflare R2..." }
+          ? { ...prev, progress: 65, status: "Connecting to secure storage..." }
           : prev
       );
     }, 150);
@@ -375,13 +377,22 @@ export function FileList({
             : "p-10 rounded-2xl border border-border bg-card"
         }`}
       >
-        <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground mx-auto mb-2">
-          <HardDrive className="w-4 h-4 opacity-50" />
+        <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center text-muted-foreground mx-auto mb-1.5">
+          <HardDrive className="w-5 h-5 opacity-60" />
         </div>
-        <h4 className="text-sm font-semibold text-foreground mb-0.5">No Active Files</h4>
-        <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-          You haven&apos;t uploaded any files yet. Drag and drop a file above to start sharing.
+        <h4 className="text-base sm:text-lg font-bold text-foreground mb-1">No Active Files</h4>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          You haven&apos;t uploaded any files yet. Go to the Upload tab to start sharing.
         </p>
+        <div className="mt-2.5">
+          <Link
+            href="/upload"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-xs transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Upload File</span>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -434,11 +445,11 @@ export function FileList({
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-foreground truncate max-w-xs sm:max-w-md">
+                    <p className="text-sm sm:text-base font-semibold text-foreground truncate max-w-xs sm:max-w-md">
                       {file.sanitized_name}
                     </p>
                     {file.share_slug && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         Live
                       </span>
@@ -1054,7 +1065,7 @@ export function FileList({
                               <InfoTooltip
                                 variant="purple"
                                 title="Direct Download Mode"
-                                content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading via HTTP 302 directly to Cloudflare R2 (0 Vercel bandwidth used)."
+                                content="Skips the preview landing page entirely. When recipient opens the link, the file immediately begins downloading without any intermediate pages."
                               />
                             </div>
                             <input
@@ -1435,21 +1446,16 @@ export function FileList({
                           <div className="flex items-center gap-1.5">
                             <Zap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                             <label className="text-xs font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
-                              <span>Direct Raw / CDN URL</span>
+                              <span>Direct Media Link</span>
                               <InfoTooltip
                                 variant="purple"
-                                title="Direct Raw / CDN Hotlink"
-                                content="Pure asset streaming with zero HTML wrapper or website branding. Streams raw binary bytes directly from Cloudflare R2 edge servers with instant edge caching. Perfect for markdown images ![](url), HTML <img> tags, video players, and software downloads."
+                                title="Direct Media Link"
+                                content="Pure file link with zero HTML wrapper or website branding. Directly stream photos, audio, video, or documents anywhere."
                               />
                             </label>
                           </div>
-                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
-                            0 Vercel Egress
-                            <InfoTooltip
-                              variant="purple"
-                              title="Zero Vercel Egress (No Bandwidth Cost)"
-                              content="Zero bandwidth cost on your Vercel hosting bill! All file downloads stream directly from Cloudflare R2's global edge network without passing through your Vercel serverless compute."
-                            />
+                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-medium bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                            Direct Stream
                           </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-snug mb-2">

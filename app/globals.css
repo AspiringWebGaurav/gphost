@@ -139,7 +139,7 @@
     height: 0 !important;
   }
   body {
-    @apply bg-background text-foreground transition-colors duration-200 overflow-x-hidden;
+    @apply bg-background text-foreground text-sm antialiased transition-colors duration-200 overflow-x-hidden;
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
   }

@@ -313,7 +313,7 @@ export default function TermsPage() {
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
                   <strong className="text-foreground font-semibold block">Direct to Storage</strong>
                   <p className="text-muted-foreground">
-                    When you upload, files travel straight from your browser to secure Cloudflare R2 storage. Our web servers never slow down or inspect your transfer.
+                    When you upload, files travel straight from your browser to secure cloud storage. Our web servers never slow down or inspect your transfer.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-1.5">
@@ -416,7 +416,7 @@ export default function TermsPage() {
               </p>
               <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-muted-foreground">
                 <li>
-                  <strong>Fast Global Delivery:</strong> Images and assets load quickly worldwide using Cloudflare&rsquo;s global content network with automatic 1-hour caching.
+                  <strong>Fast Global Delivery:</strong> Images and assets load quickly worldwide using a global high-speed delivery network with automatic 1-hour caching.
                 </li>
                 <li>
                   <strong>Safe File Handling:</strong> Files that could run unsafe code are safely served as regular downloads instead of opening directly inside a web browser.
