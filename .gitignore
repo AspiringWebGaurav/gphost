@@ -132,6 +132,8 @@ GEMINI.md
 /Makefile
 /scripts/clean.sh
 /scripts/Makefile
+scripts/sync_vercel_env.mjs
+scripts/test_all_services.mjs
 
 # --- Local Testing Artifacts ---
 temp-test/
