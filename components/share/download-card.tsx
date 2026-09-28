@@ -27,6 +27,7 @@ import {
   MessageSquare,
   Archive,
   Globe,
+  Users,
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
 import { ZipViewerModal } from "@/components/dashboard/zip-viewer-modal";
@@ -61,6 +62,7 @@ interface DownloadCardProps {
   slug: string;
   metadata: PublicShareMetadata;
   isSingleUse?: boolean;
+  onePerMember?: boolean;
   siteKey: string;
   initialPreviewUrl?: string | null;
   initialPreviewType?: "image" | "pdf" | null;
@@ -74,6 +76,7 @@ export function DownloadCard({
   slug,
   metadata,
   isSingleUse: isSingleUseProp = false,
+  onePerMember = true,
   siteKey,
   initialPreviewType = null,
   disablePreview = false,
@@ -83,6 +86,7 @@ export function DownloadCard({
   const { resolvedTheme } = useTheme();
   const isSingleUse = Boolean(isSingleUseProp);
   const [isUnlocked, setIsUnlocked] = useState(!metadata.is_password_protected);
+  const [isLifetimeDownloaded, setIsLifetimeDownloaded] = useState(false);
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
@@ -221,6 +225,9 @@ export function DownloadCard({
         if (res.status === 401 && data.code === "PASSWORD_REQUIRED") {
           setIsUnlocked(false);
           setUnlockError("Session expired. Please unlock the file again.");
+        } else if (res.status === 403 && data.code === "ALREADY_DOWNLOADED") {
+          setIsLifetimeDownloaded(true);
+          setClaimError(data.error || "You have already downloaded this file. Each member is limited to 1 download in their lifetime.");
         } else {
           setClaimError(data.error || "Failed to claim download slot");
         }
@@ -400,6 +407,26 @@ export function DownloadCard({
             <span className="px-2.5 py-1 rounded-lg bg-muted/60 text-muted-foreground font-medium">
               {formatTitle}
             </span>
+            {onePerMember && !isSingleUse && (
+              <span className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 shadow-2xs">
+                <Users className="w-3 h-3 text-indigo-500" />
+                <span>1 Download / Person</span>
+              </span>
+            )}
+          </div>
+
+          {/* Mobile-only Transfer & Expiry Summary Bar */}
+          <div className="lg:hidden flex flex-wrap items-center justify-center gap-2 pt-1 text-xs">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 border border-border/60 text-muted-foreground font-medium">
+              <Clock className="w-3 h-3 text-blue-500" />
+              <ExpiryStatusBadge expiresAt={metadata.expires_at} />
+            </div>
+            {onePerMember && !isSingleUse && (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-medium">
+                <Users className="w-3 h-3 text-indigo-500" />
+                <span>{metadata.max_downloads ? `${metadata.download_count}/${metadata.max_downloads} claimed` : "Unlimited people (1 each)"}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -437,6 +464,10 @@ export function DownloadCard({
               <span className="font-medium text-foreground">
                 {isSingleUse
                   ? "Single-Use (1 Burn)"
+                  : onePerMember
+                  ? metadata.max_downloads
+                    ? `1 per member (${metadata.download_count}/${metadata.max_downloads})`
+                    : "1 per member (Lifetime)"
                   : metadata.max_downloads
                   ? `${metadata.download_count} / ${metadata.max_downloads} claimed`
                   : "Unlimited"}
@@ -541,7 +572,33 @@ export function DownloadCard({
           {/* UNLOCKED: ACTION BUTTONS */}
           {isUnlocked && (
             <div className="space-y-2.5">
-              {claimError && (
+              {/* Simple Words: 1 Download Per Person Rule Banner */}
+              {onePerMember && !isSingleUse && !isLifetimeDownloaded && !isTimeExpired && (
+                <div className="p-3 sm:p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-foreground text-xs space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400">
+                    <Users className="w-4 h-4 shrink-0" />
+                    <span>1 Download Per Person</span>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                    This file is shared for unlimited people, but each person can download it only <strong className="font-semibold text-foreground">once</strong>. When you click download, your personal slot is claimed on this device.
+                  </p>
+                </div>
+              )}
+
+              {/* Lifetime Download Notice (Simple Words) */}
+              {isLifetimeDownloaded && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 text-xs space-y-1.5 shadow-2xs animate-in fade-in">
+                  <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>You Already Downloaded This File</span>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                    This file allows 1 download per person. Your download slot has already been claimed on this device or account. Repeat downloads are locked.
+                  </p>
+                </div>
+              )}
+
+              {claimError && !isLifetimeDownloaded && (
                 <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span>{claimError}</span>
@@ -650,13 +707,18 @@ export function DownloadCard({
                     type="button"
                     data-testid="download-button"
                     onClick={handleDownload}
-                    disabled={claiming || isTimeExpired}
+                    disabled={claiming || isTimeExpired || isLifetimeDownloaded}
                     className="w-full h-12 sm:h-13 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-600/20 hover:shadow-blue-600/30 transition-all cursor-pointer disabled:cursor-not-allowed active:scale-[0.98]"
                   >
                     {isTimeExpired ? (
                       <>
                         <Clock className="w-4 h-4 shrink-0 text-muted-foreground" />
                         <span>Transfer Expired (Purged)</span>
+                      </>
+                    ) : isLifetimeDownloaded ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-500" />
+                        <span>1-Time Download Already Claimed</span>
                       </>
                     ) : claiming ? (
                       <>
@@ -666,7 +728,7 @@ export function DownloadCard({
                     ) : (
                       <>
                         <Download className="w-4 h-4 shrink-0" />
-                        <span>Download</span>
+                        <span>{onePerMember && !isSingleUse ? "Claim & Download" : "Download"}</span>
                         <span className="text-xs font-mono font-normal opacity-90 px-1.5 py-0.5 rounded-md bg-white/20 whitespace-nowrap">
                           {formatBytes(metadata.byte_size)}
                         </span>

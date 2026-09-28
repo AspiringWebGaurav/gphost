@@ -35,6 +35,7 @@ interface PublicShareRecord {
   slug: string;
   is_active: boolean;
   is_single_use: boolean;
+  one_per_member?: boolean;
   burn_after_preview?: boolean;
   first_previewed_at?: string | null;
   preview_count?: number | null;
@@ -64,6 +65,7 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
       slug,
       is_active,
       is_single_use,
+      one_per_member,
       burn_after_preview,
       first_previewed_at,
       preview_count,
@@ -95,6 +97,7 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
     shareErr &&
     (shareErr.code === "PGRST204" ||
       shareErr.code === "42703" ||
+      shareErr.message?.includes("one_per_member") ||
       shareErr.message?.includes("burn_after_preview") ||
       shareErr.message?.includes("direct_download") ||
       shareErr.message?.includes("disable_preview") ||
@@ -129,6 +132,7 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
     share = fallbackShare
       ? {
           ...fallbackShare,
+          one_per_member: true,
           burn_after_preview: false,
           first_previewed_at: null,
           preview_count: 0,
@@ -141,6 +145,7 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
   } else if (shareWithBurn) {
     share = {
       ...shareWithBurn,
+      one_per_member: shareWithBurn.one_per_member ?? true,
       burn_after_preview: Boolean(shareWithBurn.burn_after_preview),
       direct_download: Boolean(shareWithBurn.direct_download),
       disable_preview: Boolean(shareWithBurn.disable_preview),
@@ -374,6 +379,7 @@ export default async function PublicSharePage({ params }: PageProps) {
         slug={slug}
         metadata={publicMetadata}
         isSingleUse={Boolean(share.is_single_use)}
+        onePerMember={Boolean(share.one_per_member ?? true)}
         siteKey={siteKey}
         initialPreviewUrl={initialPreviewUrl}
         initialPreviewType={previewType}

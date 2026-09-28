@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAuthenticatedUser } from "@/lib/auth/session";
 import { downloadClaimRatelimit } from "@/lib/redis/ratelimit";
 import { createPresignedGetUrl } from "@/lib/storage/r2";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
@@ -82,6 +83,10 @@ export async function POST(
     const ipHash = hashClientIp(clientIp);
     const userAgent = req.headers.get("user-agent") || null;
 
+    // Detect optional authenticated member
+    const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+    const userId = authenticatedUser?.id || null;
+
     const { data: claimResult, error: claimErr } = await adminClient.rpc(
       "acquire_download_claim_lease",
       {
@@ -89,6 +94,7 @@ export async function POST(
         p_lease_token: leaseToken,
         p_ip_hash: ipHash,
         p_user_agent: userAgent,
+        p_user_id: userId,
       }
     );
 
@@ -120,6 +126,15 @@ export async function POST(
           return NextResponse.json(
             { error: "This share link has reached its maximum download limit" },
             { status: 410 }
+          );
+        case "ALREADY_DOWNLOADED_IN_LIFETIME":
+          return NextResponse.json(
+            {
+              success: false,
+              error: "You have already downloaded this file. Each member is limited to 1 download in their lifetime.",
+              code: "ALREADY_DOWNLOADED",
+            },
+            { status: 403 }
           );
         default:
           return NextResponse.json(

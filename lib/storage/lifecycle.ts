@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object, abortR2MultipartUpload } from "@/lib/storage/r2";
 import { redis } from "@/lib/redis/client";
+import { deleteXurlLink } from "@/lib/xurl/client";
 
 // Minimum interval between opportunistic lifecycle sweeps (default: 5 minutes)
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -27,21 +28,43 @@ export async function executeLifecycleSweep(): Promise<{
   let abandonedUploadsCount = 0;
 
   try {
-    // 1. Deactivate expired share links
+    // 1. Zero Stale Data: Permanently purge expired and deactivated share links
+    // Slugs are immediately freed for recycling, and ON DELETE CASCADE wipes file_downloads & xurl_mappings
     const { data: expiredLinks } = await adminClient
       .from("share_links")
       .select("id, slug")
-      .eq("is_active", true)
-      .not("expires_at", "is", null)
-      .lte("expires_at", nowIso);
+      .or(`expires_at.lte.${nowIso},is_active.eq.false`);
 
     if (expiredLinks && expiredLinks.length > 0) {
-      const idsToDeactivate = expiredLinks.map((l) => l.id);
-      await adminClient
+      const idsToPurge = expiredLinks.map((l) => l.id);
+
+      // Fetch and delete associated XURL vanity links externally
+      try {
+        const { data: mappings } = await adminClient
+          .from("xurl_mappings")
+          .select("xurl_id")
+          .in("share_link_id", idsToPurge);
+
+        if (mappings && mappings.length > 0) {
+          for (const m of mappings) {
+            if (m.xurl_id) void deleteXurlLink(m.xurl_id);
+          }
+        }
+      } catch (xurlErr) {
+        console.warn("[Lifecycle Sweep] Error pruning XURL links:", xurlErr);
+      }
+
+      // Hard-delete the share links row (PostgreSQL cascades deletion to file_downloads and xurl_mappings)
+      const { error: delErr } = await adminClient
         .from("share_links")
-        .update({ is_active: false })
-        .in("id", idsToDeactivate);
-      expiredLinksCount = idsToDeactivate.length;
+        .delete()
+        .in("id", idsToPurge);
+
+      if (delErr) {
+        console.error("[Lifecycle Sweep] Error hard-deleting expired share links:", delErr);
+      } else {
+        expiredLinksCount = idsToPurge.length;
+      }
 
       // Invalidate all associated Redis caches
       try {
@@ -121,6 +144,12 @@ export async function executeLifecycleSweep(): Promise<{
           .from("files")
           .update({ status: "PURGED", updated_at: nowIso })
           .eq("id", file.id);
+
+        // Hard-delete the single-use share link to eliminate stale records
+        await adminClient
+          .from("share_links")
+          .delete()
+          .eq("id", link.id);
 
         singleUseCount++;
 

@@ -8,28 +8,9 @@ import { generatePasswordSalt, hashSharePassword } from "@/lib/security/password
 import { shortenUrl } from "@/lib/xurl/client";
 import { reserveXurlMapping, updateXurlMapping } from "@/lib/xurl/mapping";
 import { redis } from "@/lib/redis/client";
+import { RESERVED_SLUGS } from "@/lib/share/constants";
 
 export const dynamic = "force-dynamic";
-
-const RESERVED_SLUGS = new Set([
-  "api",
-  "f",
-  "admin",
-  "login",
-  "auth",
-  "download",
-  "share",
-  "settings",
-  "terms",
-  "privacy",
-  "dashboard",
-  "files",
-  "upload",
-  "access-gate",
-  "help",
-  "docs",
-  "about",
-]);
 
 import {
   EXPIRY_PRESET_VALUES,
@@ -41,6 +22,7 @@ const createShareSchema = z.object({
   fileId: z.string().uuid(),
   maxDownloads: z.number().int().positive().nullable().optional(),
   isSingleUse: z.boolean().optional().default(false),
+  onePerMember: z.boolean().optional().default(false),
   burnAfterPreview: z.boolean().optional().default(false),
   directDownload: z.boolean().optional().default(false),
   disablePreview: z.boolean().optional().default(false),
@@ -102,6 +84,7 @@ export async function POST(req: NextRequest) {
       fileId,
       maxDownloads,
       isSingleUse,
+      onePerMember,
       burnAfterPreview,
       directDownload,
       disablePreview,
@@ -178,17 +161,26 @@ export async function POST(req: NextRequest) {
       // Check if custom slug already exists in share_links table
       const { data: existingShare } = await adminClient
         .from("share_links")
-        .select("id")
+        .select("id, is_active, expires_at")
         .eq("slug", sanitizedCustomSlug)
         .maybeSingle();
 
       if (existingShare) {
-        return NextResponse.json(
-          {
-            error: `The custom slug '${sanitizedCustomSlug}' is already taken. Please choose a different one.`,
-          },
-          { status: 409 }
-        );
+        const isExpired =
+          !existingShare.is_active ||
+          (existingShare.expires_at && new Date(existingShare.expires_at).getTime() <= Date.now());
+
+        if (isExpired) {
+          // Zero Stale Data: Opportunistically purge expired share link so slug can be reused immediately
+          await adminClient.from("share_links").delete().eq("id", existingShare.id);
+        } else {
+          return NextResponse.json(
+            {
+              error: `The custom slug '${sanitizedCustomSlug}' is already taken. Please choose a different one.`,
+            },
+            { status: 409 }
+          );
+        }
       }
 
       slug = sanitizedCustomSlug;
@@ -215,6 +207,7 @@ export async function POST(req: NextRequest) {
       slug: string;
       max_downloads: number | null;
       is_single_use: boolean;
+      one_per_member?: boolean;
       burn_after_preview?: boolean;
       direct_download?: boolean;
       disable_preview?: boolean;
@@ -230,6 +223,7 @@ export async function POST(req: NextRequest) {
       token_hash: tokenHash,
       max_downloads: effectiveMaxDownloads,
       is_single_use: isSingleUse,
+      one_per_member: Boolean(onePerMember ?? true),
       burn_after_preview: Boolean(burnAfterPreview),
       direct_download: Boolean(directDownload),
       disable_preview: Boolean(disablePreview),
@@ -244,7 +238,7 @@ export async function POST(req: NextRequest) {
     const { data: primaryData, error: shareError } = await adminClient
       .from("share_links")
       .insert(fullPayload)
-      .select("id, slug, max_downloads, is_single_use, burn_after_preview, direct_download, disable_preview, recipient_note, password_hint, expires_at, created_at")
+      .select("id, slug, max_downloads, is_single_use, one_per_member, burn_after_preview, direct_download, disable_preview, recipient_note, password_hint, expires_at, created_at")
       .single();
 
     if (!shareError && primaryData) {
@@ -253,6 +247,7 @@ export async function POST(req: NextRequest) {
       shareError &&
       (shareError.code === "42703" ||
         shareError.code === "PGRST204" ||
+        shareError.message?.includes("one_per_member") ||
         shareError.message?.includes("direct_download") ||
         shareError.message?.includes("disable_preview") ||
         shareError.message?.includes("recipient_note") ||
@@ -284,6 +279,7 @@ export async function POST(req: NextRequest) {
 
       shareRecord = {
         ...fallbackData,
+        one_per_member: Boolean(onePerMember ?? true),
         burn_after_preview: Boolean(burnAfterPreview),
         direct_download: Boolean(directDownload),
         disable_preview: Boolean(disablePreview),
@@ -466,6 +462,7 @@ export async function POST(req: NextRequest) {
         expires_at: shareRecord.expires_at,
         max_downloads: shareRecord.max_downloads,
         is_single_use: shareRecord.is_single_use,
+        one_per_member: shareRecord.one_per_member ?? true,
         burn_after_preview: shareRecord.burn_after_preview,
         direct_download: shareRecord.direct_download,
         disable_preview: shareRecord.disable_preview,

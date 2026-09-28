@@ -12,6 +12,7 @@ export interface PublicShareMetadata {
   download_count: number;
   max_downloads: number | null;
   is_single_use?: boolean;
+  one_per_member?: boolean;
   burn_after_preview?: boolean;
 }
 
@@ -29,6 +30,7 @@ export function formatPublicShareMetadata(
     download_count: number;
     max_downloads: number | null;
     is_single_use?: boolean;
+    one_per_member?: boolean;
     burn_after_preview?: boolean;
   }
 ): PublicShareMetadata {
@@ -41,6 +43,7 @@ export function formatPublicShareMetadata(
     download_count: share.download_count,
     max_downloads: share.max_downloads,
     is_single_use: Boolean(share.is_single_use),
+    one_per_member: share.one_per_member ?? true,
     burn_after_preview: Boolean(share.burn_after_preview),
   };
 }

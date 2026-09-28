@@ -8,6 +8,7 @@ import { getClientIp } from "@/lib/security/ip";
 import { redis } from "@/lib/redis/client";
 import { formatTimeElapsedSinceExpiry, formatExpiryTimestamp } from "@/lib/storage/expiry";
 import { deleteXurlLink } from "@/lib/xurl/client";
+import { RESERVED_SLUGS } from "@/lib/share/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export async function GET(
         slug,
         is_active,
         is_single_use,
+        one_per_member,
         expires_at,
         max_downloads,
         download_count,
@@ -262,27 +264,6 @@ export async function DELETE(
   }
 }
 
-const RESERVED_SLUGS = new Set([
-  "api",
-  "f",
-  "admin",
-  "login",
-  "auth",
-  "download",
-  "share",
-  "settings",
-  "terms",
-  "privacy",
-  "dashboard",
-  "files",
-  "upload",
-  "access-gate",
-  "help",
-  "docs",
-  "about",
-  "site",
-  "raw",
-]);
 
 /**
  * EDIT CUSTOM SLUG: Update the slug of an existing share link with domain attachment.
