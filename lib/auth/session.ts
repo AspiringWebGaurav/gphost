@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -21,11 +21,33 @@ export interface UserProfile {
 export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 
 /**
- * Retrieves the currently authenticated Supabase Auth user from request cookies.
+ * Retrieves the currently authenticated Supabase Auth user.
+ * Supports dual-channel authentication:
+ * 1. Bearer JWT authorization header (immune to cookie expiry, chunking, or private browser blocking).
+ * 2. Persistent Supabase Auth session cookies.
  * Memoized per-request via React cache() to prevent redundant auth calls.
- * Short-circuits instantly if no Supabase auth cookies are present, saving Vercel Hobby function time.
  */
 export const getAuthenticatedUser = cache(async () => {
+  // 1. Authoritative Bearer token validation (Immune to cookie desync / background timeout)
+  try {
+    const headerStore = await headers();
+    const authHeader = headerStore.get("authorization") || headerStore.get("x-supabase-auth");
+    if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+      const token = authHeader.substring(7).trim();
+      // Ensure we only validate Supabase Auth JWTs, not developer API keys (gp_live_...)
+      if (token && !token.startsWith("gp_live_")) {
+        const adminClient = createAdminClient();
+        const { data: { user }, error } = await adminClient.auth.getUser(token);
+        if (!error && user) {
+          return user;
+        }
+      }
+    }
+  } catch {
+    // If headers() is unavailable in current execution context, proceed to cookies
+  }
+
+  // 2. Cookie-based authentication fallback
   try {
     const cookieStore = await cookies();
     const hasAuthCookie = cookieStore

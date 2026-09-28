@@ -36,6 +36,7 @@ import { savePendingUpload, listPendingUploads, removePendingUpload, type Pendin
 import { TerminalUploadModal } from "@/components/dashboard/terminal-upload-modal";
 import { HtmlHostModal, type ExistingUploadedFile } from "@/components/dashboard/html-host-modal";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
+import { authFetch } from "@/lib/auth/client-fetch";
 
 interface UploadZoneProps {
   canCreatePermanent: boolean;
@@ -294,7 +295,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       const mimeType = fileToUpload.type || (isHtml ? "text/html" : "application/octet-stream");
 
       // 1. Initiate Upload Route
-      const initRes = await fetch("/api/files/initiate-upload", {
+      const initRes = await authFetch("/api/files/initiate-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -410,7 +411,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               if (isCancelledRef.current) throw new Error("Upload cancelled");
               attempts++;
               try {
-                const signRes = await fetch("/api/files/multipart/sign-part", {
+                const signRes = await authFetch("/api/files/multipart/sign-part", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -484,7 +485,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
         // Finalize Multipart Parts
         setStatusText("Finishing and verifying upload...");
-        const compPartsRes = await fetch("/api/files/multipart/complete", {
+        const compPartsRes = await authFetch("/api/files/multipart/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -504,7 +505,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       setStatusText("Verifying storage integrity and committing quota...");
       setProgress(95);
 
-      const completeRes = await fetch("/api/files/complete-upload", {
+      const completeRes = await authFetch("/api/files/complete-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId }),
@@ -555,7 +556,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
           const sanitizedSlug = (htmlCustomSlug || finalFileName.replace(/\.(html|htm|xhtml)$/i, ""))
             .toLowerCase()
             .replace(/[^a-z0-9_-]/g, "");
-          const shareRes = await fetch("/api/share/create", {
+          const shareRes = await authFetch("/api/share/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1101,9 +1102,37 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       {errorMsg && (
         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3 text-red-600 dark:text-red-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-semibold text-red-600 dark:text-red-300">Upload Failed</p>
-            <p className="mt-0.5 text-muted-foreground">{errorMsg}</p>
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold text-red-600 dark:text-red-300">
+              {errorMsg.toLowerCase().includes("authentication") || errorMsg.toLowerCase().includes("session")
+                ? "Session Expired"
+                : "Upload Failed"}
+            </p>
+            <p className="mt-0.5 text-muted-foreground">
+              {errorMsg.toLowerCase().includes("authentication") || errorMsg.toLowerCase().includes("session")
+                ? "Your authentication session has expired. Please sign in again to complete your upload."
+                : errorMsg}
+            </p>
+            {(errorMsg.toLowerCase().includes("authentication") || errorMsg.toLowerCase().includes("session")) && (
+              <div className="pt-2 flex items-center gap-2">
+                <Link
+                  href="/login?next=/upload"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs shadow-xs transition-colors"
+                >
+                  Sign In to Continue
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg(null);
+                    startUpload();
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground font-medium text-xs transition-colors"
+                >
+                  Retry Upload
+                </button>
+              </div>
+            )}
           </div>
           <button onClick={() => setErrorMsg(null)} className="text-muted-foreground hover:text-foreground">
             <X className="w-3.5 h-3.5" />

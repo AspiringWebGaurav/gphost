@@ -22,6 +22,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
 import { storageEvents } from "@/lib/storage/events";
+import { authFetch } from "@/lib/auth/client-fetch";
 
 export interface ExistingUploadedFile {
   id: string;
@@ -187,7 +188,7 @@ export function HtmlHostModal({
         setDeployPhase("Reserving edge storage and custom web address...");
 
         // 1. Initiate Upload
-        const initRes = await fetch("/api/files/initiate-upload", {
+        const initRes = await authFetch("/api/files/initiate-upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -221,7 +222,7 @@ export function HtmlHostModal({
         setDeployPhase("Verifying storage checksum and binding domain route...");
 
         // 3. Complete Upload
-        const compRes = await fetch("/api/files/complete-upload", {
+        const compRes = await authFetch("/api/files/complete-upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileId: initData.fileId }),
@@ -242,7 +243,7 @@ export function HtmlHostModal({
       setDeployPhase(`Registering live site under ${origin}/site/${sanitizedSlug}...`);
 
       // 4. Create Share Link with Custom Slug
-      const shareRes = await fetch("/api/share/create", {
+      const shareRes = await authFetch("/api/share/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

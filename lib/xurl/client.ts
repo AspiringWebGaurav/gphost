@@ -295,10 +295,14 @@ export async function shortenUrl(
 
       // Non-retryable client errors: 400 (e.g. unresolvable DNS), 401 (bad key)
       if (status >= 400 && status < 500) {
+        let descriptive = `XURL error (${status}): ${errorMsg}`;
+        if (status === 401) {
+          descriptive = "XURL account not found or invalid API key on xurl.eu.cc";
+        }
         return {
           success: false,
           status: "failed",
-          error: `XURL client error (${status}): ${errorMsg}`,
+          error: descriptive,
           attempts: attempt,
         };
       }
@@ -324,4 +328,148 @@ export async function shortenUrl(
     error: `Exhausted ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`,
     attempts: MAX_ATTEMPTS,
   };
+}
+
+export interface XurlAccountStatus {
+  configured: boolean;
+  valid: boolean;
+  status: "connected" | "invalid_key" | "not_configured" | "cooldown" | "network_error";
+  plan?: "unlimited_api" | "free" | "pro";
+  message: string;
+}
+
+/**
+ * Checks whether the XURL integration is configured, account is active, and verifies plan entitlements.
+ * Caches result in Redis for 5 minutes to avoid redundant external network roundtrips.
+ */
+export async function checkXurlAccountStatus(
+  forceFresh: boolean = false,
+  customRedis?: Redis | null
+): Promise<XurlAccountStatus> {
+  const apiKey = process.env.XURL_API_KEY;
+  if (!apiKey) {
+    return {
+      configured: false,
+      valid: false,
+      status: "not_configured",
+      message: "XURL API key not configured in environment (XURL_API_KEY missing).",
+    };
+  }
+
+  const redisClient = getRedisClient(customRedis);
+  const cacheKey = "cache:xurl:account_status";
+
+  if (redisClient && !forceFresh) {
+    try {
+      const cached = await redisClient.get<string | XurlAccountStatus>(cacheKey);
+      if (cached) {
+        return typeof cached === "string" ? JSON.parse(cached) : cached;
+      }
+    } catch {}
+  }
+
+  const baseUrl = (process.env.XURL_API_URL || "https://xurl.eu.cc/api/v1").replace(/\/+$/, "");
+  const endpoint = baseUrl.endsWith("/links") ? baseUrl : `${baseUrl}/links`;
+
+  try {
+    const res = await fetch(`${endpoint}?limit=1`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    let result: XurlAccountStatus;
+
+    if (res.ok) {
+      result = {
+        configured: true,
+        valid: true,
+        status: "connected",
+        plan: "unlimited_api",
+        message: "XURL account active with full API lifecycle freedom.",
+      };
+    } else if (res.status === 401) {
+      result = {
+        configured: true,
+        valid: false,
+        status: "invalid_key",
+        message: "Account not found or invalid API key on xurl.eu.cc.",
+      };
+    } else if (res.status === 403) {
+      result = {
+        configured: true,
+        valid: false,
+        status: "cooldown",
+        message: "XURL quota exhausted or free tier restrictions active.",
+      };
+    } else {
+      const errorBody = await res.json().catch(() => ({}));
+      result = {
+        configured: true,
+        valid: false,
+        status: "network_error",
+        message: errorBody.error || `XURL returned HTTP ${res.status}`,
+      };
+    }
+
+    if (redisClient && result.valid) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(result), { ex: 300 });
+      } catch {}
+    }
+
+    return result;
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Network failure";
+    return {
+      configured: true,
+      valid: false,
+      status: "network_error",
+      message: `Failed to contact XURL service: ${errorMsg}`,
+    };
+  }
+}
+
+/**
+ * Deletes a link from XURL (xurl.eu.cc) to keep lifecycles synchronized with GPHost.
+ * Non-blocking: 404 is treated as already deleted (success).
+ */
+export async function deleteXurlLink(xurlId: string): Promise<{ success: boolean; error?: string }> {
+  if (!xurlId || xurlId.startsWith("mock_")) {
+    return { success: true };
+  }
+
+  const apiKey = process.env.XURL_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: "Missing XURL API key" };
+  }
+
+  const baseUrl = (process.env.XURL_API_URL || "https://xurl.eu.cc/api/v1").replace(/\/+$/, "");
+  const baseLinks = baseUrl.endsWith("/links") ? baseUrl : `${baseUrl}/links`;
+  const endpoint = `${baseLinks}/${encodeURIComponent(xurlId)}`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (res.ok || res.status === 404) {
+      return { success: true };
+    }
+
+    const errData = await res.json().catch(() => ({}));
+    return {
+      success: false,
+      error: errData.error || `HTTP ${res.status}`,
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Network error";
+    return { success: false, error: errorMsg };
+  }
 }

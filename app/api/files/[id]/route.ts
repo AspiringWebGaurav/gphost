@@ -4,6 +4,7 @@ import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object } from "@/lib/storage/r2";
 import { redis } from "@/lib/redis/client";
+import { deleteXurlLink } from "@/lib/xurl/client";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,18 @@ export async function DELETE(
           .from("share_links")
           .update({ is_active: false })
           .in("id", shareIds);
+
+        // Fetch and synchronize deletion of associated XURL shortlinks
+        const { data: mappings } = await adminClient
+          .from("xurl_mappings")
+          .select("xurl_id")
+          .in("share_link_id", shareIds);
+
+        if (mappings && mappings.length > 0) {
+          for (const m of mappings) {
+            if (m.xurl_id) void deleteXurlLink(m.xurl_id);
+          }
+        }
 
         // Delete associated xurl_mappings (explicitly to ensure no foreign key locks)
         await adminClient

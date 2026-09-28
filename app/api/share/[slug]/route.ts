@@ -7,6 +7,7 @@ import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
 import { redis } from "@/lib/redis/client";
 import { formatTimeElapsedSinceExpiry, formatExpiryTimestamp } from "@/lib/storage/expiry";
+import { deleteXurlLink } from "@/lib/xurl/client";
 
 export const dynamic = "force-dynamic";
 
@@ -210,7 +211,17 @@ export async function DELETE(
       .update({ is_active: false })
       .eq("id", share.id);
 
-    // Delete associated xurl_mappings (explicitly to ensure no foreign key locks)
+    // Delete associated xurl_mappings and synchronize deletion with XURL
+    const { data: xurlMapping } = await adminClient
+      .from("xurl_mappings")
+      .select("xurl_id")
+      .eq("share_link_id", share.id)
+      .maybeSingle();
+
+    if (xurlMapping?.xurl_id) {
+      void deleteXurlLink(xurlMapping.xurl_id);
+    }
+
     await adminClient
       .from("xurl_mappings")
       .delete()

@@ -177,7 +177,7 @@ export function LogoutButton({
         id="logout-btn"
         onClick={() => setShowConfirm(true)}
         disabled={isDetaching}
-        className={`py-2 px-3 rounded-xl text-xs font-medium inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${baseStyle} ${className || ""}`}
+        className={`py-2 px-3 rounded-xl text-xs font-medium inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 ${baseStyle} ${className || ""}`}
       >
         {isDetaching ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />

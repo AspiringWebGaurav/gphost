@@ -84,8 +84,19 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
   return (
     <div
       ref={navRef}
-      className="sticky top-0 inset-x-0 z-50 pointer-events-auto md:pointer-events-none w-full flex flex-col items-center px-0"
+      className={cn(
+        "sticky top-0 inset-x-0 z-50 pointer-events-auto md:pointer-events-none w-full flex flex-col items-center transition-all duration-200",
+        isScrolled ? "md:pt-2.5 md:px-4" : "pt-0 px-0"
+      )}
     >
+      {/* Top Background Fade Shield: Eliminates hero text/buttons peeking above the floating capsule */}
+      {isScrolled && (
+        <div
+          className="hidden md:block absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-background via-background/70 to-transparent pointer-events-none z-40"
+          aria-hidden="true"
+        />
+      )}
+
       <header
         className={cn(
           "gpu-nav-capsule pointer-events-auto flex items-center justify-between gap-3 sm:gap-6 relative z-50 transition-all duration-200",
@@ -93,8 +104,8 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
           "w-full h-14 px-4 bg-background dark:bg-[#070a12] border-b border-border shadow-md shadow-black/5 dark:shadow-black/25 rounded-none",
           // Desktop (md+): Dynamic floating capsule
           isScrolled
-            ? "md:w-[calc(100%-3rem)] md:max-w-5xl md:h-14 md:translate-y-3 md:px-5 md:rounded-2xl md:bg-background/90 md:dark:bg-background/90 md:backdrop-blur-xl md:border md:border-border/70 md:shadow-lg"
-            : "md:w-full md:max-w-full md:h-16 md:translate-y-0 md:px-8 md:lg:px-12 md:rounded-none md:bg-transparent md:border-transparent md:shadow-none"
+            ? "md:w-[calc(100%-2.5rem)] md:max-w-6xl lg:max-w-7xl md:h-14 md:px-5 md:rounded-2xl md:bg-background/90 md:dark:bg-background/90 md:backdrop-blur-xl md:border md:border-border/70 md:shadow-lg"
+            : "md:w-full md:max-w-full md:h-16 md:px-8 md:lg:px-12 md:rounded-none md:bg-transparent md:border-transparent md:shadow-none"
         )}
       >
         {/* Brand Logo */}
@@ -110,11 +121,16 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
               <Link href="/" className="hover:text-foreground transition-colors">
                 Home
               </Link>
-              <Link href="/dashboard" className="text-foreground font-semibold hover:text-blue-500 transition-colors">
-                Dashboard
-              </Link>
               <Link href="/upload" className="hover:text-foreground transition-colors">
                 Upload
+              </Link>
+              <Link
+                href="/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-foreground transition-colors duration-150"
+              >
+                Docs
               </Link>
             </>
           ) : (
@@ -130,49 +146,33 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
               >
                 How to Use
               </Link>
+              <Link
+                href="/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-foreground transition-colors duration-150"
+              >
+                Docs
+              </Link>
             </>
           )}
-          <Link
-            href="/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-foreground transition-colors duration-150"
-          >
-            Docs
-          </Link>
-          <Link
-            href="/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-foreground transition-colors duration-150"
-          >
-            Privacy
-          </Link>
-          <Link
-            href="/terms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-foreground transition-colors duration-150"
-          >
-            Terms
-          </Link>
         </nav>
 
         {/* Actions (Sign In / Dashboard + Theme Toggle + Mobile Menu Trigger) */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {user ? (
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {/* Synchronized User Identity Pill */}
               <Link
                 href="/dashboard"
-                className="hidden lg:inline-flex items-center gap-2 px-3 h-8 sm:h-9 rounded-xl border border-border bg-card/60 hover:bg-muted/60 text-xs font-semibold text-foreground transition-all duration-200 shadow-xs shrink-0 select-none group"
+                className="hidden xl:inline-flex items-center gap-2 px-3 h-8 sm:h-9 rounded-xl border border-border bg-card/60 hover:bg-muted/60 text-xs font-semibold text-foreground transition-all duration-200 shadow-xs shrink-0 select-none group"
                 title={`Signed in as ${profile?.full_name || user.email} (Open Dashboard)`}
               >
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                 </span>
-                <span className="truncate max-w-[130px] tracking-tight group-hover:text-blue-500 transition-colors">
+                <span className="truncate max-w-[120px] tracking-tight group-hover:text-blue-500 transition-colors">
                   {profile?.full_name || user.email}
                 </span>
               </Link>
@@ -181,7 +181,7 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
               {isAdmin && (
                 <Link
                   href="/admin"
-                  className="relative group inline-flex items-center gap-1.5 px-3 h-8 sm:h-9 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 via-fuchsia-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(168,85,247,0.4)] hover:shadow-[0_0_20px_rgba(217,70,239,0.7)] border border-purple-400/40 transition-all duration-200 hover:scale-[1.02] shrink-0 whitespace-nowrap"
+                  className="relative group inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 sm:h-9 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 via-fuchsia-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(168,85,247,0.4)] hover:shadow-[0_0_20px_rgba(217,70,239,0.7)] border border-purple-400/40 transition-all duration-200 hover:scale-[1.02] shrink-0 whitespace-nowrap"
                   title="Admin Center"
                 >
                   <Shield className="w-3.5 h-3.5 text-purple-200 animate-pulse" />
@@ -199,14 +199,16 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
                 <LayoutDashboard className="w-3.5 h-3.5" />
                 <span>Dashboard</span>
               </Link>
-              <div className="hidden md:block">
-                <LogoutButton variant="outline" className="h-8 sm:h-9 text-xs" />
+
+              {/* Sign Out Button - Cleanly fitting and responsive */}
+              <div className="hidden md:block shrink-0">
+                <LogoutButton variant="outline" className="h-8 sm:h-9 text-xs shrink-0 whitespace-nowrap" />
               </div>
             </div>
           ) : (
             <Link
               href="/login"
-              className="inline-flex items-center gap-1.5 px-3 sm:px-4 h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-blue-500/20 transition-all duration-200 shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 sm:px-4 h-8 sm:h-9 rounded-lg sm:rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-blue-500/20 transition-all duration-200 shrink-0 whitespace-nowrap"
             >
               <span>Sign In</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -214,13 +216,15 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
           )}
 
           {/* Theme Toggle */}
-          <ThemeToggle />
+          <div className="shrink-0">
+            <ThemeToggle />
+          </div>
 
           {/* Mobile Hamburger Toggle Button */}
           <button
             type="button"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
-            className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer touch-manipulation relative z-10 select-none"
+            className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer touch-manipulation relative z-10 select-none shrink-0"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
             data-testid="landing-hamburger-button"

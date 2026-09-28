@@ -8,8 +8,8 @@ import { createClient } from "@/lib/supabase/client";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 // Throttle activity updates to once every 15 seconds to avoid performance overhead
 const THROTTLE_MS = 15 * 1000;
-// Periodic token refresh interval while user is active (10 minutes)
-const TOKEN_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+// Periodic token refresh interval while user is active (4 minutes to guarantee token freshness)
+const TOKEN_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 
 const STORAGE_KEY = "gphost_last_active";
 const COOKIE_NAME = "gphost_last_active";
@@ -207,13 +207,25 @@ export function IdleSessionMonitor() {
     window.addEventListener("storage", onStorage);
 
     // 4. Tab visibility / Window focus check:
-    // If user returns to tab after leaving computer idle, immediately verify elapsed time and revocation
-    const onVisibilityOrFocus = () => {
+    // If user returns to tab after leaving computer idle, immediately verify elapsed time, revocation, and refresh auth
+    const onVisibilityOrFocus = async () => {
       if (document.visibilityState === "visible") {
         checkIdleStatus();
         checkRevocationStatus();
         if (!isLoggingOutRef.current) {
           recordActivity();
+          // Proactively ensure Supabase session token is kept fresh upon focusing tab
+          try {
+            const client = createClient();
+            const { data } = await client.auth.getSession();
+            const session = data?.session;
+            if (session) {
+              const expiresAtMs = (session.expires_at || 0) * 1000;
+              if (expiresAtMs > 0 && expiresAtMs - Date.now() < 5 * 60 * 1000) {
+                await client.auth.refreshSession();
+              }
+            }
+          } catch {}
         }
       }
     };
@@ -237,7 +249,13 @@ export function IdleSessionMonitor() {
       if (elapsed < IDLE_TIMEOUT_MS) {
         try {
           const client = createClient();
-          await client.auth.getSession();
+          const { data: { session } } = await client.auth.getSession();
+          if (session) {
+            const expiresAtMs = (session.expires_at || 0) * 1000;
+            if (expiresAtMs > 0 && expiresAtMs - Date.now() < 5 * 60 * 1000) {
+              await client.auth.refreshSession();
+            }
+          }
         } catch {}
       }
     }, TOKEN_REFRESH_INTERVAL_MS);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -94,23 +94,112 @@ export function DocsView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
-  // Scrollspy to highlight active topic in index
+  const navRef = useRef<HTMLElement | null>(null);
+  const isManualClickRef = useRef<boolean>(false);
+
+  // Synchronized scroll listener: highlights active topic and smoothly scrolls the left index in tandem with page scroll
   useEffect(() => {
+    let ticking = false;
+
     const handleScroll = () => {
-      const scrollY = window.scrollY + 140;
-      for (let i = ALL_TOPICS.length - 1; i >= 0; i--) {
-        const el = document.getElementById(ALL_TOPICS[i].id);
-        if (el && el.offsetTop <= scrollY) {
-          setActiveId(ALL_TOPICS[i].id);
-          break;
+      if (ticking) return;
+      ticking = true;
+
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (isManualClickRef.current) return;
+
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop || window.scrollY || 0;
+        const windowHeight = window.innerHeight;
+        const docScrollHeight = document.documentElement.scrollHeight;
+        const maxDocScroll = Math.max(0, docScrollHeight - windowHeight);
+        
+        // Robust bottom detection (accounts for zoom, padding, browser chrome, mobile address bars)
+        const isNearBottom = maxDocScroll > 0 && (scrollY >= maxDocScroll - 160);
+
+        let currentActive = ALL_TOPICS[0].id;
+
+        if (isNearBottom) {
+          const lastTopic = ALL_TOPICS[ALL_TOPICS.length - 1];
+          if (lastTopic) currentActive = lastTopic.id;
+        } else if (scrollY < 80) {
+          currentActive = ALL_TOPICS[0].id;
+        } else {
+          // Robust viewport bounding client rect check
+          const triggerLine = Math.min(260, windowHeight * 0.35);
+          for (let i = ALL_TOPICS.length - 1; i >= 0; i--) {
+            const el = document.getElementById(ALL_TOPICS[i].id);
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              if (rect.top <= triggerLine) {
+                currentActive = ALL_TOPICS[i].id;
+                break;
+              }
+            }
+          }
         }
-      }
+
+        setActiveId(currentActive);
+
+        // Synchronize Left Index Scroll Position
+        if (window.innerWidth >= 1024 && navRef.current) {
+          const nav = navRef.current;
+          const maxNavScroll = nav.scrollHeight - nav.clientHeight;
+
+          if (maxNavScroll > 0) {
+            if (isNearBottom || currentActive === "faq") {
+              // At page bottom: scroll index all the way to the bottom
+              nav.scrollTop = maxNavScroll;
+            } else if (scrollY < 80 || currentActive === "welcome") {
+              // At page top: scroll index to the top
+              nav.scrollTop = 0;
+            } else {
+              // Calculate centering for the active topic
+              const activeEl = nav.querySelector<HTMLElement>(`[data-topic-id="${currentActive}"]`);
+              if (activeEl) {
+                const navRect = nav.getBoundingClientRect();
+                const activeRect = activeEl.getBoundingClientRect();
+                const currentRelTop = activeRect.top - navRect.top;
+                const desiredRelTop = (nav.clientHeight - activeEl.clientHeight) / 2;
+                const centerTargetScroll = Math.max(0, Math.min(maxNavScroll, nav.scrollTop + (currentRelTop - desiredRelTop)));
+
+                // Also calculate proportional scroll progress through the documentation
+                const progress = maxDocScroll > 0 ? Math.min(1, Math.max(0, scrollY / maxDocScroll)) : 0;
+                const propScroll = progress * maxNavScroll;
+
+                // Blend: 70% active item centering + 30% proportional progress
+                const finalScroll = Math.max(0, Math.min(maxNavScroll, (centerTargetScroll * 0.7) + (propScroll * 0.3)));
+                nav.scrollTop = finalScroll;
+              } else {
+                const progress = maxDocScroll > 0 ? Math.min(1, Math.max(0, scrollY / maxDocScroll)) : 0;
+                nav.scrollTop = progress * maxNavScroll;
+              }
+            }
+          }
+        }
+      });
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll, { passive: true });
     handleScroll();
-    return () => window.removeEventListener("scroll", handleScroll);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
   }, []);
+
+  const handleSidebarWheel = (e: React.WheelEvent) => {
+    if (navRef.current) {
+      const nav = navRef.current;
+      const canScrollDown = e.deltaY > 0 && nav.scrollTop + nav.clientHeight < nav.scrollHeight - 1;
+      const canScrollUp = e.deltaY < 0 && nav.scrollTop > 1;
+      if (canScrollDown || canScrollUp) {
+        nav.scrollTop += e.deltaY;
+      }
+    }
+  };
 
   const copyCode = (snippet: string, key: string) => {
     navigator.clipboard.writeText(snippet);
@@ -189,9 +278,12 @@ print("Link to share:", data["file"]["url"])`;
         {/* ========================================================================= */}
         {/* LEFT COLUMN: GitHub Docs Index / Categorized Sidebar */}
         {/* ========================================================================= */}
-        <aside className="w-full lg:w-72 shrink-0 lg:sticky lg:top-24 space-y-4">
-          <div className="p-4 rounded-2xl bg-card border border-border shadow-xs space-y-3.5">
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+        <aside
+          onWheel={handleSidebarWheel}
+          className="w-full lg:w-72 shrink-0 lg:sticky lg:top-24 space-y-4"
+        >
+          <div className="p-4 rounded-2xl bg-card border border-border shadow-xs flex flex-col max-h-[calc(100vh-7rem)] space-y-3.5">
+            <div className="flex items-center justify-between pb-2 border-b border-border shrink-0">
               <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                 <BookOpen className="w-4 h-4 text-blue-500" />
                 <span>GPHost Documentation</span>
@@ -202,7 +294,7 @@ print("Link to share:", data["file"]["url"])`;
             </div>
 
             {/* Search Filter */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-2.5" />
               <input
                 type="text"
@@ -214,7 +306,10 @@ print("Link to share:", data["file"]["url"])`;
             </div>
 
             {/* Categorized Topic Groups */}
-            <nav className="space-y-4 max-h-[calc(100vh-270px)] overflow-y-auto pr-1">
+            <nav
+              ref={navRef}
+              className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 docs-nav-scrollbar overscroll-contain"
+            >
               {filteredGroups.map((group) => (
                 <div key={group.groupTitle} className="space-y-1">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-2 pt-1">
@@ -227,17 +322,57 @@ print("Link to share:", data["file"]["url"])`;
                       <a
                         key={item.id}
                         href={`#${item.id}`}
+                        data-topic-id={item.id}
                         onClick={(e) => {
                           e.preventDefault();
+                          isManualClickRef.current = true;
                           const target = document.getElementById(item.id);
                           if (target) {
-                            target.scrollIntoView({ behavior: "smooth", block: "start" });
+                            const headerOffset = 90;
+                            const elementPosition = target.getBoundingClientRect().top;
+                            const offsetPosition = elementPosition + (window.pageYOffset || document.documentElement.scrollTop || 0) - headerOffset;
+                            window.scrollTo({
+                              top: offsetPosition,
+                              behavior: "smooth",
+                            });
                             setActiveId(item.id);
+                            if (navRef.current) {
+                              const maxNavScroll = navRef.current.scrollHeight - navRef.current.clientHeight;
+                              if (maxNavScroll > 0) {
+                                if (item.id === "faq") {
+                                  navRef.current.scrollTo({
+                                    top: maxNavScroll,
+                                    behavior: "smooth",
+                                  });
+                                } else if (item.id === "welcome") {
+                                  navRef.current.scrollTo({
+                                    top: 0,
+                                    behavior: "smooth",
+                                  });
+                                } else {
+                                  const activeEl = navRef.current.querySelector<HTMLElement>(`[data-topic-id="${item.id}"]`);
+                                  if (activeEl) {
+                                    const navRect = navRef.current.getBoundingClientRect();
+                                    const activeRect = activeEl.getBoundingClientRect();
+                                    const currentRelTop = activeRect.top - navRect.top;
+                                    const desiredRelTop = (navRef.current.clientHeight - activeEl.clientHeight) / 2;
+                                    const targetScroll = Math.max(0, Math.min(maxNavScroll, navRef.current.scrollTop + (currentRelTop - desiredRelTop)));
+                                    navRef.current.scrollTo({
+                                      top: targetScroll,
+                                      behavior: "smooth",
+                                    });
+                                  }
+                                }
+                              }
+                            }
+                            setTimeout(() => {
+                              isManualClickRef.current = false;
+                            }, 800);
                           }
                         }}
                         className={`flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-150 ${
                           isActive
-                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold border-l-3 border-blue-600 dark:border-blue-400 pl-2.5"
+                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold border-l-[3px] border-blue-600 dark:border-blue-400 pl-2.5"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                         }`}
                       >
@@ -264,7 +399,7 @@ print("Link to share:", data["file"]["url"])`;
             </nav>
 
             {/* Quick Link Card */}
-            <div className="pt-2 border-t border-border">
+            <div className="pt-2 border-t border-border shrink-0">
               <Link
                 href="/upload"
                 className="w-full p-2.5 rounded-xl bg-blue-500/5 hover:bg-blue-500/10 border border-blue-500/20 flex items-center justify-between text-xs font-bold text-blue-600 dark:text-blue-400 transition"

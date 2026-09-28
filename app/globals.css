@@ -271,3 +271,26 @@
     border-color 520ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 520ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* Custom Docs Sidebar Scrollbar */
+.docs-nav-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.docs-nav-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.docs-nav-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.docs-nav-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+
+.docs-nav-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}

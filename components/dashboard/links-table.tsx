@@ -12,11 +12,14 @@ import {
   ExternalLink,
   Download,
   Activity,
+  RotateCw,
+  AlertTriangle,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 import { storageEvents } from "@/lib/storage/events";
+import { authFetch } from "@/lib/auth/client-fetch";
 
 export interface ShareLinkItem {
   id: string;
@@ -54,6 +57,8 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [analyticsFile, setAnalyticsFile] = useState<{ id: string; filename: string } | null>(null);
+  const [retryingSlug, setRetryingSlug] = useState<string | null>(null);
+  const [xurlActionError, setXurlActionError] = useState<{ [slug: string]: string }>({});
 
   // Real-time live countdown ticker (ticks every second)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -71,6 +76,38 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
     setTimeout(() => setCopiedSlug(null), 2000);
   };
 
+  const handleGenerateXurl = async (slug: string) => {
+    setRetryingSlug(slug);
+    setXurlActionError((prev) => ({ ...prev, [slug]: "" }));
+    try {
+      const res = await authFetch(`/api/share/${slug}/xurl`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok && data.shortUrl) {
+        setLinks((prev) =>
+          prev.map((l) =>
+            l.slug === slug
+              ? { ...l, xurl_short_url: data.shortUrl, xurl_status: "active" }
+              : l
+          )
+        );
+      } else {
+        setXurlActionError((prev) => ({
+          ...prev,
+          [slug]: data.error || "Failed to generate XURL shortlink",
+        }));
+      }
+    } catch (err: unknown) {
+      setXurlActionError((prev) => ({
+        ...prev,
+        [slug]: err instanceof Error ? err.message : "Network error",
+      }));
+    } finally {
+      setRetryingSlug(null);
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     if (!linkToDelete) return;
     setIsDeleting(true);
@@ -78,7 +115,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
     try {
       // Nuclear permanent deletion of link via DELETE endpoint (preserves target file)
-      const res = await fetch(`/api/share/${linkToDelete.slug}`, {
+      const res = await authFetch(`/api/share/${linkToDelete.slug}`, {
         method: "DELETE",
       });
 
@@ -194,6 +231,25 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                     </a>
                   </div>
                 )}
+
+                {/* XURL Failure or Action Error */}
+                {(!link.xurl_short_url && link.xurl_status === "failed") || xurlActionError[link.slug] ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-amber-600 dark:text-amber-400 pt-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="text-[11px]">
+                      {xurlActionError[link.slug] || "XURL shortlink creation failed"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateXurl(link.slug)}
+                      disabled={retryingSlug === link.slug}
+                      className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      {retryingSlug === link.slug && <RotateCw className="w-3 h-3 animate-spin" />}
+                      <span>Retry XURL</span>
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               {/* Action Buttons */}
@@ -210,7 +266,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                   <span>{copiedSlug === link.slug ? "Copied" : "Copy"}</span>
                 </button>
 
-                {link.xurl_short_url && (
+                {link.xurl_short_url ? (
                   <button
                     onClick={() => copyToClipboard(link.xurl_short_url!, `xurl-${link.slug}`)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-xs font-medium transition cursor-pointer"
@@ -221,6 +277,20 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                       <Copy className="w-3.5 h-3.5" />
                     )}
                     <span>Short Link</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleGenerateXurl(link.slug)}
+                    disabled={retryingSlug === link.slug}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-xs font-medium transition cursor-pointer disabled:opacity-50"
+                    title="Generate XURL shortlink"
+                  >
+                    {retryingSlug === link.slug ? (
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Globe className="w-3.5 h-3.5" />
+                    )}
+                    <span>+ XURL</span>
                   </button>
                 )}
 
