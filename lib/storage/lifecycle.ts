@@ -10,6 +10,33 @@ let lastSweepTimestamp = 0;
 let isSweepInProgress = false;
 
 /**
+ * Permanently purges all Redis keys associated with a share link slug,
+ * including metadata caches and all claimed download slot locks (IP & hardware device fingerprints).
+ * Guarantees zero orphaned state or ghost locks when a link is deleted or expires.
+ */
+export async function purgeShareLinkRedisData(slug: string): Promise<void> {
+  if (!slug) return;
+  try {
+    const keysToDelete: string[] = [
+      `raw:meta:${slug}`,
+      `share:pub:${slug}`,
+      `share:slug:${slug}`,
+      `share_enhancements:${slug}`,
+    ];
+
+    // Scan and clean all claimed slots (IP locks, hardware device fingerprint locks, user locks)
+    const slotKeys = await redis.keys(`claimed_slot:${slug}:*`);
+    if (Array.isArray(slotKeys) && slotKeys.length > 0) {
+      keysToDelete.push(...slotKeys);
+    }
+
+    await Promise.all(keysToDelete.map((key) => redis.del(key)));
+  } catch (err) {
+    console.warn(`[Lifecycle] Failed to purge Redis keys for slug '${slug}':`, err);
+  }
+}
+
+/**
  * Sweeps and purges claimed single-use files and expired assets from PostgreSQL and Cloudflare R2.
  * Fully self-contained: works on Vercel Hobby, self-hosted, or Supabase without requiring external crons.
  */
@@ -66,20 +93,11 @@ export async function executeLifecycleSweep(): Promise<{
         expiredLinksCount = idsToPurge.length;
       }
 
-      // Invalidate all associated Redis caches
+      // Invalidate all associated Redis caches & claimed slot locks
       try {
-        const delPromises: Promise<unknown>[] = [];
-        for (const link of expiredLinks) {
-          if (link.slug) {
-            delPromises.push(
-              redis.del(`raw:meta:${link.slug}`),
-              redis.del(`share:pub:${link.slug}`),
-              redis.del(`share:slug:${link.slug}`),
-              redis.del(`share_enhancements:${link.slug}`)
-            );
-          }
-        }
-        await Promise.all(delPromises);
+        await Promise.all(
+          expiredLinks.map((link) => (link.slug ? purgeShareLinkRedisData(link.slug) : Promise.resolve()))
+        );
       } catch (redisErr) {
         console.warn("Failed to invalidate Redis keys during expired links sweep:", redisErr);
       }

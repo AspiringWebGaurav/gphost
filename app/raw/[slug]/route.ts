@@ -282,7 +282,18 @@ export async function GET(
       );
     }
 
-    if (meta.max_downloads !== null && meta.download_count >= meta.max_downloads) {
+    let isOnePerMember = false;
+    try {
+      const enh = await redis.get<{ one_per_member?: boolean }>(`share_enhancements:${slug}`);
+      if (enh?.one_per_member) isOnePerMember = true;
+    } catch {}
+
+    const isTotalCapped = Boolean(
+      meta.max_downloads !== null &&
+      !(isOnePerMember && meta.max_downloads <= 1)
+    );
+
+    if (isTotalCapped && meta.max_downloads !== null && meta.download_count >= meta.max_downloads) {
       if (isBrowserHtmlReq) {
         return new NextResponse(
           generateLimitReachedCdnHtml({

@@ -191,7 +191,19 @@ export async function POST(req: NextRequest) {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    const effectiveMaxDownloads = isSingleUse ? 1 : maxDownloads || null;
+    const effectiveIsSingleUse = Boolean(isSingleUse);
+    const effectiveOnePerMember = !effectiveIsSingleUse && Boolean(onePerMember);
+
+    // If single-use: strictly 1 total download across all people.
+    // If one_per_member: each person gets 1 download.
+    //   - If maxDownloads <= 1 or not provided: UNLIMITED people (null).
+    //   - If maxDownloads > 1: capped to maxDownloads total people.
+    // Otherwise (standard link): maxDownloads || null
+    const effectiveMaxDownloads = effectiveIsSingleUse
+      ? 1
+      : effectiveOnePerMember
+      ? (typeof maxDownloads === "number" && maxDownloads > 1 ? maxDownloads : null)
+      : (maxDownloads || null);
 
     // Optional password hashing
     let passwordHash: string | null = null;
@@ -222,8 +234,8 @@ export async function POST(req: NextRequest) {
       slug,
       token_hash: tokenHash,
       max_downloads: effectiveMaxDownloads,
-      is_single_use: isSingleUse,
-      one_per_member: Boolean(onePerMember),
+      is_single_use: effectiveIsSingleUse,
+      one_per_member: effectiveOnePerMember,
       burn_after_preview: Boolean(burnAfterPreview),
       direct_download: Boolean(directDownload),
       disable_preview: Boolean(disablePreview),
@@ -259,7 +271,7 @@ export async function POST(req: NextRequest) {
         slug,
         token_hash: tokenHash,
         max_downloads: effectiveMaxDownloads,
-        is_single_use: isSingleUse,
+        is_single_use: effectiveIsSingleUse,
         expires_at: effectiveExpiry ? effectiveExpiry.toISOString() : null,
         is_active: true,
         password_hash: passwordHash,
@@ -279,7 +291,7 @@ export async function POST(req: NextRequest) {
 
       shareRecord = {
         ...fallbackData,
-        one_per_member: Boolean(onePerMember),
+        one_per_member: effectiveOnePerMember,
         burn_after_preview: Boolean(burnAfterPreview),
         direct_download: Boolean(directDownload),
         disable_preview: Boolean(disablePreview),
@@ -296,7 +308,7 @@ export async function POST(req: NextRequest) {
       await redis.set(
         `share_enhancements:${slug}`,
         {
-          one_per_member: Boolean(onePerMember),
+          one_per_member: effectiveOnePerMember,
           burn_after_preview: Boolean(burnAfterPreview),
           direct_download: Boolean(directDownload),
           disable_preview: Boolean(disablePreview),

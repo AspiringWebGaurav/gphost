@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -36,6 +36,7 @@ import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useTimeRemaining } from "@/lib/hooks/use-time-remaining";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
+import { getBrowserDeviceFingerprint } from "@/lib/security/device-fingerprint";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (bytes === 0) return "0 Bytes";
@@ -86,7 +87,93 @@ export function DownloadCard({
   const { resolvedTheme } = useTheme();
   const isSingleUse = Boolean(isSingleUseProp);
   const [isUnlocked, setIsUnlocked] = useState(!metadata.is_password_protected);
-  const [isLifetimeDownloaded, setIsLifetimeDownloaded] = useState(false);
+  const [downloadCount, setDownloadCount] = useState<number>(metadata.download_count ?? 0);
+  const isOnePerMemberActive = Boolean(onePerMember && !isSingleUse);
+  const isTotalCapped = Boolean(
+    metadata.max_downloads !== null &&
+    !(isOnePerMemberActive && metadata.max_downloads <= 1)
+  );
+  const [maxDownloads, setMaxDownloads] = useState<number | null>(
+    isTotalCapped ? metadata.max_downloads : null
+  );
+  const [limitReached, setLimitReached] = useState<boolean>(() => {
+    return Boolean(
+      isTotalCapped &&
+      metadata.download_count !== undefined &&
+      metadata.download_count >= (metadata.max_downloads ?? 0)
+    );
+  });
+  const [sessionDownloaded, setSessionDownloaded] = useState<boolean>(false);
+  const persistedDownloaded = useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === "undefined") return () => {};
+      window.addEventListener("storage", onStoreChange);
+      return () => window.removeEventListener("storage", onStoreChange);
+    },
+    () => {
+      try {
+        return typeof window !== "undefined" && localStorage.getItem(`gphost_downloaded_${slug}`) === "1";
+      } catch {
+        return false;
+      }
+    },
+    () => false
+  );
+  const isLifetimeDownloaded = sessionDownloaded || persistedDownloaded;
+  const [deviceFp, setDeviceFp] = useState<string | null>(null);
+
+  // Deep hardware device pre-flight check across Incognito, Normal, and post-purge sessions:
+  // Contacts server with hardware fingerprint (Canvas, WebGL GPU, Audio DSP, CPU).
+  // Automatically syncs state so if the database was purged, stale client storage is auto-cleared!
+  useEffect(() => {
+    if (!isOnePerMemberActive) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        const fp = await getBrowserDeviceFingerprint();
+        if (!isMounted) return;
+        if (fp) setDeviceFp(fp);
+
+        const res = await fetch(`/api/share/${encodeURIComponent(slug)}/check-claim`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-device-fingerprint": fp,
+          },
+          body: JSON.stringify({ deviceFingerprint: fp }),
+        });
+
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (data.claimed) {
+          setSessionDownloaded(true);
+          try {
+            localStorage.setItem(`gphost_downloaded_${slug}`, "1");
+          } catch {}
+        } else if (data.claimed === false) {
+          // Server confirmed this link has NOT been downloaded by this device!
+          // Auto-heal any stale localStorage left over from previous purged links with the same slug.
+          try {
+            if (localStorage.getItem(`gphost_downloaded_${slug}`)) {
+              localStorage.removeItem(`gphost_downloaded_${slug}`);
+              window.dispatchEvent(new Event("storage"));
+            }
+          } catch {}
+          setSessionDownloaded(false);
+        }
+      } catch {
+        // Non-blocking fallback
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [slug, isOnePerMemberActive]);
+
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
@@ -214,8 +301,12 @@ export function DownloadCard({
   };
 
   const handleDownload = async () => {
-    if (claiming || downloadCooldown > 0 || isSingleUseClaimed || isTimeExpired || isLifetimeDownloaded) {
-      if (downloadCooldown > 0) {
+    if (claiming || downloadCooldown > 0 || isSingleUseClaimed || isTimeExpired || isLifetimeDownloaded || limitReached) {
+      if (isLifetimeDownloaded) {
+        setClaimError("You have already downloaded this file. Each person can download once.");
+      } else if (limitReached) {
+        setClaimError("This share link has reached its maximum download limit.");
+      } else if (downloadCooldown > 0) {
         setClaimError(`Please wait ${downloadCooldown}s before downloading again.`);
       }
       return;
@@ -232,15 +323,23 @@ export function DownloadCard({
         setDownloadPhase("Connecting to secure server...");
       }, 150);
 
+      const fp = deviceFp || (await getBrowserDeviceFingerprint().catch(() => null));
+      if (fp && !deviceFp) setDeviceFp(fp);
+
       const res = await fetch(`/api/share/${encodeURIComponent(slug)}/claim`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(fp ? { "x-device-fingerprint": fp } : {}),
+        },
+        body: JSON.stringify({ deviceFingerprint: fp }),
       });
 
       clearTimeout(t1);
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        setDownloadSuccess(false);
         setDownloadProgress(0);
         setDownloadPhase("");
         if (res.status === 429) {
@@ -251,7 +350,10 @@ export function DownloadCard({
           setIsUnlocked(false);
           setUnlockError("Session expired. Please unlock the file again.");
         } else if (res.status === 403 && data.code === "ALREADY_DOWNLOADED") {
-          setIsLifetimeDownloaded(true);
+          setSessionDownloaded(true);
+          try {
+            localStorage.setItem(`gphost_downloaded_${slug}`, "1");
+          } catch {}
           setClaimError(data.error || "You have already downloaded this file. Each person can download once.");
         } else {
           setClaimError(data.error || "Unable to start download. Please try again.");
@@ -261,15 +363,37 @@ export function DownloadCard({
       }
 
       // Download slot claimed successfully!
-      setDownloadSuccess(true);
-      setLeaseSeconds(data.expires_in_seconds || 50);
+      const newCount = typeof data.download_count === "number" ? data.download_count : (downloadCount + 1);
+      setDownloadCount(newCount);
+
+      const returnedMaxDownloads = typeof data.max_downloads === "number" ? data.max_downloads : (isTotalCapped ? maxDownloads : null);
+      if (returnedMaxDownloads !== maxDownloads) {
+        setMaxDownloads(returnedMaxDownloads);
+      }
+
+      const isMaxLimitReached = Boolean(
+        data.limit_reached ||
+        (returnedMaxDownloads !== null && newCount >= returnedMaxDownloads)
+      );
+      if (isMaxLimitReached) {
+        setLimitReached(true);
+      }
 
       if (isSingleUse) {
         setIsSingleUseClaimed(true);
       }
 
+      if (onePerMember) {
+        setSessionDownloaded(true);
+        try {
+          localStorage.setItem(`gphost_downloaded_${slug}`, "1");
+        } catch {}
+      }
+
+      setDownloadSuccess(true);
+      setLeaseSeconds(data.expires_in_seconds || 50);
       setDownloadProgress(100);
-      setDownloadPhase("Download started!");
+      setDownloadPhase(onePerMember ? "Download started! 1 per person limit claimed." : "Download started! Saving file to your device...");
       setClaiming(false);
       // Enforce anti-spam cooldown so user cannot spam click download
       setDownloadCooldown(5);
@@ -329,6 +453,21 @@ export function DownloadCard({
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                 <Clock className="w-3 h-3" />
                 <span>Expired</span>
+              </span>
+            ) : isSingleUseClaimed ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <Flame className="w-2.5 h-2.5" />
+                <span>1-Time Used</span>
+              </span>
+            ) : isLifetimeDownloaded ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <CheckCircle2 className="w-3 h-3 text-amber-500" />
+                <span>Downloaded</span>
+              </span>
+            ) : limitReached ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <Ban className="w-2.5 h-2.5 text-rose-500" />
+                <span>Limit Reached</span>
               </span>
             ) : isUnlocked ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -417,13 +556,13 @@ export function DownloadCard({
             {onePerMember && !isSingleUse && (
               <span className="inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                 <Users className="w-3 h-3 text-indigo-500" />
-                <span>1 Download / Person</span>
+                <span>1 DL / Person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : " · Unlimited People"}</span>
               </span>
             )}
-            {metadata.max_downloads && !isSingleUse && (
+            {maxDownloads && !onePerMember && !isSingleUse && (
               <span className="inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground">
                 <Download className="w-3 h-3" />
-                <span>{metadata.download_count} / {metadata.max_downloads} DLs</span>
+                <span>{downloadCount} / {maxDownloads} DLs</span>
               </span>
             )}
           </div>
@@ -492,12 +631,12 @@ export function DownloadCard({
           {/* Unlocked Actions */}
           {isUnlocked && (
             <div className="space-y-2">
-              {/* Lifetime downloaded notice */}
-              {isLifetimeDownloaded && (
+              {/* Lifetime downloaded notice (only when not currently showing active downloadSuccess) */}
+              {isLifetimeDownloaded && !downloadSuccess && (
                 <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
                   <span className="text-[11px] leading-snug">
-                    You already downloaded this file (1 download per person limit).
+                    You already claimed your 1 download on this device. Other people can still download.
                   </span>
                 </div>
               )}
@@ -520,7 +659,13 @@ export function DownloadCard({
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
                       )}
                       <span className="text-[11px] font-semibold text-foreground truncate">
-                        {downloadSuccess ? "Download Started" : downloadPhase || "Downloading..."}
+                        {downloadSuccess
+                          ? isSingleUse
+                            ? "Download Complete (1-Time Link Used)"
+                            : onePerMember
+                            ? "Download Complete (1-Per-Person Claimed)"
+                            : "Download Complete"
+                          : downloadPhase || "Downloading..."}
                       </span>
                     </div>
                     <span className="font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
@@ -537,12 +682,12 @@ export function DownloadCard({
               )}
 
               {/* Primary Download Button */}
-              {!isSingleUseClaimed && (
+              {!isSingleUseClaimed ? (
                 <button
                   type="button"
                   data-testid="download-button-mobile"
                   onClick={handleDownload}
-                  disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded}
+                  disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded || limitReached}
                   className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.98] cursor-pointer"
                 >
                   {isTimeExpired ? (
@@ -554,6 +699,11 @@ export function DownloadCard({
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
                       <span>Already Downloaded</span>
+                    </>
+                  ) : limitReached ? (
+                    <>
+                      <Ban className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Download Limit Reached</span>
                     </>
                   ) : claiming ? (
                     <>
@@ -568,13 +718,17 @@ export function DownloadCard({
                   ) : (
                     <>
                       <Download className="w-4 h-4" />
-                      <span>{downloadSuccess ? "Download Again" : "Download File"}</span>
+                      <span>{downloadSuccess ? "Download Again" : (onePerMember && !isSingleUse ? "Claim & Download" : "Download File")}</span>
                       <span className="text-[11px] font-mono opacity-80 px-1.5 py-0.5 rounded bg-white/20">
                         {formatBytes(metadata.byte_size)}
                       </span>
                     </>
                   )}
                 </button>
+              ) : (
+                <div className="w-full py-2.5 rounded-xl bg-muted/40 border border-border text-center text-[11px] text-muted-foreground">
+                  This 1-time link has already been used and deleted.
+                </div>
               )}
 
               {/* Secondary Actions (Preview / ZIP / Site) in a single compact row */}
@@ -646,6 +800,21 @@ export function DownloadCard({
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                   <Clock className="w-3 h-3" />
                   Expired &amp; Deleted
+                </span>
+              ) : isSingleUseClaimed ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  <Flame className="w-3 h-3" />
+                  1-Time Link Used
+                </span>
+              ) : isLifetimeDownloaded ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <CheckCircle2 className="w-3 h-3 text-amber-500" />
+                  Downloaded
+                </span>
+              ) : limitReached ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  <Ban className="w-3 h-3 text-rose-500" />
+                  Limit Reached
                 </span>
               ) : isUnlocked ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -751,13 +920,13 @@ export function DownloadCard({
               {onePerMember && !isSingleUse && (
                 <span className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 shadow-2xs">
                   <Users className="w-3 h-3 text-indigo-500" />
-                  <span>1 Download / Person</span>
+                  <span>1 Download / Person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : " · Unlimited People"}</span>
                 </span>
               )}
-              {metadata.max_downloads && !isSingleUse && (
+              {maxDownloads && !onePerMember && !isSingleUse && (
                 <span className="inline-flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-muted text-muted-foreground">
                   <Download className="w-3.5 h-3.5" />
-                  <span>{metadata.download_count} / {metadata.max_downloads} downloads</span>
+                  <span>{downloadCount} / {maxDownloads} downloads</span>
                 </span>
               )}
             </div>
@@ -795,11 +964,11 @@ export function DownloadCard({
                   {isSingleUse
                     ? "Single-Use (Deletes after 1st download)"
                     : onePerMember
-                    ? metadata.max_downloads
-                      ? `1 per person (${metadata.download_count}/${metadata.max_downloads} claimed)`
-                      : "1 download per person"
-                    : metadata.max_downloads
-                    ? `${metadata.download_count} / ${metadata.max_downloads} downloads`
+                    ? maxDownloads
+                      ? `1 per person (${downloadCount}/${maxDownloads} people claimed)`
+                      : "1 download per person (Unlimited people)"
+                    : maxDownloads
+                    ? `${downloadCount} / ${maxDownloads} downloads`
                     : "Unlimited downloads"}
                 </span>
               </div>
@@ -914,14 +1083,15 @@ export function DownloadCard({
                   </div>
                 )}
 
-                {isLifetimeDownloaded && (
+                {/* Lifetime downloaded notice (only when not currently showing active downloadSuccess) */}
+                {isLifetimeDownloaded && !downloadSuccess && (
                   <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 text-xs space-y-1.5 shadow-2xs animate-in fade-in">
                     <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
                       <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
                       <span>You Already Downloaded This File</span>
                     </div>
                     <p className="text-[11.5px] text-muted-foreground leading-relaxed">
-                      You already downloaded this file on this device. Each person can download once.
+                      You already claimed your 1 download on this device. Each person can download once. Other people can still open this link to download.
                     </p>
                   </div>
                 )}
@@ -947,10 +1117,16 @@ export function DownloadCard({
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-foreground truncate">
-                            {downloadSuccess ? "Your Download Has Started" : "Preparing Download"}
+                            {downloadSuccess
+                              ? isSingleUse
+                                ? "Download Complete (1-Time Link Used)"
+                                : onePerMember
+                                ? "Download Complete (1-Per-Person Claimed)"
+                                : "Download Complete"
+                              : "Preparing Download"}
                           </p>
                           <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
-                            {downloadPhase || (downloadSuccess ? "Saving file to your device..." : "Connecting to server...")}
+                            {downloadPhase || (downloadSuccess ? "File saved to your device!" : "Connecting to server...")}
                           </p>
                         </div>
                       </div>
@@ -981,7 +1157,7 @@ export function DownloadCard({
                       type="button"
                       data-testid="download-button"
                       onClick={handleDownload}
-                      disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded}
+                      disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded || limitReached}
                       className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-600/20 hover:shadow-blue-600/30 transition-all cursor-pointer disabled:cursor-not-allowed active:scale-[0.98]"
                     >
                       {isTimeExpired ? (
@@ -993,6 +1169,11 @@ export function DownloadCard({
                         <>
                           <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-500" />
                           <span>Already Downloaded</span>
+                        </>
+                      ) : limitReached ? (
+                        <>
+                          <Ban className="w-4 h-4 shrink-0 text-rose-500" />
+                          <span>Download Limit Reached</span>
                         </>
                       ) : claiming ? (
                         <>

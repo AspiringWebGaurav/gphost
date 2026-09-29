@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object } from "@/lib/storage/r2";
 import { redis } from "@/lib/redis/client";
 import { deleteXurlLink } from "@/lib/xurl/client";
+import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -112,17 +113,12 @@ export async function DELETE(
           .in("id", shareIds);
       }
 
-      // Invalidate all Redis caches for file & associated shares
+      // Invalidate all Redis caches and claimed slots for file & associated shares
       const delPromises: Promise<unknown>[] = [redis.del(`analytics:${fileId}`)];
       if (fileShareLinks) {
         for (const s of fileShareLinks) {
           if (s.slug) {
-            delPromises.push(
-              redis.del(`share:slug:${s.slug}`),
-              redis.del(`share:pub:${s.slug}`),
-              redis.del(`raw:meta:${s.slug}`),
-              redis.del(`share_enhancements:${s.slug}`)
-            );
+            delPromises.push(purgeShareLinkRedisData(s.slug));
           }
         }
       }

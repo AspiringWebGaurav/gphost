@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { publicShareRatelimit } from "@/lib/redis/ratelimit";
 import { formatPublicShareMetadata, PublicShareMetadata } from "@/lib/storage/share";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
-import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
+import { scheduleOpportunisticLifecycleSweep, purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
 import { redis } from "@/lib/redis/client";
 import { formatTimeElapsedSinceExpiry, formatExpiryTimestamp } from "@/lib/storage/expiry";
@@ -313,15 +313,8 @@ export async function DELETE(
       .delete()
       .eq("id", share.id);
 
-    // Purge all ephemeral Redis keys associated with this slug
-    try {
-      await Promise.all([
-        redis.del(`share:slug:${slug}`),
-        redis.del(`share:pub:${slug}`),
-        redis.del(`raw:meta:${slug}`),
-        redis.del(`share_enhancements:${slug}`),
-      ]);
-    } catch {}
+    // Purge all ephemeral Redis keys and claimed slot locks associated with this slug
+    await purgeShareLinkRedisData(slug);
 
     if (deleteError) {
       console.error("Error permanently deleting share link:", deleteError);
@@ -438,15 +431,8 @@ export async function PATCH(
         );
       }
 
-      // Purge old cache
-      try {
-        await Promise.all([
-          redis.del(`share:slug:${slug}`),
-          redis.del(`share:pub:${slug}`),
-          redis.del(`raw:meta:${slug}`),
-          redis.del(`share_enhancements:${slug}`),
-        ]);
-      } catch {}
+      // Purge old cache and claimed slot locks for previous slug
+      await purgeShareLinkRedisData(slug);
     }
 
     const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";

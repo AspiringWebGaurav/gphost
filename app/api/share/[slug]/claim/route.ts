@@ -9,6 +9,7 @@ import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-to
 import { logFileEvent } from "@/lib/telemetry/events";
 
 import { redis } from "@/lib/redis/client";
+import { hashDeviceFingerprint, isValidDeviceFingerprint } from "@/lib/security/device-fingerprint";
 
 export const dynamic = "force-dynamic";
 
@@ -93,30 +94,50 @@ export async function POST(
       }
     }
 
+    // Extract optional client hardware device fingerprint from body or headers
+    const body = await req.json().catch(() => ({}));
+    const rawFp =
+      (typeof body?.deviceFingerprint === "string" ? body.deviceFingerprint : null) ||
+      req.headers.get("x-device-fingerprint") ||
+      null;
+
     const ipHash = hashClientIp(clientIp);
+    const fpHash = rawFp && isValidDeviceFingerprint(rawFp) ? hashDeviceFingerprint(rawFp) : null;
     const authenticatedUser = await getAuthenticatedUser().catch(() => null);
     const userId = authenticatedUser?.id || null;
 
     // Enforce 1 Download Per Person restriction if and only if mode is enabled
     if (isOnePerMember) {
-      // Fast Redis lookup
+      // Fast Redis lookup for IP hash, Hardware Device Fingerprint, and User ID
       let alreadyClaimed = false;
       try {
-        const [claimedIp, claimedUser] = await Promise.all([
+        const checkPromises: Promise<unknown>[] = [
           redis.get(`claimed_slot:${slug}:${ipHash}`),
-          userId ? redis.get(`claimed_slot:${slug}:user:${userId}`) : null,
-        ]);
-        if (claimedIp || claimedUser) alreadyClaimed = true;
+        ];
+        if (fpHash) {
+          checkPromises.push(redis.get(`claimed_slot:${slug}:fp:${fpHash}`));
+        }
+        if (userId) {
+          checkPromises.push(redis.get(`claimed_slot:${slug}:user:${userId}`));
+        }
+        const [claimedIp, claimedFp, claimedUser] = await Promise.all(checkPromises);
+        if (claimedIp || claimedFp || claimedUser) alreadyClaimed = true;
       } catch {}
 
       if (!alreadyClaimed) {
-        const { data: pastDownload } = await adminClient
+        const query = adminClient
           .from("file_downloads")
           .select("id")
           .eq("share_link_id", shareRecord.id)
-          .eq("ip_hash", ipHash)
-          .limit(1)
-          .maybeSingle();
+          .in("status", ["CLAIMED", "COMPLETED"]);
+
+        if (userId) {
+          query.or(`ip_hash.eq.${ipHash},user_id.eq.${userId}`);
+        } else {
+          query.eq("ip_hash", ipHash);
+        }
+
+        const { data: pastDownload } = await query.limit(1).maybeSingle();
 
         if (pastDownload) alreadyClaimed = true;
       }
@@ -125,7 +146,7 @@ export async function POST(
         return NextResponse.json(
           {
             success: false,
-            error: "You have already downloaded this file. Each member is limited to 1 download in their lifetime.",
+            error: "You have already downloaded this file on this device. Each person is limited to 1 download.",
             code: "ALREADY_DOWNLOADED",
           },
           { status: 403 }
@@ -194,6 +215,31 @@ export async function POST(
       claimErr = rpc4.error;
     }
 
+    // 2b. Auto-Heal Legacy One-Per-Member Links:
+    // If the database RPC returned INACTIVE or DOWNLOAD_LIMIT_REACHED on a 1-download-per-person link
+    // because max_downloads was set to 1 under the old bug, automatically revive the link to unlimited people!
+    if (
+      claimResult &&
+      !claimResult.success &&
+      (claimResult.error === "INACTIVE" || claimResult.error === "DOWNLOAD_LIMIT_REACHED") &&
+      isOnePerMember
+    ) {
+      const { data: checkShare } = await adminClient
+        .from("share_links")
+        .select("id, max_downloads, is_single_use")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (checkShare && !checkShare.is_single_use && (checkShare.max_downloads === null || checkShare.max_downloads <= 1)) {
+        console.info(`[Auto-Heal] Reviving legacy one_per_member share link '${slug}' to unlimited people`);
+        await adminClient
+          .from("share_links")
+          .update({ is_active: true, max_downloads: null })
+          .eq("id", checkShare.id);
+        claimResult = null; // Triggers direct table fallback below to complete the claim!
+      }
+    }
+
     // 3. Bulletproof Direct Table Fallback: If database RPC failed or is desynced, execute direct authoritative claim
     if (!claimResult) {
       console.warn("Falling back to direct table claim transaction due to RPC error:", claimErr);
@@ -235,7 +281,10 @@ export async function POST(
       }
 
       const fileObj = (Array.isArray(shareRow.file) ? shareRow.file[0] : shareRow.file) as unknown as FileJoinedData;
-      if (!shareRow.is_active || fileObj.status !== "ACTIVE") {
+      const isOnePerMemberActive = Boolean(isOnePerMember && !shareRow.is_single_use);
+      const isPrematurelyDeactivated = Boolean(!shareRow.is_active && isOnePerMemberActive && (shareRow.max_downloads === null || shareRow.max_downloads <= 1));
+
+      if ((!shareRow.is_active && !isPrematurelyDeactivated) || fileObj.status !== "ACTIVE") {
         return NextResponse.json({ error: "This file is no longer available for download" }, { status: 410 });
       }
 
@@ -244,18 +293,23 @@ export async function POST(
         return NextResponse.json({ error: "This share link has expired" }, { status: 410 });
       }
 
-      if (shareRow.max_downloads !== null && shareRow.download_count >= shareRow.max_downloads) {
+      const isTotalQuotaCapped = Boolean(
+        shareRow.max_downloads !== null &&
+        !(isOnePerMemberActive && shareRow.max_downloads <= 1)
+      );
+
+      if (isTotalQuotaCapped && shareRow.download_count >= shareRow.max_downloads!) {
         return NextResponse.json({ error: "This share link has reached its maximum download limit" }, { status: 410 });
       }
 
       const newCount = shareRow.download_count + 1;
-      const shouldDeactivate = Boolean(shareRow.max_downloads !== null && newCount >= shareRow.max_downloads);
+      const shouldDeactivate = Boolean(isTotalQuotaCapped && newCount >= shareRow.max_downloads!);
 
       await adminClient
         .from("share_links")
         .update({
           download_count: newCount,
-          is_active: shouldDeactivate ? false : shareRow.is_active,
+          is_active: shouldDeactivate ? false : true,
         })
         .eq("id", shareRow.id);
 
@@ -267,7 +321,7 @@ export async function POST(
           lease_token: leaseToken,
           lease_expires_at: new Date(Date.now() + 50000).toISOString(),
           ip_hash: ipHash,
-          user_agent: userAgent,
+          user_agent: fpHash ? `${userAgent || "Unknown UA"} [fp:${fpHash}]` : userAgent,
           status: "CLAIMED",
         });
 
@@ -338,6 +392,7 @@ export async function POST(
       try {
         await Promise.all([
           redis.set(`claimed_slot:${slug}:${ipHash}`, "1", { ex: 86400 * 30 }),
+          fpHash ? redis.set(`claimed_slot:${slug}:fp:${fpHash}`, "1", { ex: 86400 * 30 }) : null,
           userId ? redis.set(`claimed_slot:${slug}:user:${userId}`, "1", { ex: 86400 * 30 }) : null,
         ]);
       } catch {}
@@ -394,6 +449,13 @@ export async function POST(
     // 4. RETURN: Deliver presigned URL and public metadata only
     // Note: DOWNLOAD_CLAIMED audit logging occurred atomically inside acquire_download_claim_lease RPC!
     // Zero internal IDs, R2 keys, or server secrets leaked!
+    const currentDownloadCount = typeof claimResult.download_count === "number" ? claimResult.download_count : undefined;
+    const rawMaxDownloads = typeof claimResult.max_downloads === "number" ? claimResult.max_downloads : null;
+    const isOnePerMemberActiveClaim = Boolean(isOnePerMember && !claimResult.is_single_use);
+    const isTotalCapped = Boolean(rawMaxDownloads !== null && !(isOnePerMemberActiveClaim && rawMaxDownloads <= 1));
+    const maxDownloads = isTotalCapped ? rawMaxDownloads : null;
+    const limitReached = Boolean(isTotalCapped && currentDownloadCount !== undefined && currentDownloadCount >= rawMaxDownloads!);
+
     return NextResponse.json({
       success: true,
       downloadUrl,
@@ -401,6 +463,11 @@ export async function POST(
       byte_size: claimResult.byte_size,
       mime_type: claimResult.mime_type,
       expires_in_seconds: 50,
+      download_count: currentDownloadCount,
+      max_downloads: maxDownloads,
+      is_single_use: Boolean(claimResult.is_single_use),
+      one_per_member: isOnePerMember,
+      limit_reached: limitReached,
     });
   } catch (err) {
     console.error("Unexpected error claiming download:", err);

@@ -417,6 +417,10 @@ export function FileList({
     try {
       const maxDownloadsNum = isSingleUse
         ? 1
+        : onePerMember
+        ? maxDownloads.trim() && parseInt(maxDownloads.trim(), 10) > 1
+          ? parseInt(maxDownloads.trim(), 10)
+          : null
         : maxDownloads.trim()
         ? parseInt(maxDownloads.trim(), 10)
         : null;
@@ -424,8 +428,8 @@ export function FileList({
       const payload: Record<string, unknown> = {
         fileId: shareFile.id,
         maxDownloads: maxDownloadsNum,
-        onePerMember,
-        isSingleUse,
+        isSingleUse: Boolean(isSingleUse),
+        onePerMember: Boolean(!isSingleUse && onePerMember),
         burnAfterPreview,
         directDownload,
         disablePreview,
@@ -1339,7 +1343,13 @@ export function FileList({
                             <input
                               type="checkbox"
                               checked={isSingleUse}
-                              onChange={(e) => setIsSingleUse(e.target.checked)}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setIsSingleUse(checked);
+                                if (checked) {
+                                  setOnePerMember(false);
+                                }
+                              }}
                               className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0"
                             />
                           </div>
@@ -1444,21 +1454,39 @@ export function FileList({
                           {/* Header: Title + Dynamic Badge */}
                           <div className="flex items-center justify-between gap-1">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <Download className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                              <span className="text-xs font-bold text-foreground truncate">Download Quota</span>
+                              {onePerMember ? (
+                                <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                              ) : (
+                                <Download className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              )}
+                              <span className="text-xs font-bold text-foreground truncate">
+                                {onePerMember ? "People Limit & Access" : "Download Quota"}
+                              </span>
                               <span onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}>
                                 <InfoTooltip
-                                  title="Download Quota"
-                                  content="Sets the total times this file can be downloaded before the link locks up. Slide to any number or slide all the way left for Unlimited."
+                                  title={onePerMember ? "People Limit & Access" : "Download Quota"}
+                                  content={
+                                    onePerMember
+                                      ? "With 1 Download / Person enabled, unlimited different people can download this file (each person gets 1 download). Slide or enter a number only if you want to cap the total people who can claim."
+                                      : "Sets the total times this file can be downloaded before the link locks up. Slide to any number or slide all the way left for Unlimited."
+                                  }
                                   side="top"
                                   align="end"
-                                  variant="info"
-                                  iconClassName="w-3 h-3 text-muted-foreground/60 hover:text-blue-500"
+                                  variant={onePerMember ? "purple" : "info"}
+                                  iconClassName={`w-3 h-3 text-muted-foreground/60 ${onePerMember ? "hover:text-indigo-500" : "hover:text-blue-500"}`}
                                 />
                               </span>
                             </div>
                             <span className="text-[9.5px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted/80 text-foreground border border-border/60 shrink-0">
-                              {isSingleUse ? "1 max" : maxDownloads ? `${maxDownloads} max` : "Unlimited"}
+                              {isSingleUse
+                                ? "1 max"
+                                : onePerMember
+                                ? maxDownloads && parseInt(maxDownloads, 10) > 1
+                                  ? `${maxDownloads} people max (1 each)`
+                                  : "Unlimited People (1 each)"
+                                : maxDownloads
+                                ? `${maxDownloads} max`
+                                : "Unlimited"}
                             </span>
                           </div>
 
@@ -1469,24 +1497,42 @@ export function FileList({
                               min="0"
                               max="50"
                               step="1"
-                              value={isSingleUse ? 1 : maxDownloads ? Math.min(parseInt(maxDownloads, 10) || 0, 50) : 0}
+                              value={
+                                isSingleUse
+                                  ? 1
+                                  : onePerMember
+                                  ? maxDownloads && parseInt(maxDownloads, 10) > 1
+                                    ? Math.min(parseInt(maxDownloads, 10), 50)
+                                    : 0
+                                  : maxDownloads
+                                  ? Math.min(parseInt(maxDownloads, 10) || 0, 50)
+                                  : 0
+                              }
                               onChange={(e) => {
                                 const val = parseInt(e.target.value, 10);
-                                setMaxDownloads(val === 0 ? "" : val.toString());
+                                setMaxDownloads(val <= (onePerMember ? 1 : 0) ? "" : val.toString());
                               }}
                               disabled={isSingleUse}
-                              className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
-                              title="Slide to set download quota (0 = Unlimited)"
+                              className={`w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer ${onePerMember ? "accent-indigo-600" : "accent-blue-600"} disabled:opacity-50`}
+                              title={
+                                onePerMember
+                                  ? "Slide to cap total people (0 or 1 = Unlimited People, 1 download each)"
+                                  : "Slide to set download quota (0 = Unlimited)"
+                              }
                             />
                             <input
                               type="number"
-                              min="1"
+                              min={onePerMember ? "2" : "1"}
                               placeholder="∞"
                               value={isSingleUse ? "1" : maxDownloads}
                               onChange={(e) => setMaxDownloads(e.target.value)}
                               disabled={isSingleUse}
                               className="w-10 h-5.5 px-1 rounded bg-background border border-border/80 text-center font-mono text-[10.5px] text-foreground placeholder:text-muted-foreground/50 disabled:opacity-50 shrink-0 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              title="Enter exact quota (leave empty for unlimited)"
+                              title={
+                                onePerMember
+                                  ? "Enter max people cap (leave empty or 0 for Unlimited People, 1 each)"
+                                  : "Enter exact quota (leave empty for unlimited)"
+                              }
                             />
                           </div>
 
@@ -1514,9 +1560,14 @@ export function FileList({
                                 id="file-list-one-per-member"
                                 type="checkbox"
                                 checked={onePerMember}
-                                onChange={(e) => setOnePerMember(e.target.checked)}
-                                disabled={isSingleUse}
-                                className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0 disabled:opacity-50"
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setOnePerMember(checked);
+                                  if (checked) {
+                                    setIsSingleUse(false);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0"
                               />
                             </div>
                           </div>

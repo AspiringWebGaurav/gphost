@@ -636,6 +636,10 @@ export function FileManager({
     try {
       const maxDownloadsNum = shareIsSingleUse
         ? 1
+        : shareOnePerMember
+        ? shareMaxDownloads.trim() && parseInt(shareMaxDownloads.trim(), 10) > 1
+          ? parseInt(shareMaxDownloads.trim(), 10)
+          : null
         : shareMaxDownloads.trim()
         ? parseInt(shareMaxDownloads.trim(), 10)
         : null;
@@ -645,8 +649,8 @@ export function FileManager({
         expiresInPreset: shareExpiresIn,
         expiresIn: shareExpiresIn,
         maxDownloads: maxDownloadsNum,
-        isSingleUse: shareIsSingleUse,
-        onePerMember: shareOnePerMember,
+        isSingleUse: Boolean(shareIsSingleUse),
+        onePerMember: Boolean(!shareIsSingleUse && shareOnePerMember),
         burnAfterPreview: shareBurnAfterPreview,
         directDownload: shareDirectDownload,
         disablePreview: shareDisablePreview,
@@ -2693,7 +2697,13 @@ export function FileManager({
                           <input
                             type="checkbox"
                             checked={shareIsSingleUse}
-                            onChange={(e) => setShareIsSingleUse(e.target.checked)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setShareIsSingleUse(checked);
+                              if (checked) {
+                                setShareOnePerMember(false);
+                              }
+                            }}
                             className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0"
                           />
                         </div>
@@ -2798,21 +2808,39 @@ export function FileManager({
                         {/* Header: Title + Dynamic Badge */}
                         <div className="flex items-center justify-between gap-1">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <Download className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                            <span className="text-xs font-bold text-foreground truncate">Download Quota</span>
+                            {shareOnePerMember ? (
+                              <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            )}
+                            <span className="text-xs font-bold text-foreground truncate">
+                              {shareOnePerMember ? "People Limit & Access" : "Download Quota"}
+                            </span>
                             <span onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}>
                               <InfoTooltip
-                                title="Download Quota"
-                                content="Sets the total times this file can be downloaded before the link locks up. Slide to any number or slide all the way left for Unlimited."
+                                title={shareOnePerMember ? "People Limit & Access" : "Download Quota"}
+                                content={
+                                  shareOnePerMember
+                                    ? "With 1 Download / Person enabled, unlimited different people can download this file (each person gets 1 download). Slide or enter a number only if you want to cap the total people who can claim."
+                                    : "Sets the total times this file can be downloaded before the link locks up. Slide to any number or slide all the way left for Unlimited."
+                                }
                                 side="top"
                                 align="end"
-                                variant="info"
-                                iconClassName="w-3 h-3 text-muted-foreground/60 hover:text-blue-500"
+                                variant={shareOnePerMember ? "purple" : "info"}
+                                iconClassName={`w-3 h-3 text-muted-foreground/60 ${shareOnePerMember ? "hover:text-indigo-500" : "hover:text-blue-500"}`}
                               />
                             </span>
                           </div>
                           <span className="text-[9.5px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted/80 text-foreground border border-border/60 shrink-0">
-                            {shareIsSingleUse ? "1 max" : shareMaxDownloads ? `${shareMaxDownloads} max` : "Unlimited"}
+                            {shareIsSingleUse
+                              ? "1 max"
+                              : shareOnePerMember
+                              ? shareMaxDownloads && parseInt(shareMaxDownloads, 10) > 1
+                                ? `${shareMaxDownloads} people max (1 each)`
+                                : "Unlimited People (1 each)"
+                              : shareMaxDownloads
+                              ? `${shareMaxDownloads} max`
+                              : "Unlimited"}
                           </span>
                         </div>
 
@@ -2823,24 +2851,42 @@ export function FileManager({
                             min="0"
                             max="50"
                             step="1"
-                            value={shareIsSingleUse ? 1 : shareMaxDownloads ? Math.min(parseInt(shareMaxDownloads, 10) || 0, 50) : 0}
+                            value={
+                              shareIsSingleUse
+                                ? 1
+                                : shareOnePerMember
+                                ? shareMaxDownloads && parseInt(shareMaxDownloads, 10) > 1
+                                  ? Math.min(parseInt(shareMaxDownloads, 10), 50)
+                                  : 0
+                                : shareMaxDownloads
+                                ? Math.min(parseInt(shareMaxDownloads, 10) || 0, 50)
+                                : 0
+                            }
                             onChange={(e) => {
                               const val = parseInt(e.target.value, 10);
-                              setShareMaxDownloads(val === 0 ? "" : val.toString());
+                              setShareMaxDownloads(val <= (shareOnePerMember ? 1 : 0) ? "" : val.toString());
                             }}
                             disabled={shareIsSingleUse}
-                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
-                            title="Slide to set download quota (0 = Unlimited)"
+                            className={`w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer ${shareOnePerMember ? "accent-indigo-600" : "accent-blue-600"} disabled:opacity-50`}
+                            title={
+                              shareOnePerMember
+                                ? "Slide to cap total people (0 or 1 = Unlimited People, 1 download each)"
+                                : "Slide to set download quota (0 = Unlimited)"
+                            }
                           />
                           <input
                             type="number"
-                            min="1"
+                            min={shareOnePerMember ? "2" : "1"}
                             placeholder="∞"
                             value={shareIsSingleUse ? "1" : shareMaxDownloads}
                             onChange={(e) => setShareMaxDownloads(e.target.value)}
                             disabled={shareIsSingleUse}
                             className="w-10 h-5.5 px-1 rounded bg-background border border-border/80 text-center font-mono text-[10.5px] text-foreground placeholder:text-muted-foreground/50 disabled:opacity-50 shrink-0 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            title="Enter exact quota (leave empty for unlimited)"
+                            title={
+                              shareOnePerMember
+                                ? "Enter max people cap (leave empty or 0 for Unlimited People, 1 each)"
+                                : "Enter exact quota (leave empty for unlimited)"
+                            }
                           />
                         </div>
 
@@ -2868,9 +2914,14 @@ export function FileManager({
                               id="file-manager-one-per-member"
                               type="checkbox"
                               checked={shareOnePerMember}
-                              onChange={(e) => setShareOnePerMember(e.target.checked)}
-                              disabled={shareIsSingleUse}
-                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0 disabled:opacity-50"
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setShareOnePerMember(checked);
+                                if (checked) {
+                                  setShareIsSingleUse(false);
+                                }
+                              }}
+                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0"
                             />
                           </div>
                         </div>

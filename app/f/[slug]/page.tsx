@@ -294,7 +294,17 @@ export default async function PublicSharePage({ params }: PageProps) {
     );
   }
 
-  if (share.max_downloads !== null && share.download_count >= share.max_downloads) {
+  // If one_per_member is true and link is NOT single-use:
+  // - A max_downloads value <= 1 was from legacy/misconfigured quota where 1 per person was saved as max_downloads.
+  // - Such links allow unlimited people with 1 download per person.
+  // - Only if max_downloads > 1 is it an actual total people cap.
+  const isOnePerMemberActive = Boolean(share.one_per_member && !share.is_single_use);
+  const isTotalQuotaCapped = Boolean(
+    share.max_downloads !== null &&
+    !(isOnePerMemberActive && share.max_downloads <= 1)
+  );
+
+  if (isTotalQuotaCapped && share.download_count >= share.max_downloads!) {
     const isSingleUseBurn = Boolean(share.is_single_use);
     return (
       <PublicShareLayout>
@@ -332,7 +342,12 @@ export default async function PublicSharePage({ params }: PageProps) {
     );
   }
 
-  if (!share.is_active || file.status !== "ACTIVE") {
+  // Check link active status (ignoring spurious deactivation from legacy max_downloads <= 1 on one_per_member links)
+  const isPrematurelyDeactivatedOnePerMember = Boolean(
+    !share.is_active && isOnePerMemberActive && (share.max_downloads === null || share.max_downloads <= 1)
+  );
+
+  if ((!share.is_active && !isPrematurelyDeactivatedOnePerMember) || file.status !== "ACTIVE") {
     return (
       <PublicShareLayout>
         <StatusCard
