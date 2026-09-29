@@ -354,7 +354,7 @@ export function FileManager({
   const handleToggleXurl = (checked: boolean) => {
     setShareEnableXurl(checked);
     if (checked) {
-      checkXurlLiveStatus(true);
+      checkXurlLiveStatus(false);
     }
   };
 

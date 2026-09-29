@@ -362,7 +362,7 @@ export function FileList({
   const handleToggleXurl = (checked: boolean) => {
     setShortenWithXurl(checked);
     if (checked) {
-      checkXurlLiveStatus(true);
+      checkXurlLiveStatus(false);
     }
   };
 

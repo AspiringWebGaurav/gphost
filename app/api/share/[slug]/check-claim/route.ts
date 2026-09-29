@@ -38,7 +38,7 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
-    // 1. Resolve share link to verify one_per_member status with schema fallback
+    // 1. Fast Redis check for share link metadata (preserves database connections and execution time)
     let shareRecord: {
       id: string;
       is_active: boolean;
@@ -48,23 +48,46 @@ export async function POST(
       download_count: number;
     } | null = null;
 
-    const { data: primaryShare, error: pErr } = await adminClient
-      .from("share_links")
-      .select("id, is_active, one_per_member, is_single_use, max_downloads, download_count")
-      .eq("slug", slug)
-      .maybeSingle();
+    try {
+      const cachedShare = await redis.get<{
+        id: string;
+        is_active: boolean;
+        one_per_member?: boolean;
+        is_single_use: boolean;
+        max_downloads: number | null;
+        download_count: number;
+      }>(`share:meta:${slug}`);
+      if (cachedShare) {
+        shareRecord = cachedShare;
+      }
+    } catch {}
 
-    if (!pErr && primaryShare) {
-      shareRecord = primaryShare;
-    } else {
-      const { data: fallbackShare } = await adminClient
+    if (!shareRecord) {
+      const { data: primaryShare, error: pErr } = await adminClient
         .from("share_links")
-        .select("id, is_active, is_single_use, max_downloads, download_count")
+        .select("id, is_active, one_per_member, is_single_use, max_downloads, download_count")
         .eq("slug", slug)
         .maybeSingle();
 
-      if (fallbackShare) {
-        shareRecord = { ...fallbackShare, one_per_member: false };
+      if (!pErr && primaryShare) {
+        shareRecord = primaryShare;
+      } else {
+        const { data: fallbackShare } = await adminClient
+          .from("share_links")
+          .select("id, is_active, is_single_use, max_downloads, download_count")
+          .eq("slug", slug)
+          .maybeSingle();
+
+        if (fallbackShare) {
+          shareRecord = { ...fallbackShare, one_per_member: false };
+        }
+      }
+
+      if (shareRecord) {
+        // Cache in Redis with 60s TTL for subsequent check-claims
+        try {
+          await redis.set(`share:meta:${slug}`, shareRecord, { ex: 60 });
+        } catch {}
       }
     }
 

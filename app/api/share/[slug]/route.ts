@@ -40,7 +40,11 @@ export async function GET(
     try {
       const cached = await redis.get<PublicShareMetadata>(`share:pub:${slug}`);
       if (cached) {
-        return NextResponse.json(cached);
+        return NextResponse.json(cached, {
+          headers: {
+            "Cache-Control": "public, s-maxage=5, stale-while-revalidate=15",
+          },
+        });
       }
     } catch {}
 
@@ -223,7 +227,11 @@ export async function GET(
         await redis.set(`share:pub:${slug}`, publicMeta, { ex: redisTtl });
       } catch {}
     }
-    return NextResponse.json(publicMeta);
+    return NextResponse.json(publicMeta, {
+      headers: {
+        "Cache-Control": "public, s-maxage=5, stale-while-revalidate=15",
+      },
+    });
   } catch (err) {
     console.error("Error reading public share metadata:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

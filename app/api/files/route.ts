@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +26,15 @@ export async function GET(req: NextRequest) {
       : "created_at";
     const sortOrder = searchParams.get("sortOrder")?.toLowerCase() === "asc" ? "asc" : "desc";
 
-    // Non-blocking Lazy Reconciliation: Transition past-due files to EXPIRED in background
+    // Non-blocking Lazy Reconciliation: Transition past-due files to EXPIRED in background (throttled to once per 5m per user)
     const nowIso = new Date().toISOString();
     try {
       after(async () => {
+        try {
+          const acquired = await redis.set(`reconcile:user:${user.id}`, "1", { nx: true, ex: 300 });
+          if (!acquired) return;
+        } catch {}
+
         await adminClient
           .from("files")
           .update({ status: "EXPIRED", updated_at: nowIso })
