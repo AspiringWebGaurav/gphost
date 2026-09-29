@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   File as FileIcon,
   Share2,
@@ -156,12 +156,6 @@ export function ShareModal({
     }
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      checkXurlLiveStatus(false);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [checkXurlLiveStatus]);
 
   const handleToggleXurl = (checked: boolean) => {
     setShortenWithXurl(checked);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search,
   File as FileIcon,
@@ -221,7 +221,7 @@ export function FileManager({
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
-    }, 1000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -350,12 +350,6 @@ export function FileManager({
     }
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      checkXurlLiveStatus(false);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [checkXurlLiveStatus]);
 
   const handleToggleXurl = (checked: boolean) => {
     setShareEnableXurl(checked);
@@ -582,8 +576,15 @@ export function FileManager({
     []
   );
 
+  // Skip redundant initial fetch on mount (page 1 is already server-rendered in initialFiles)
+  const isInitialMount = useRef(true);
+
   // Trigger search on query / filter change with debounce
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     const handler = setTimeout(() => {
       fetchFiles(1, searchQuery, category, sortBy, sortOrder);
     }, 250);

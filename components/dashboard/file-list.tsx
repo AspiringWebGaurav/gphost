@@ -155,10 +155,10 @@ export function FileList({
   // Real-time live countdown ticker (ticks every second for smooth 35m -> 34m updates)
   const [currentTime, setCurrentTime] = useState(() => Date.now());
 
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
-    }, 1000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -358,12 +358,6 @@ export function FileList({
     }
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      checkXurlLiveStatus(false);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [checkXurlLiveStatus]);
 
   const handleToggleXurl = (checked: boolean) => {
     setShortenWithXurl(checked);

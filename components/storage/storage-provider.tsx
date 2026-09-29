@@ -45,6 +45,7 @@ export function StorageProvider({
   const isAdmin = initialProfile.role === "admin";
   const isUnlimited = quotaBytes === -1 || isAdmin;
 
+  const realtimeConnectedRef = useRef<boolean>(false);
   const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
   const isMountedRef = useRef<boolean>(true);
   const isSyncingRef = useRef<boolean>(false);
@@ -166,10 +167,16 @@ export function StorageProvider({
       }
     });
 
-    // 2. Smart Conditional Tracker: Check on window focus only (with ETag -> 304 Not Modified)
+    // 2. Smart Conditional Tracker: Supabase Realtime WebSocket handles live push updates.
+    // Fallback network sync only runs if the tab was dormant for > 30 minutes and Realtime dropped.
+    let lastFocusSync = Date.now();
     const onFocus = () => {
       if (document.visibilityState === "visible") {
-        refreshStorageState();
+        const now = Date.now();
+        if (now - lastFocusSync > 30 * 60 * 1000 && !realtimeConnectedRef.current) {
+          lastFocusSync = now;
+          refreshStorageState();
+        }
       }
     };
     window.addEventListener("focus", onFocus);
@@ -233,8 +240,10 @@ export function StorageProvider({
         }
       )
       .subscribe((status: string) => {
+        const isConnected = status === "SUBSCRIBED";
+        realtimeConnectedRef.current = isConnected;
         if (isMountedRef.current) {
-          setRealtimeConnected(status === "SUBSCRIBED");
+          setRealtimeConnected(isConnected);
         }
       });
 

@@ -70,8 +70,8 @@ export function SwitchyyFastSync({ projectId, publicKey }: SwitchyyFastSyncProps
     // Run initial fast-path check
     syncMode();
 
-    // High-priority 3.5s interval check for instant mode reaction
-    const intervalId = setInterval(syncMode, 3500);
+    // Periodic 45s interval check for emergency mode reaction
+    const intervalId = setInterval(syncMode, 45000);
 
     // Immediate check whenever user returns to or focuses the tab
     const handleVisibilityChange = () => {

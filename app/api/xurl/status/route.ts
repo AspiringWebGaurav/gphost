@@ -20,10 +20,19 @@ export async function GET(req: Request) {
     const forceFresh = searchParams.get("fresh") === "1" || searchParams.get("force") === "true";
 
     const status = await checkXurlAccountStatus(forceFresh);
-    return NextResponse.json({
-      success: true,
-      ...status,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        ...status,
+      },
+      {
+        headers: {
+          "Cache-Control": forceFresh
+            ? "no-store, no-cache, must-revalidate"
+            : "private, max-age=60, s-maxage=300, stale-while-revalidate=600",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ success: false, error: errorMsg }, { status: 500 });

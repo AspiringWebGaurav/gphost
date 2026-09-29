@@ -101,7 +101,7 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
     setCurrentTime(Date.now());
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
-    }, 1000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 

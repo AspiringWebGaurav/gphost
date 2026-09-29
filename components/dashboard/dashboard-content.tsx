@@ -96,17 +96,13 @@ export function DashboardContent({
     }
   }, []);
 
-  // Listen to typed live storage & file events
+  // Listen to typed live file lifecycle events (upload, delete, expiry change)
   useEffect(() => {
-    const unsubStorage = storageEvents.on("storage:updated", () => {
-      refreshData();
-    });
     const unsubLifecycle = storageEvents.on("file:lifecycle", () => {
       refreshData();
     });
 
     return () => {
-      unsubStorage();
       unsubLifecycle();
     };
   }, [refreshData]);

@@ -206,12 +206,20 @@ export function IdleSessionMonitor() {
     };
     window.addEventListener("storage", onStorage);
 
+    const lastRevocationCheckRef = { current: Date.now() };
+
     // 4. Tab visibility / Window focus check:
-    // If user returns to tab after leaving computer idle, immediately verify elapsed time, revocation, and refresh auth
+    // If user returns to tab after leaving computer idle, verify elapsed time and refresh auth token if expiring soon
     const onVisibilityOrFocus = async () => {
       if (document.visibilityState === "visible") {
         checkIdleStatus();
-        checkRevocationStatus();
+        // Supabase Realtime WebSocket listener below handles instantaneous (<500ms) revocation.
+        // Fallback network check is strictly throttled to at most once per 15 minutes to eliminate dumb quota burns.
+        const elapsed = Date.now() - lastRevocationCheckRef.current;
+        if (elapsed > 15 * 60 * 1000) {
+          lastRevocationCheckRef.current = Date.now();
+          checkRevocationStatus();
+        }
         if (!isLoggingOutRef.current) {
           recordActivity();
           // Proactively ensure Supabase session token is kept fresh upon focusing tab
@@ -232,18 +240,10 @@ export function IdleSessionMonitor() {
     document.addEventListener("visibilitychange", onVisibilityOrFocus);
     window.addEventListener("focus", onVisibilityOrFocus);
 
-    // 5. Background periodic timer to check idle timeout (every 15 seconds)
-    idleCheckIntervalRef.current = setInterval(checkIdleStatus, 15000);
+    // 5. Background periodic client-only timer to check idle timeout (every 45 seconds, 0 network requests)
+    idleCheckIntervalRef.current = setInterval(checkIdleStatus, 45000);
 
-    // 6. Heartbeat fallback polling to detect revocation: query every 2 minutes while tab is active/visible
-    // (Supabase Realtime WebSocket listener above handles instant <500ms revocation events)
-    const revocationPollInterval = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        checkRevocationStatus();
-      }
-    }, 120000);
-
-    // 7. Periodic Supabase session keep-alive while user is active
+    // 6. Periodic Supabase session keep-alive while user is active
     tokenRefreshIntervalRef.current = setInterval(async () => {
       const elapsed = Date.now() - lastActiveRef.current;
       if (elapsed < IDLE_TIMEOUT_MS) {
@@ -274,7 +274,6 @@ export function IdleSessionMonitor() {
         realtimeChannel = null;
       }
       if (idleCheckIntervalRef.current) clearInterval(idleCheckIntervalRef.current);
-      if (revocationPollInterval) clearInterval(revocationPollInterval);
       if (tokenRefreshIntervalRef.current) clearInterval(tokenRefreshIntervalRef.current);
     };
   }, [recordActivity, checkIdleStatus, checkRevocationStatus, handleRevocationLogout]);

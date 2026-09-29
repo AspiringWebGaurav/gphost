@@ -130,16 +130,31 @@ export function useTimeRemaining(
     const date = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
     const targetMs = date.getTime();
 
-    // If already expired, poll every 30s to keep elapsed time relatively accurate
-    const isAlreadyExpired = targetMs - Date.now() <= 0;
-    const intervalMs = isAlreadyExpired ? 30000 : 1000;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isCancelled = false;
 
-    const interval = setInterval(() => {
+    const tick = () => {
+      if (isCancelled) return;
       const current = Date.now();
       setNow(current);
-    }, intervalMs);
 
-    return () => clearInterval(interval);
+      const diff = targetMs - current;
+      // Adaptive intervals:
+      // - Expired: update every 30s for relative time
+      // - > 1 minute remaining: update every 10s (saves 90% re-renders)
+      // - <= 1 minute remaining: update every 1s for precise second-by-second countdown
+      const nextDelay = diff <= 0 ? 30000 : diff > 60000 ? 10000 : 1000;
+      timeoutId = setTimeout(tick, nextDelay);
+    };
+
+    const initialDiff = targetMs - Date.now();
+    const initialDelay = initialDiff <= 0 ? 30000 : initialDiff > 60000 ? 10000 : 1000;
+    timeoutId = setTimeout(tick, initialDelay);
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [expiresAt]);
 
   return useMemo(
