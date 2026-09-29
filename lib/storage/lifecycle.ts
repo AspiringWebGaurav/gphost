@@ -181,12 +181,7 @@ export async function executeLifecycleSweep(): Promise<{
           if (shares) {
             for (const s of shares) {
               if (s.slug) {
-                delPromises.push(
-                  redis.del(`raw:meta:${s.slug}`),
-                  redis.del(`share:pub:${s.slug}`),
-                  redis.del(`share:slug:${s.slug}`),
-                  redis.del(`share_enhancements:${s.slug}`)
-                );
+                delPromises.push(purgeShareLinkRedisData(s.slug));
               }
             }
           }
@@ -253,12 +248,7 @@ export async function executeLifecycleSweep(): Promise<{
           if (shares) {
             for (const s of shares) {
               if (s.slug) {
-                delPromises.push(
-                  redis.del(`raw:meta:${s.slug}`),
-                  redis.del(`share:pub:${s.slug}`),
-                  redis.del(`share:slug:${s.slug}`),
-                  redis.del(`share_enhancements:${s.slug}`)
-                );
+                delPromises.push(purgeShareLinkRedisData(s.slug));
               }
             }
           }
