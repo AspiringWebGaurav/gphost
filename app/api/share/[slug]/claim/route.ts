@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedUser } from "@/lib/auth/session";
-import { downloadClaimRatelimit } from "@/lib/redis/ratelimit";
+import { checkDownloadRateLimit } from "@/lib/redis/ratelimit";
 import { createPresignedGetUrl } from "@/lib/storage/r2";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
 import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-token";
@@ -22,52 +22,67 @@ export async function POST(
       return NextResponse.json({ error: "Invalid share slug" }, { status: 400 });
     }
 
-    // 1. VALIDATE: Extract client IP & apply ephemeral rate limiting
+    // 1. VALIDATE: Extract client IP & apply anti-abuse burst + volume rate limiting
     const clientIp = getClientIp(req.headers);
-    const { success: rateLimitOk } = await downloadClaimRatelimit.limit(clientIp);
-    if (!rateLimitOk) {
+    const rateLimitResult = await checkDownloadRateLimit(clientIp, slug);
+    if (!rateLimitResult.success) {
       return NextResponse.json(
-        { error: "Too many download requests. Please wait a moment before trying again." },
-        { status: 429 }
+        {
+          error: rateLimitResult.error || "Too many download requests. Please wait a few seconds before trying again.",
+          code: "RATE_LIMITED",
+          retryAfter: rateLimitResult.retryAfterSeconds || 5,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimitResult.retryAfterSeconds || 5),
+          },
+        }
       );
     }
 
     const adminClient = createAdminClient();
 
-    // 1b. Fast Redis cache check for password protection to avoid blocking DB select
-    let shareMeta: { file_id: string; has_password: boolean } | null = null;
-    try {
-      const cached = await redis.get<{ file_id: string; has_password: boolean }>(`share:slug:${slug}`);
-      if (cached) shareMeta = cached;
-    } catch {}
+    // 1b. Look up share link metadata with schema fallback
+    let shareRecord: { id: string; file_id: string; password_hash?: string | null; one_per_member?: boolean } | null = null;
+    const { data: sData, error: sErr } = await adminClient
+      .from("share_links")
+      .select("id, file_id, password_hash, one_per_member")
+      .eq("slug", slug)
+      .maybeSingle();
 
-    if (!shareMeta) {
-      const { data, error: shareMetaErr } = await adminClient
+    if (!sErr && sData) {
+      shareRecord = sData;
+    } else {
+      const { data: fbData } = await adminClient
         .from("share_links")
-        .select("file_id, password_hash")
+        .select("id, file_id, password_hash")
         .eq("slug", slug)
         .maybeSingle();
-
-      if (shareMetaErr || !data) {
-        return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+      if (fbData) {
+        shareRecord = { ...fbData, one_per_member: false };
       }
-
-      shareMeta = {
-        file_id: data.file_id,
-        has_password: Boolean(data.password_hash),
-      };
-
-      try {
-        await redis.set(`share:slug:${slug}`, shareMeta, { ex: 60 });
-      } catch {}
     }
 
+    if (!shareRecord) {
+      return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+    }
+
+    // Determine one_per_member setting (from DB column or Redis enhancement cache)
+    let isOnePerMember = Boolean(shareRecord.one_per_member);
+    try {
+      const cachedEnhancements = await redis.get<{ one_per_member?: boolean }>(`share_enhancements:${slug}`);
+      if (cachedEnhancements?.one_per_member !== undefined) {
+        isOnePerMember = Boolean(cachedEnhancements.one_per_member);
+      }
+    } catch {}
+
     // If password-protected, verify the signed unlock cookie
-    if (shareMeta.has_password) {
+    if (shareRecord.password_hash) {
       const cookieName = getUnlockCookieName(slug);
       const unlockCookie = req.cookies.get(cookieName)?.value;
 
-      if (!unlockCookie || !verifyUnlockToken(unlockCookie, slug, shareMeta.file_id)) {
+      if (!unlockCookie || !verifyUnlockToken(unlockCookie, slug, shareRecord.file_id)) {
         return NextResponse.json(
           {
             error: "This share link is password-protected. Password unlock required.",
@@ -78,28 +93,202 @@ export async function POST(
       }
     }
 
-    // 2. LOCK: Acquire authoritative 50-second download claim lease in PostgreSQL
-    const leaseToken = crypto.randomUUID();
     const ipHash = hashClientIp(clientIp);
-    const userAgent = req.headers.get("user-agent") || null;
-
-    // Detect optional authenticated member
     const authenticatedUser = await getAuthenticatedUser().catch(() => null);
     const userId = authenticatedUser?.id || null;
 
-    const { data: claimResult, error: claimErr } = await adminClient.rpc(
-      "acquire_download_claim_lease",
-      {
+    // Enforce 1 Download Per Person restriction if and only if mode is enabled
+    if (isOnePerMember) {
+      // Fast Redis lookup
+      let alreadyClaimed = false;
+      try {
+        const [claimedIp, claimedUser] = await Promise.all([
+          redis.get(`claimed_slot:${slug}:${ipHash}`),
+          userId ? redis.get(`claimed_slot:${slug}:user:${userId}`) : null,
+        ]);
+        if (claimedIp || claimedUser) alreadyClaimed = true;
+      } catch {}
+
+      if (!alreadyClaimed) {
+        const { data: pastDownload } = await adminClient
+          .from("file_downloads")
+          .select("id")
+          .eq("share_link_id", shareRecord.id)
+          .eq("ip_hash", ipHash)
+          .limit(1)
+          .maybeSingle();
+
+        if (pastDownload) alreadyClaimed = true;
+      }
+
+      if (alreadyClaimed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "You have already downloaded this file. Each member is limited to 1 download in their lifetime.",
+            code: "ALREADY_DOWNLOADED",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 2. LOCK: Acquire authoritative download claim lease in PostgreSQL
+    const leaseToken = crypto.randomUUID();
+    const userAgent = req.headers.get("user-agent") || null;
+
+    interface ClaimRpcResult {
+      success: boolean;
+      error?: string;
+      share_id?: string;
+      file_id?: string;
+      user_id?: string;
+      sanitized_name?: string;
+      byte_size?: number;
+      mime_type?: string;
+      r2_key?: string;
+      is_single_use?: boolean;
+      one_per_member?: boolean;
+      download_count?: number;
+      max_downloads?: number | null;
+      lease_token?: string;
+      expires_in_seconds?: number;
+    }
+
+    interface ClaimRpcError {
+      code?: string;
+      message?: string;
+      details?: string;
+      hint?: string;
+    }
+
+    let claimResult: ClaimRpcResult | null = null;
+    let claimErr: ClaimRpcError | null = null;
+
+    // 1. Primary: Authoritative 4-param acquire_download_claim_lease
+    const rpc4 = await adminClient.rpc("acquire_download_claim_lease", {
+      p_slug: slug,
+      p_lease_token: leaseToken,
+      p_ip_hash: ipHash,
+      p_user_agent: userAgent,
+    });
+
+    if (!rpc4.error && rpc4.data) {
+      claimResult = rpc4.data as ClaimRpcResult;
+    } else if (rpc4.error && userId) {
+      // 2. Secondary fallback: 5-param signature if deployed
+      const rpc5 = await adminClient.rpc("acquire_download_claim_lease", {
         p_slug: slug,
         p_lease_token: leaseToken,
         p_ip_hash: ipHash,
         p_user_agent: userAgent,
         p_user_id: userId,
-      }
-    );
+      });
 
-    if (claimErr || !claimResult) {
-      console.error("acquire_download_claim_lease RPC error:", claimErr);
+      if (!rpc5.error && rpc5.data) {
+        claimResult = rpc5.data as ClaimRpcResult;
+      } else {
+        claimErr = rpc4.error || rpc5.error;
+      }
+    } else {
+      claimErr = rpc4.error;
+    }
+
+    // 3. Bulletproof Direct Table Fallback: If database RPC failed or is desynced, execute direct authoritative claim
+    if (!claimResult) {
+      console.warn("Falling back to direct table claim transaction due to RPC error:", claimErr);
+      const { data: shareRow, error: shareErr } = await adminClient
+        .from("share_links")
+        .select(`
+          id,
+          file_id,
+          max_downloads,
+          download_count,
+          is_single_use,
+          is_active,
+          expires_at,
+          file:files (
+            id,
+            sanitized_name,
+            byte_size,
+            mime_type,
+            r2_key,
+            status,
+            expires_at
+          )
+        `)
+        .eq("slug", slug)
+        .single();
+
+      if (shareErr || !shareRow || !shareRow.file) {
+        return NextResponse.json({ error: "Share link not found" }, { status: 404 });
+      }
+
+      interface FileJoinedData {
+        id: string;
+        sanitized_name: string;
+        byte_size: number;
+        mime_type: string;
+        r2_key: string;
+        status: string;
+        expires_at: string | null;
+      }
+
+      const fileObj = (Array.isArray(shareRow.file) ? shareRow.file[0] : shareRow.file) as unknown as FileJoinedData;
+      if (!shareRow.is_active || fileObj.status !== "ACTIVE") {
+        return NextResponse.json({ error: "This file is no longer available for download" }, { status: 410 });
+      }
+
+      const now = Date.now();
+      if (shareRow.expires_at && new Date(shareRow.expires_at).getTime() <= now) {
+        return NextResponse.json({ error: "This share link has expired" }, { status: 410 });
+      }
+
+      if (shareRow.max_downloads !== null && shareRow.download_count >= shareRow.max_downloads) {
+        return NextResponse.json({ error: "This share link has reached its maximum download limit" }, { status: 410 });
+      }
+
+      const newCount = shareRow.download_count + 1;
+      const shouldDeactivate = Boolean(shareRow.max_downloads !== null && newCount >= shareRow.max_downloads);
+
+      await adminClient
+        .from("share_links")
+        .update({
+          download_count: newCount,
+          is_active: shouldDeactivate ? false : shareRow.is_active,
+        })
+        .eq("id", shareRow.id);
+
+      await adminClient
+        .from("file_downloads")
+        .insert({
+          share_link_id: shareRow.id,
+          file_id: shareRow.file_id,
+          lease_token: leaseToken,
+          lease_expires_at: new Date(Date.now() + 50000).toISOString(),
+          ip_hash: ipHash,
+          user_agent: userAgent,
+          status: "CLAIMED",
+        });
+
+      claimResult = {
+        success: true,
+        share_id: shareRow.id,
+        file_id: shareRow.file_id,
+        sanitized_name: fileObj.sanitized_name,
+        byte_size: fileObj.byte_size,
+        mime_type: fileObj.mime_type,
+        r2_key: fileObj.r2_key,
+        is_single_use: shareRow.is_single_use,
+        download_count: newCount,
+        max_downloads: shareRow.max_downloads,
+        lease_token: leaseToken,
+        expires_in_seconds: 50,
+      };
+      claimErr = null;
+    }
+
+    if (!claimResult) {
       return NextResponse.json({ error: "Failed to claim download slot" }, { status: 500 });
     }
 
@@ -144,6 +333,23 @@ export async function POST(
       }
     }
 
+    // If 1 Download Per Person mode is active, register slot claim immediately
+    if (isOnePerMember) {
+      try {
+        await Promise.all([
+          redis.set(`claimed_slot:${slug}:${ipHash}`, "1", { ex: 86400 * 30 }),
+          userId ? redis.set(`claimed_slot:${slug}:user:${userId}`, "1", { ex: 86400 * 30 }) : null,
+        ]);
+      } catch {}
+    }
+
+    if (!claimResult.r2_key || !claimResult.sanitized_name) {
+      return NextResponse.json(
+        { error: "Failed to retrieve secure file path" },
+        { status: 500 }
+      );
+    }
+
     // 3. PRESIGN: Generate 50-second presigned GET URL in-memory
     let downloadUrl: string;
     try {
@@ -168,12 +374,14 @@ export async function POST(
     }
 
     // Non-blocking edge telemetry (Cloudflare country, city, referrer)
-    void logFileEvent({
-      fileId: claimResult.file_id,
-      shareLinkId: claimResult.share_id,
-      eventType: "download",
-      req,
-    });
+    if (claimResult.file_id && claimResult.share_id) {
+      void logFileEvent({
+        fileId: claimResult.file_id,
+        shareLinkId: claimResult.share_id,
+        eventType: "download",
+        req,
+      });
+    }
 
     // Invalidate cached metadata so subsequent raw/share requests reflect updated download count or single-use state immediately
     try {

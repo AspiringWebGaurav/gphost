@@ -125,20 +125,20 @@ export function DashboardContent({
     quota === -1 ? 0 : Math.min(100, Math.round((storageUsed / Math.max(1, quota)) * 100));
 
   return (
-    <div className="space-y-3 sm:space-y-3.5 max-w-5xl w-full mx-auto" data-testid="dashboard-container">
+    <div className="space-y-2.5 sm:space-y-3.5 max-w-5xl w-full mx-auto" data-testid="dashboard-container">
       {/* 1. Dashboard Identity / Header — Overview Title & Direct Tab Redirects */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-border/60">
+      <div className="flex items-center justify-between gap-2.5 pb-1 border-b border-border/60">
         <div className="space-y-0.5 min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground truncate" data-testid="dashboard-header-title">
+          <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground truncate" data-testid="dashboard-header-title">
             Dashboard
           </h1>
-          <p className="text-sm text-muted-foreground truncate">
-            Welcome back, <span className="text-foreground font-semibold">{profile.full_name || profile.email.split("@")[0]}</span>. Here is your storage and sharing overview.
+          <p className="text-xs sm:text-sm text-muted-foreground truncate">
+            Welcome, <span className="text-foreground font-semibold">{profile.full_name || profile.email.split("@")[0]}</span>
           </p>
         </div>
 
-        {/* Quick Navigation Shortcuts — Direct Tab Redirects */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Quick Navigation Shortcuts — Direct Tab Redirects (hidden on mobile to preserve 1-view height since bottom nav is present) */}
+        <div className="hidden sm:flex items-center gap-2 shrink-0">
           <Link
             href="/upload?pick=1"
             onClick={() => {
@@ -276,13 +276,13 @@ export function DashboardContent({
           files={files}
           onFileDeleted={handleFileDeleted}
           hideHeader={true}
-          maxHeight="max-h-[190px]"
+          maxHeight="max-h-[150px] sm:max-h-[190px]"
           isPremium={isPremium}
         />
       </div>
 
-      {/* 4. Quick Actions / Feature Navigation Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3" data-testid="overview-quick-actions">
+      {/* 4. Quick Actions / Feature Navigation Strip (Visible on sm+ screens; on mobile the bottom navigation bar provides direct 1-tap access) */}
+      <div className="hidden sm:grid sm:grid-cols-3 gap-2.5 sm:gap-3" data-testid="overview-quick-actions">
         <Link
           href="/upload?pick=1"
           onClick={() => {

@@ -66,6 +66,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  const emailLower = (user.email || "").trim().toLowerCase();
+
+  // Root Ban: Decommissioned 9262 account is strictly purged and barred from logging in
+  if (emailLower === "gauravpatil9262@gmail.com") {
+    try {
+      await supabase.auth.signOut();
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const adminClient = createAdminClient();
+      await adminClient.from("profiles").delete().eq("id", user.id);
+      await adminClient.auth.admin.deleteUser(user.id);
+    } catch {}
+
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("error", "Access denied: This account has been permanently decommissioned.");
+    return NextResponse.redirect(loginUrl);
+  }
+
   // Authoritatively inspect user profile in PostgreSQL
   let profile = await getUserProfile(user.id);
 
@@ -79,7 +96,7 @@ export async function GET(request: NextRequest) {
   if (!profile && user.email) {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     const adminClient = createAdminClient();
-    const adminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil5737@gmail.com").trim().toLowerCase();
     const isOwner = Boolean(adminEmail && user.email.toLowerCase() === adminEmail);
     await adminClient.from("profiles").upsert({
       id: user.id,
@@ -105,6 +122,44 @@ export async function GET(request: NextRequest) {
       .update({ avatar_url: googleAvatar, updated_at: new Date().toISOString() })
       .eq("id", user.id);
     profile = await getUserProfile(user.id);
+  }
+
+  // Authoritative owner auto-elevation & protection: ensure sole admin is always approved with full quota
+  // AND ensure non-owner accounts can NEVER possess admin privileges
+  if (profile && user.email) {
+    const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil5737@gmail.com").trim().toLowerCase();
+    const isOwner = Boolean(adminEmail && user.email.toLowerCase() === adminEmail);
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const adminClient = createAdminClient();
+
+    if (isOwner) {
+      if (profile.role !== "admin" || profile.status !== "approved" || profile.quota_bytes !== -1 || !profile.can_create_permanent) {
+        await adminClient
+          .from("profiles")
+          .update({
+            role: "admin",
+            status: "approved",
+            quota_bytes: -1,
+            can_create_permanent: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+        profile = await getUserProfile(user.id);
+      }
+    } else {
+      if (profile.role === "admin" || profile.quota_bytes === -1 || profile.can_create_permanent) {
+        await adminClient
+          .from("profiles")
+          .update({
+            role: "user",
+            quota_bytes: 5368709120,
+            can_create_permanent: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+        profile = await getUserProfile(user.id);
+      }
+    }
   }
 
 

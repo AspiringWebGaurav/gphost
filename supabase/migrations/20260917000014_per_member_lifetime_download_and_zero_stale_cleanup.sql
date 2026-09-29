@@ -9,7 +9,7 @@
 
 -- 1. Schema Enhancements
 ALTER TABLE public.share_links
-    ADD COLUMN IF NOT EXISTS one_per_member BOOLEAN NOT NULL DEFAULT TRUE;
+    ADD COLUMN IF NOT EXISTS one_per_member BOOLEAN NOT NULL DEFAULT FALSE;
 
 COMMENT ON COLUMN public.share_links.one_per_member IS 'If true, unlimited people can access but each member/device can only download once in their lifetime';
 
@@ -101,8 +101,8 @@ BEGIN
     END IF;
 
     -- Per-Member Lifetime Download Check:
-    -- If one_per_member is TRUE (default), prevent any single person from downloading more than once
-    IF COALESCE(v_share.one_per_member, TRUE) = TRUE THEN
+    -- If one_per_member is TRUE (when explicitly enabled), prevent any single person from downloading more than once
+    IF COALESCE(v_share.one_per_member, FALSE) = TRUE THEN
         IF EXISTS (
             SELECT 1 FROM public.file_downloads fd
             WHERE fd.share_link_id = v_share.share_id

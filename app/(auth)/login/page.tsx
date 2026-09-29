@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogoSymbol } from "@/components/ui/brand-logo";
+import { LogoutButton } from "@/components/auth/logout-button";
 import {
   Layers,
   ShieldCheck,
@@ -92,6 +93,19 @@ function LoginForm() {
   const [showAccessToast, setShowAccessToast] = useState<boolean>(
     () => isWrongLogin
   );
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+
+  // Check if there is an active session so user can dynamically sign out back to landing page
+  useEffect(() => {
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then((res: { data?: { user?: { email?: string | null } | null } | null }) => {
+        if (res?.data?.user?.email) {
+          setCurrentUserEmail(res.data.user.email);
+        }
+      }).catch(() => {});
+    } catch {}
+  }, []);
 
   // Clean up error query param from browser address bar without reload
   useEffect(() => {
@@ -348,6 +362,28 @@ function LoginForm() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Existing Active Session Dynamic Card — Allows instant clean logout back to landing page */}
+      {currentUserEmail && (
+        <div className="w-full mt-5 p-3 rounded-2xl bg-card border border-border/80 flex items-center justify-between gap-3 text-xs text-left shadow-2xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+            <div className="min-w-0">
+              <span className="text-[10.5px] text-muted-foreground block truncate">Active session:</span>
+              <span className="font-semibold text-foreground truncate block text-xs">
+                {currentUserEmail}
+              </span>
+            </div>
+          </div>
+          <LogoutButton
+            variant="outline"
+            userEmail={currentUserEmail}
+            label="Sign Out"
+            redirectTo="/"
+            className="h-8 text-xs px-2.5 rounded-xl shrink-0"
+          />
         </div>
       )}
 

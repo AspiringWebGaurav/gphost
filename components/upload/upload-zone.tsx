@@ -634,7 +634,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             onDrop={handleDrop}
             onClick={() => !uploading && fileInputRef.current?.click()}
             className={`relative border-2 border-dashed rounded-2xl transition-all duration-200 cursor-pointer flex flex-col items-center justify-center text-center ${
-              compact ? "p-5" : "p-6 sm:p-8"
+              compact ? "p-4" : "p-4 sm:p-8"
             } ${
               isDragOver
                 ? "border-blue-500 bg-blue-500/10 scale-[1.005]"
@@ -671,16 +671,16 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
 
             <div
               className={`${
-                compact ? "w-10 h-10 mb-2.5" : "w-12 sm:w-14 h-12 sm:h-14 mb-3 sm:mb-4"
+                compact ? "w-10 h-10 mb-2" : "w-10 sm:w-14 h-10 sm:h-14 mb-2.5 sm:mb-4"
               } rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500 dark:text-blue-400 shadow-sm shadow-blue-500/5`}
             >
-              <UploadCloud className={compact ? "w-5 h-5" : "w-6 sm:w-7 h-6 sm:h-7"} />
+              <UploadCloud className={compact ? "w-5 h-5" : "w-5 sm:w-7 h-5 sm:h-7"} />
             </div>
 
-            <h3 className={`${compact ? "text-base" : "text-base sm:text-lg"} font-bold text-foreground mb-1`}>
+            <h3 className={`${compact ? "text-sm sm:text-base" : "text-base sm:text-lg"} font-bold text-foreground mb-1`}>
               {isDragOver ? "Drop file to upload" : "Drag and drop your file here, or browse"}
             </h3>
-            <p className="text-sm text-muted-foreground max-w-sm mb-3">
+            <p className="text-xs sm:text-sm text-muted-foreground max-w-sm mb-2.5 sm:mb-3">
               Maximum single-file size: 1 GB. Fast direct upload.
             </p>
 
@@ -692,9 +692,9 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                   e.stopPropagation();
                   fileInputRef.current?.click();
                 }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition shadow-xs cursor-pointer active:scale-[0.98]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold transition shadow-xs cursor-pointer active:scale-[0.98]"
               >
-                <UploadCloud className="w-4 h-4" />
+                <UploadCloud className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
                 <span>Browse Files</span>
               </button>
 
@@ -704,10 +704,10 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
                   e.stopPropagation();
                   folderInputRef.current?.click();
                 }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted text-foreground text-sm font-semibold transition shadow-2xs cursor-pointer hover:border-blue-500/30"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-border bg-background hover:bg-muted text-foreground text-xs sm:text-sm font-semibold transition shadow-2xs cursor-pointer hover:border-blue-500/30"
                 title="Select a directory or folder to upload"
               >
-                <Files className="w-4 h-4 text-blue-500" />
+                <Files className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-blue-500" />
                 <span>Upload Directory</span>
               </button>
             </div>
@@ -952,7 +952,7 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               </div>
 
               <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
-                Single unified lifecycle: file, live site, and CDN links all expire together in{" "}
+                All links (download, webpage, and direct file) expire together in{" "}
                 <strong>
                   {EXPIRY_OPTIONS.find((p) => p.value === expiryPreset)?.label || expiryPreset}
                 </strong>
@@ -1235,8 +1235,8 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-                <span>CDN Hotlink: <code className="font-mono text-foreground">/raw/{deployedSiteSlug}</code></span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-medium">Single unified lifecycle • Both delete together upon expiry</span>
+                <span>Direct Link: <code className="font-mono text-foreground">/raw/{deployedSiteSlug}</code></span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-medium">Both links delete together when time expires</span>
               </div>
             </div>
           )}

@@ -23,27 +23,27 @@ export default async function UploadPage() {
   const isAdmin = profile.role === "admin";
 
   return (
-    <div className="space-y-6 max-w-4xl w-full mx-auto">
+    <div className="space-y-3 sm:space-y-5 max-w-4xl w-full mx-auto">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+        <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           Upload Files
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
           Upload files up to 1 GB directly to secure cloud storage. Fast, private, and automatic.
         </p>
       </div>
 
       {/* Upload Zone Component */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border shadow-2xs">
+      <div className="p-3 sm:p-5 rounded-2xl bg-card border border-border shadow-2xs">
         <UploadZone
           canCreatePermanent={profile.can_create_permanent || isAdmin}
           isAdmin={isAdmin}
         />
       </div>
 
-      {/* Feature Badges - Sleek 1-line strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-muted-foreground">
+      {/* Feature Badges - Sleek 1-line strip on sm+ screens */}
+      <div className="hidden sm:grid sm:grid-cols-3 gap-3 text-muted-foreground">
         <div className="p-3 rounded-xl bg-card border border-border flex items-center gap-2.5 shadow-2xs">
           <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
           <div className="min-w-0">

@@ -51,7 +51,11 @@ export async function GET(req: NextRequest) {
            id,
            slug,
            is_active,
-           expires_at
+           expires_at,
+           xurl_mappings (
+             xurl_short_url,
+             status
+           )
          )`,
         { count: "exact" }
       )
@@ -154,6 +158,9 @@ export async function GET(req: NextRequest) {
       slug: string;
       is_active: boolean;
       expires_at: string | null;
+      xurl_mappings?:
+        | { xurl_short_url: string; status: string }
+        | { xurl_short_url: string; status: string }[];
     }
 
     interface DbFileItem {
@@ -177,7 +184,15 @@ export async function GET(req: NextRequest) {
         : [];
       const activeShare = rawShareLinks.find((s) => s.is_active) || rawShareLinks[0];
       const shareSlug = activeShare?.slug || null;
-      const isSite = f.mime_type === "text/html" || Boolean(shareSlug);
+      const xurl = Array.isArray(activeShare?.xurl_mappings)
+        ? activeShare.xurl_mappings[0]
+        : activeShare?.xurl_mappings;
+      const xurlShortUrl = xurl?.status === "active" ? xurl.xurl_short_url : null;
+      const xurlStatus = xurl?.status || null;
+      const isSite =
+        f.mime_type === "text/html" ||
+        f.sanitized_name?.toLowerCase().endsWith(".html") ||
+        f.sanitized_name?.toLowerCase().endsWith(".htm");
       return {
         id: f.id,
         filename: f.filename,
@@ -190,6 +205,8 @@ export async function GET(req: NextRequest) {
         created_at: f.created_at,
         share_slug: shareSlug,
         is_site: isSite,
+        xurl_short_url: xurlShortUrl,
+        xurl_status: xurlStatus,
       };
     });
     const totalCount = filesRes.count || 0;

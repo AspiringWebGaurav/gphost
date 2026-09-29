@@ -161,7 +161,7 @@ AS $$
 DECLARE
     v_admin RECORD;
     v_target RECORD;
-    v_owner_email TEXT := 'gauravpatil9262@gmail.com';
+    v_owner_email TEXT := 'gauravpatil5737@gmail.com';
     v_caller_is_owner BOOLEAN := FALSE;
 BEGIN
     SELECT * INTO v_admin FROM public.profiles WHERE id = p_admin_id;

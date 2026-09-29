@@ -210,7 +210,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
                 key={item.href}
                 href={item.href}
                 prefetch={true}
-                className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all duration-150 select-none ${
+                className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-3 rounded-xl transition-all duration-150 select-none ${
                   isActive
                     ? "text-blue-600 dark:text-blue-400 font-semibold"
                     : "text-muted-foreground hover:text-foreground"
@@ -227,7 +227,7 @@ export function MobileNav({ isAdmin, profile }: MobileNavProps) {
             type="button"
             data-testid="dashboard-bottom-menu-button"
             onClick={() => setIsOpen(true)}
-            className="flex flex-col items-center justify-center py-1 px-3 rounded-xl text-muted-foreground hover:text-foreground transition-all duration-150 select-none cursor-pointer"
+            className="flex flex-col items-center justify-center py-1 px-1.5 sm:px-3 rounded-xl text-muted-foreground hover:text-foreground transition-all duration-150 select-none cursor-pointer"
             aria-label="Open full menu"
           >
             <Menu className="w-4 h-4 mb-0.5" />

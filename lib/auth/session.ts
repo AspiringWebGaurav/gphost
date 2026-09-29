@@ -18,7 +18,7 @@ export interface UserProfile {
   updated_at: string;
 }
 
-export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "gauravpatil5737@gmail.com").trim().toLowerCase();
 
 /**
  * Retrieves the currently authenticated Supabase Auth user.
@@ -88,7 +88,41 @@ export const getUserProfile = cache(async (userId: string): Promise<UserProfile 
     return null;
   }
 
-  return data as UserProfile;
+  const profile = data as UserProfile;
+  const userEmail = (profile.email || "").toLowerCase();
+
+  // Root Ban: Decommissioned 9262 account is denied profile access and purged
+  if (userEmail === "gauravpatil9262@gmail.com") {
+    adminClient
+      .from("profiles")
+      .delete()
+      .eq("id", userId)
+      .then(() => {});
+    return null;
+  }
+
+  const isAuthoritativeAdmin = Boolean(ADMIN_EMAIL && userEmail === ADMIN_EMAIL);
+
+  // Root Security Enforcement: ONLY ADMIN_EMAIL (gauravpatil5737@gmail.com) can EVER have admin role
+  if (!isAuthoritativeAdmin && (profile.role === "admin" || profile.can_create_permanent || profile.quota_bytes === -1)) {
+    profile.role = "user";
+    profile.can_create_permanent = false;
+    profile.quota_bytes = 5368709120;
+
+    // Self-healing database correction
+    adminClient
+      .from("profiles")
+      .update({
+        role: "user",
+        can_create_permanent: false,
+        quota_bytes: 5368709120,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId)
+      .then(() => {});
+  }
+
+  return profile;
 });
 
 /**
@@ -114,12 +148,14 @@ export async function requireApprovedUser(): Promise<{ user: NonNullable<Awaited
 }
 
 /**
- * Authoritative Server Guard: Requires that the user is authenticated, approved, and has admin role.
+ * Authoritative Server Guard: Requires that the user is authenticated, approved, has admin role,
+ * AND strictly matches the sole authoritative admin email.
  */
 export async function requireAdminUser(): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> {
   const { user, profile } = await requireApprovedUser();
 
-  if (profile.role !== "admin") {
+  const userEmail = (user.email || "").toLowerCase();
+  if (profile.role !== "admin" || userEmail !== ADMIN_EMAIL) {
     throw new Error("FORBIDDEN_NOT_ADMIN");
   }
 

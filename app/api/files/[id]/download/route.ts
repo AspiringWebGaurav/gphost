@@ -4,6 +4,8 @@ import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPresignedGetUrl } from "@/lib/storage/r2";
 
+import { checkOwnerDownloadRateLimit } from "@/lib/redis/ratelimit";
+
 export const dynamic = "force-dynamic";
 
 const idSchema = z.string().uuid();
@@ -19,6 +21,24 @@ export async function GET(
     const parseId = idSchema.safeParse(fileId);
     if (!parseId.success) {
       return NextResponse.json({ error: "Invalid file ID format" }, { status: 400 });
+    }
+
+    // Anti-abuse rate limiting: max 3 per 6s, max 30 per min
+    const rateLimitResult = await checkOwnerDownloadRateLimit(user.id, fileId);
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          error: rateLimitResult.error || "Too many download requests. Please wait a moment.",
+          code: "RATE_LIMITED",
+          retryAfter: rateLimitResult.retryAfterSeconds || 3,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimitResult.retryAfterSeconds || 3),
+          },
+        }
+      );
     }
 
     const adminClient = createAdminClient();

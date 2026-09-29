@@ -23,69 +23,45 @@ export interface SlugValidationResult {
 }
 
 export function useSlugValidation(rawSlug: string, enabled: boolean = true): SlugValidationResult {
-  const [status, setStatus] = useState<SlugValidationStatus>("idle");
-  const [message, setMessage] = useState<string>("");
+  const [asyncResult, setAsyncResult] = useState<{
+    slug: string;
+    status: SlugValidationStatus;
+    message: string;
+  } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const trimmed = rawSlug.trim().toLowerCase();
+
+  // Pure synchronous derivation: instantaneous client validation without cascading effect re-renders
+  let syncStatus: SlugValidationStatus = "idle";
+  let syncMessage = "";
+
+  if (!enabled || !trimmed) {
+    syncStatus = "idle";
+    syncMessage = "";
+  } else if (trimmed.length < 3) {
+    syncStatus = "too_short";
+    syncMessage = "Minimum 3 characters";
+  } else if (trimmed.length > 48) {
+    syncStatus = "too_long";
+    syncMessage = "Maximum 48 characters";
+  } else if (!/^[a-z0-9_-]+$/.test(trimmed)) {
+    syncStatus = "invalid_chars";
+    syncMessage = "Letters, numbers, hyphens, and underscores only";
+  } else if (RESERVED_SLUGS.has(trimmed)) {
+    syncStatus = "reserved";
+    syncMessage = "Reserved system address";
+  } else {
+    syncStatus = "checking";
+  }
+
   useEffect(() => {
-    if (!enabled) {
-      setStatus("idle");
-      setMessage("");
-      return;
-    }
-
-    const trimmed = rawSlug.trim().toLowerCase();
-
-    // Empty slug is valid (since custom slug is optional)
-    if (!trimmed) {
+    if (!enabled || !trimmed || syncStatus !== "checking") {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      setStatus("idle");
-      setMessage("");
       return;
     }
-
-    // Client-side quick checks
-    if (trimmed.length < 3) {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      setStatus("too_short");
-      setMessage("Minimum 3 characters");
-      return;
-    }
-
-    if (trimmed.length > 48) {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      setStatus("too_long");
-      setMessage("Maximum 48 characters");
-      return;
-    }
-
-    if (!/^[a-z0-9_-]+$/.test(trimmed)) {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      setStatus("invalid_chars");
-      setMessage("Letters, numbers, hyphens, and underscores only");
-      return;
-    }
-
-    if (RESERVED_SLUGS.has(trimmed)) {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      setStatus("reserved");
-      setMessage("Reserved system address");
-      return;
-    }
-
-    // Passed local checks -> debounce server availability check
-    setStatus("checking");
-    setMessage("Checking availability...");
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -103,25 +79,20 @@ export function useSlugValidation(rawSlug: string, enabled: boolean = true): Slu
         if (controller.signal.aborted) return;
 
         if (res.ok && data.available) {
-          setStatus("available");
-          setMessage("Slug is available");
+          setAsyncResult({ slug: trimmed, status: "available", message: "Slug is available" });
         } else if (data.isTaken) {
-          setStatus("taken");
-          setMessage(data.error || "Slug is already taken");
+          setAsyncResult({ slug: trimmed, status: "taken", message: data.error || "Slug is already taken" });
         } else if (data.isReserved) {
-          setStatus("reserved");
-          setMessage(data.error || "Reserved system address");
+          setAsyncResult({ slug: trimmed, status: "reserved", message: data.error || "Reserved system address" });
         } else {
-          setStatus("taken");
-          setMessage(data.error || "Slug is not available");
+          setAsyncResult({ slug: trimmed, status: "taken", message: data.error || "Slug is not available" });
         }
       } catch (err: unknown) {
         if (controller.signal.aborted) return;
         // Don't flag error on standard abort
         if (err instanceof Error && err.name === "AbortError") return;
         console.warn("[useSlugValidation] Check failed:", err);
-        setStatus("error");
-        setMessage("Could not verify slug availability");
+        setAsyncResult({ slug: trimmed, status: "error", message: "Could not verify slug availability" });
       }
     }, 280);
 
@@ -129,17 +100,34 @@ export function useSlugValidation(rawSlug: string, enabled: boolean = true): Slu
       clearTimeout(timer);
       controller.abort();
     };
-  }, [rawSlug, enabled]);
+  }, [trimmed, enabled, syncStatus]);
 
-  // If rawSlug is empty, it is valid because custom slug is optional.
-  // If rawSlug is not empty, it is only valid if status is 'available'.
-  const trimmed = rawSlug.trim();
-  const isValid = !trimmed ? true : status === "available";
+  // Combine synchronous checks with asynchronous network result
+  const isSyncError = syncStatus !== "idle" && syncStatus !== "checking";
+  const isAsyncForCurrentSlug = asyncResult?.slug === trimmed;
+
+  const finalStatus: SlugValidationStatus = isSyncError
+    ? syncStatus
+    : syncStatus === "checking"
+    ? isAsyncForCurrentSlug
+      ? asyncResult.status
+      : "checking"
+    : "idle";
+
+  const finalMessage = isSyncError
+    ? syncMessage
+    : syncStatus === "checking"
+    ? isAsyncForCurrentSlug
+      ? asyncResult.message
+      : "Checking availability..."
+    : "";
+
+  const isValid = !trimmed ? true : finalStatus === "available";
 
   return {
-    status,
-    message,
+    status: finalStatus,
+    message: finalMessage,
     isValid,
-    isChecking: status === "checking",
+    isChecking: finalStatus === "checking",
   };
 }

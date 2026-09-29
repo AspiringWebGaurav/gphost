@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import {
   S3Client,
@@ -119,58 +121,108 @@ async function purgeSupabase() {
     }
   }
 
-  // Step B: Reset Admin profile & purge non-admin profiles
+  // Step B & C: Reset Admin profile(s) & preserve all admin accounts
   console.log("\n  Managing Profiles & Auth Users:");
-  const { data: allProfiles, error: pErr } = await supabase.from("profiles").select("id, email, role");
+  const { data: allProfiles, error: pErr } = await supabase.from("profiles").select("id, email, role, status");
+  const { data: authData, error: aErr } = await supabase.auth.admin.listUsers();
+
   if (pErr) {
     console.error("  Error reading profiles:", pErr.message);
-  } else {
-    for (const p of allProfiles || []) {
-      const isOwner = p.email.toLowerCase() === adminEmail || p.role === "admin";
-      if (isOwner) {
-        // Reset Admin profile to pristine zero state
-        await supabase
-          .from("profiles")
-          .update({
-            storage_used_bytes: 0,
-            reserved_bytes: 0,
-            quota_bytes: -1,
-            role: "admin",
-            status: "approved",
-            can_create_permanent: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", p.id);
-        console.log(`  ✓ Admin profile '${p.email}' preserved and reset to 0 used bytes.`);
-      } else {
-        // Delete non-admin user profile
-        await supabase.from("profiles").delete().eq("id", p.id);
-        console.log(`  ✓ Non-admin test profile '${p.email}' (${p.id}) deleted.`);
-      }
+  }
+  if (aErr) {
+    console.error("  Error reading auth users:", aErr.message);
+  }
+
+  // Authoritative sole admin email
+  const adminEmails = new Set([adminEmail || "gauravpatil5737@gmail.com"]);
+  const bannedEmails = new Set(["gauravpatil9262@gmail.com"]);
+
+  console.log("  Authoritative Sole Admin Account identified for preservation & full access:");
+  for (const email of adminEmails) {
+    console.log(`    - ${email}`);
+  }
+
+  // Delete banned profiles immediately
+  for (const banned of bannedEmails) {
+    await supabase.from("profiles").delete().ilike("email", banned);
+  }
+
+  // Reset sole admin profile to 0 usage and approved status; delete all others
+  for (const p of allProfiles || []) {
+    const emailLower = (p.email || "").toLowerCase();
+    const isSoleAdmin = adminEmails.has(emailLower) && !bannedEmails.has(emailLower);
+    if (isSoleAdmin) {
+      await supabase
+        .from("profiles")
+        .update({
+          storage_used_bytes: 0,
+          reserved_bytes: 0,
+          quota_bytes: -1,
+          role: "admin",
+          status: "approved",
+          can_create_permanent: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", p.id);
+      console.log(`  ✓ Sole Admin profile '${p.email}' preserved with full admin access (0 used bytes, unlimited quota, approved).`);
+    } else {
+      await supabase.from("profiles").delete().eq("id", p.id);
+      console.log(`  ✓ Non-admin/removed profile '${p.email}' (${p.id}) deleted.`);
     }
   }
 
-  // Step C: Delete non-admin test users from Supabase Auth so they can test fresh Google OAuth
-  const { data: authData, error: aErr } = await supabase.auth.admin.listUsers();
-  if (aErr) {
-    console.error("  Error listing auth users:", aErr.message);
-  } else {
-    for (const u of authData?.users || []) {
-      const isOwner = u.email?.toLowerCase() === adminEmail;
-      if (!isOwner) {
-        const { error: delAuthErr } = await supabase.auth.admin.deleteUser(u.id);
-        if (delAuthErr) {
-          console.error(`  Error deleting auth user ${u.email}:`, delAuthErr.message);
-        } else {
-          console.log(`  ✓ Auth user '${u.email}' (${u.id}) deleted from auth.users.`);
-        }
+  // Handle auth.users: ensure sole admin is preserved, gauravpatil9262 and others deleted
+  for (const u of authData?.users || []) {
+    const userEmail = (u.email || "").toLowerCase();
+    const isSoleAdmin = adminEmails.has(userEmail) && !bannedEmails.has(userEmail);
+    if (!isSoleAdmin) {
+      const { error: delAuthErr } = await supabase.auth.admin.deleteUser(u.id);
+      if (delAuthErr) {
+        console.error(`  Error deleting user ${u.email}:`, delAuthErr.message);
       } else {
-        console.log(`  ✓ Admin auth user '${u.email}' preserved for ongoing access.`);
+        console.log(`  ✓ Removed user '${u.email}' (${u.id}) deleted from auth.users.`);
+      }
+    } else {
+      console.log(`  ✓ Sole Admin auth user '${u.email}' preserved.`);
+
+      // Ensure profile exists for this preserved auth user
+      const existingProfile = (allProfiles || []).find((p) => p.id === u.id);
+      if (!existingProfile) {
+        await supabase.from("profiles").upsert({
+          id: u.id,
+          email: u.email,
+          full_name: u.user_metadata?.full_name || u.email?.split("@")[0] || "Admin",
+          avatar_url: u.user_metadata?.avatar_url || null,
+          role: "admin",
+          status: "approved",
+          quota_bytes: -1,
+          storage_used_bytes: 0,
+          reserved_bytes: 0,
+          can_create_permanent: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        console.log(`  ✓ Created missing admin profile for '${u.email}'.`);
       }
     }
   }
 
   console.log("✓ Supabase PostgreSQL & Auth cleanup complete.");
+}
+
+function cleanLocalCache() {
+  console.log("\n--- 4. CLEANING APPLICATION BUILD & LOCAL CACHE ---");
+  const cacheDir = path.resolve(".next", "cache");
+  if (fs.existsSync(cacheDir)) {
+    try {
+      fs.rmSync(cacheDir, { recursive: true, force: true, maxRetries: 3 });
+      console.log("  ✓ Successfully purged .next/cache directory.");
+    } catch (err) {
+      console.warn("  ⚠ Could not purge .next/cache directly (may be in active use by dev server):", err.message);
+    }
+  } else {
+    console.log("  ✓ .next/cache is already clean.");
+  }
 }
 
 async function run() {
@@ -182,6 +234,7 @@ async function run() {
   await purgeR2();
   await purgeRedis();
   await purgeSupabase();
+  cleanLocalCache();
 
   console.log("\n=================================================");
   console.log("✓ ALL STORAGE, CACHE, AND DATABASE DATA PURGED!  ");

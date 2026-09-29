@@ -54,13 +54,13 @@ export default async function ExpiringPage() {
   const { files } = await fetchExpiringFiles(user.id);
 
   return (
-    <div className="space-y-6 max-w-5xl w-full mx-auto">
+    <div className="space-y-3 sm:space-y-6 max-w-5xl w-full mx-auto">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+        <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           Expiring Soon
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
           Files scheduled to be automatically deleted in the next 3 days. Download them now if you need to keep them.
         </p>
       </div>

@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
       token_hash: tokenHash,
       max_downloads: effectiveMaxDownloads,
       is_single_use: isSingleUse,
-      one_per_member: Boolean(onePerMember ?? true),
+      one_per_member: Boolean(onePerMember),
       burn_after_preview: Boolean(burnAfterPreview),
       direct_download: Boolean(directDownload),
       disable_preview: Boolean(disablePreview),
@@ -279,7 +279,7 @@ export async function POST(req: NextRequest) {
 
       shareRecord = {
         ...fallbackData,
-        one_per_member: Boolean(onePerMember ?? true),
+        one_per_member: Boolean(onePerMember),
         burn_after_preview: Boolean(burnAfterPreview),
         direct_download: Boolean(directDownload),
         disable_preview: Boolean(disablePreview),
@@ -296,6 +296,8 @@ export async function POST(req: NextRequest) {
       await redis.set(
         `share_enhancements:${slug}`,
         {
+          one_per_member: Boolean(onePerMember),
+          burn_after_preview: Boolean(burnAfterPreview),
           direct_download: Boolean(directDownload),
           disable_preview: Boolean(disablePreview),
           recipient_note: recipientNote ? recipientNote.trim() : null,
@@ -462,7 +464,7 @@ export async function POST(req: NextRequest) {
         expires_at: shareRecord.expires_at,
         max_downloads: shareRecord.max_downloads,
         is_single_use: shareRecord.is_single_use,
-        one_per_member: shareRecord.one_per_member ?? true,
+        one_per_member: Boolean(shareRecord.one_per_member),
         burn_after_preview: shareRecord.burn_after_preview,
         direct_download: shareRecord.direct_download,
         disable_preview: shareRecord.disable_preview,

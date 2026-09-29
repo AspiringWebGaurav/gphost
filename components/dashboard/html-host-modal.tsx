@@ -796,7 +796,7 @@ export function HtmlHostModal({
                     <span>Hosting &amp; Link Expiry</span>
                   </label>
                   <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-medium">
-                    Single unified lifecycle
+                    Same expiry as file
                   </span>
                 </div>
                 <div className="w-full h-10 px-3.5 rounded-xl bg-muted/40 border border-border/80 flex items-center justify-between text-xs">

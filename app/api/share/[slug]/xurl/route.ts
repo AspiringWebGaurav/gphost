@@ -47,8 +47,16 @@ export async function POST(
     }
 
     // 3. Compute target URL
-    const defaultBase = process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc";
-    const xurlBase = (process.env.XURL_TARGET_BASE_URL || defaultBase).replace(/\/+$/, "");
+    const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+    const proto = req.headers.get("x-forwarded-proto") || (forwardedHost.startsWith("localhost") || forwardedHost.startsWith("127.0.0.1") ? "http" : "https");
+    const activeOrigin = (forwardedHost ? `${proto}://${forwardedHost}` : (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc")).replace(/\/+$/, "");
+    const isLocal =
+      activeOrigin.includes("localhost") ||
+      activeOrigin.includes("127.0.0.1") ||
+      activeOrigin.includes("::1") ||
+      activeOrigin.includes("192.168.");
+    const defaultXurlBase = isLocal ? "https://gphost.eu.cc" : activeOrigin;
+    const xurlBase = (process.env.XURL_TARGET_BASE_URL || defaultXurlBase).replace(/\/+$/, "");
     const targetUrl = `${xurlBase}/f/${share.slug}`;
 
     // 4. Reserve mapping

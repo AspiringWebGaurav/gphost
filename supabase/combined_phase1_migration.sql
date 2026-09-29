@@ -301,7 +301,7 @@ AS $$
 DECLARE
   is_permanent_admin BOOLEAN;
 BEGIN
-  is_permanent_admin := (LOWER(NEW.email) = 'gauravpatil9262@gmail.com');
+  is_permanent_admin := (LOWER(NEW.email) = 'gauravpatil5737@gmail.com');
   
   INSERT INTO public.profiles (
     id,

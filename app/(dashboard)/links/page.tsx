@@ -20,6 +20,7 @@ interface RawShareLinkRow {
         id: string;
         sanitized_name: string;
         byte_size: number;
+        mime_type?: string;
         user_id: string;
         status: string;
         expires_at: string | null;
@@ -28,6 +29,7 @@ interface RawShareLinkRow {
         id: string;
         sanitized_name: string;
         byte_size: number;
+        mime_type?: string;
         user_id: string;
         status: string;
         expires_at: string | null;
@@ -47,7 +49,7 @@ async function fetchActiveShareLinks(userId: string): Promise<ShareLinkItem[]> {
     .from("share_links")
     .select(
       `id, slug, max_downloads, download_count, is_single_use, is_active, expires_at, created_at, password_hash,
-       files!inner(id, sanitized_name, byte_size, user_id, status, expires_at),
+       files!inner(id, sanitized_name, byte_size, mime_type, user_id, status, expires_at),
        xurl_mappings(xurl_short_url, status)`
     )
     .eq("files.user_id", userId)
@@ -98,12 +100,19 @@ async function fetchActiveShareLinks(userId: string): Promise<ShareLinkItem[]> {
   return activeRows.map((l: RawShareLinkRow) => {
     const file = Array.isArray(l.files) ? l.files[0] : l.files;
     const xurl = Array.isArray(l.xurl_mappings) ? l.xurl_mappings[0] : l.xurl_mappings;
+    const isHtml =
+      file?.mime_type === "text/html" ||
+      file?.sanitized_name?.toLowerCase().endsWith(".html") ||
+      file?.sanitized_name?.toLowerCase().endsWith(".htm");
+
     return {
       id: l.id,
       slug: l.slug,
       file_id: file?.id,
       file_name: file?.sanitized_name || "Unknown",
       byte_size: file?.byte_size || 0,
+      mime_type: file?.mime_type,
+      is_site: Boolean(isHtml),
       download_count: l.download_count,
       max_downloads: l.max_downloads,
       is_single_use: l.is_single_use,
@@ -135,12 +144,12 @@ export default async function LinksPage() {
   const formattedLinks = await fetchActiveShareLinks(user.id);
 
   return (
-    <div className="space-y-6 max-w-6xl w-full mx-auto">
+    <div className="space-y-3 sm:space-y-6 max-w-6xl w-full mx-auto">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+        <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           Active Share Links
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
           View, copy, or delete links you&apos;ve created to share your files.
         </p>
       </div>

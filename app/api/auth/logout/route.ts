@@ -3,17 +3,29 @@ import { createClient } from "@/lib/supabase/server";
 
 /**
  * Logout Route Handler:
- * Clears the server session and invalidates auth cookies.
+ * Clears the server session, invalidates auth cookies, and returns to landing page.
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   await supabase.auth.signOut();
 
-  // Return clean JSON response or redirect based on request
   const acceptHeader = request.headers.get("accept") || "";
   if (acceptHeader.includes("text/html")) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const redirectRes = NextResponse.redirect(new URL("/", request.url));
+    redirectRes.cookies.delete("gphost_last_active");
+    return redirectRes;
   }
 
-  return NextResponse.json({ success: true, message: "Logged out successfully" });
+  const response = NextResponse.json({ success: true, message: "Logged out successfully" });
+  response.cookies.delete("gphost_last_active");
+  return response;
 }
+
+export async function GET(request: NextRequest) {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  const res = NextResponse.redirect(new URL("/", request.url));
+  res.cookies.delete("gphost_last_active");
+  return res;
+}
+

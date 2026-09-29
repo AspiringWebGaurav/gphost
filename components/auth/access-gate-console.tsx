@@ -244,11 +244,11 @@ export function AccessGateConsole({
   return (
     <div className="w-full max-w-md mx-auto flex flex-col justify-center">
       {/* Mode Switcher Tabs */}
-      <div className="p-1 rounded-xl bg-muted/70 border border-border flex items-center mb-6">
+      <div className="p-1 rounded-xl bg-muted/70 border border-border flex items-center mb-3 sm:mb-6">
         <button
           type="button"
           onClick={() => setActiveTab("pin")}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-2 py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
             activeTab === "pin"
               ? "bg-background text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground"
@@ -261,7 +261,7 @@ export function AccessGateConsole({
         <button
           type="button"
           onClick={() => setActiveTab("request")}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-2 py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
             activeTab === "request"
               ? "bg-background text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground"
@@ -274,9 +274,9 @@ export function AccessGateConsole({
 
       {/* Tab 1: Enter 4-Digit PIN */}
       {activeTab === "pin" && (
-        <div className="space-y-4 animate-in fade-in duration-200">
+        <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200">
           <div className="text-left">
-            <h2 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
+            <h2 className="text-base sm:text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
               <span>Enter Invite PIN</span>
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
                 <Sparkles className="w-2.5 h-2.5" />
@@ -360,7 +360,7 @@ export function AccessGateConsole({
             </div>
           )}
 
-          <form onSubmit={handlePinSubmit} className="space-y-4 text-left">
+          <form onSubmit={handlePinSubmit} className="space-y-3 sm:space-y-4 text-left">
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label htmlFor="access-pin-input" className="block text-xs font-medium text-muted-foreground">
@@ -395,7 +395,7 @@ export function AccessGateConsole({
                     if (pinError) setPinError(null);
                   }}
                   placeholder={lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0 ? "PAUSED" : "••••"}
-                  className="w-full text-center tracking-[0.7em] text-3xl font-mono py-3 px-4 rounded-xl bg-muted/40 hover:bg-muted/60 focus:bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-center tracking-[0.7em] text-2xl sm:text-3xl font-mono py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl bg-muted/40 hover:bg-muted/60 focus:bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 {pin.length > 0 && !(lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0) && (
                   <button
@@ -432,7 +432,7 @@ export function AccessGateConsole({
                 (siteKey ? !pinTurnstile : false) ||
                 (lockoutSecondsRemaining !== null && lockoutSecondsRemaining > 0)
               }
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.99]"
+              className="w-full py-2.5 sm:py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.99]"
             >
               {pinLoading ? (
                 <>

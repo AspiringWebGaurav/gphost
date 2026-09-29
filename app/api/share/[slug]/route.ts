@@ -44,9 +44,47 @@ export async function GET(
       }
     } catch {}
 
-    // 2. Authoritative PostgreSQL lookup
+    // 2. Authoritative PostgreSQL lookup with schema fallback
     const adminClient = createAdminClient();
-    const { data: share, error: shareError } = await adminClient
+
+    interface ShareLinkRecord {
+      id: string;
+      slug: string;
+      is_active: boolean;
+      is_single_use: boolean;
+      one_per_member?: boolean;
+      expires_at: string | null;
+      max_downloads: number | null;
+      download_count: number;
+      password_hash: string | null;
+      file: {
+        id: string;
+        sanitized_name: string;
+        byte_size: number;
+        mime_type: string;
+        status: string;
+        expires_at: string | null;
+        is_password_protected: boolean;
+      } | {
+        id: string;
+        sanitized_name: string;
+        byte_size: number;
+        mime_type: string;
+        status: string;
+        expires_at: string | null;
+        is_password_protected: boolean;
+      }[] | null;
+    }
+
+    interface PostgrestErrorLike {
+      code?: string;
+      message?: string;
+    }
+
+    let share: ShareLinkRecord | null = null;
+    let shareError: PostgrestErrorLike | null = null;
+
+    const { data: primaryShare, error: pErr } = await adminClient
       .from("share_links")
       .select(`
         id,
@@ -71,9 +109,49 @@ export async function GET(
       .eq("slug", slug)
       .single();
 
+    if (!pErr && primaryShare) {
+      share = primaryShare as unknown as ShareLinkRecord;
+    } else if (pErr && (pErr.code === "PGRST204" || pErr.code === "42703" || pErr.message?.includes("one_per_member"))) {
+      const { data: fallbackShare, error: fbErr } = await adminClient
+        .from("share_links")
+        .select(`
+          id,
+          slug,
+          is_active,
+          is_single_use,
+          expires_at,
+          max_downloads,
+          download_count,
+          password_hash,
+          file:files (
+            id,
+            sanitized_name,
+            byte_size,
+            mime_type,
+            status,
+            expires_at,
+            is_password_protected
+          )
+        `)
+        .eq("slug", slug)
+        .single();
+      share = fallbackShare ? { ...(fallbackShare as unknown as ShareLinkRecord), one_per_member: false } : null;
+      shareError = fbErr;
+    } else {
+      shareError = pErr;
+    }
+
     if (shareError || !share || !share.file) {
       return NextResponse.json({ error: "Share link not found" }, { status: 404 });
     }
+
+    // Check Redis for cached enhancements if column was absent
+    try {
+      const cachedEnhancements = await redis.get<{ one_per_member?: boolean }>(`share_enhancements:${slug}`);
+      if (cachedEnhancements?.one_per_member !== undefined) {
+        share.one_per_member = Boolean(cachedEnhancements.one_per_member);
+      }
+    } catch {}
 
     // Explicit type extraction for joined file
     // Supabase can return joined relation as an object or single item
@@ -371,11 +449,15 @@ export async function PATCH(
       } catch {}
     }
 
+    const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+    const proto = req.headers.get("x-forwarded-proto") || (forwardedHost.startsWith("localhost") || forwardedHost.startsWith("127.0.0.1") ? "http" : "https");
+    const activeOrigin = (forwardedHost ? `${proto}://${forwardedHost}` : (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc")).replace(/\/+$/, "");
+
     return NextResponse.json({
       success: true,
       newSlug,
-      shareUrl: `/f/${newSlug}`,
-      rawUrl: `/raw/${newSlug}`,
+      shareUrl: `${activeOrigin}/f/${newSlug}`,
+      rawUrl: `${activeOrigin}/raw/${newSlug}`,
     });
   } catch (err) {
     console.error("Error updating custom slug:", err);

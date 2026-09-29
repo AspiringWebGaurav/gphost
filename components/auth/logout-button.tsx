@@ -22,6 +22,7 @@ interface LogoutButtonProps {
   variant?: "outline" | "ghost" | "default" | "sidebar";
   userEmail?: string;
   label?: string;
+  redirectTo?: string;
 }
 
 export function LogoutButton({
@@ -29,6 +30,7 @@ export function LogoutButton({
   variant = "ghost",
   userEmail,
   label = "Sign out",
+  redirectTo = "/",
 }: LogoutButtonProps) {
   const router = useRouter();
   const [showConfirm, setShowConfirm] = useState(false);
@@ -68,7 +70,7 @@ export function LogoutButton({
     // Phase 0 (0ms): Handshake initiation
     // Phase 1 (300ms): Conduit severed & pods decouple
     // Phase 2 (750ms): Flushing cache & cookies
-    // Phase 3 (1200ms): Completed & navigation to /login
+    // Phase 3 (1200ms): Completed & navigation to landing page
 
     const t1 = setTimeout(() => {
       setDetachmentPhase(1);
@@ -85,18 +87,27 @@ export function LogoutButton({
       setProgress(100);
     }, 1150);
 
-    // Concurrently trigger Supabase signOut in the background
+    // Concurrently trigger client signOut and server cookie destruction
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("gphost_last_active");
+        sessionStorage.clear();
+      }
       const supabase = createClient();
       await supabase.auth.signOut();
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     } catch (err) {
       console.error("SignOut error:", err);
     }
 
-    // After the cinematic detachment finishes, redirect to /login
+    // After the cinematic detachment finishes, return cleanly to landing page
     const tFinal = setTimeout(() => {
-      router.push("/login");
-      router.refresh();
+      if (typeof window !== "undefined") {
+        window.location.href = redirectTo;
+      } else {
+        router.push(redirectTo);
+        router.refresh();
+      }
     }, 1550);
 
     return () => {
@@ -301,7 +312,7 @@ function LogoutConfirmationModal({
 
           {/* Description */}
           <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-            Are you sure you want to end your current session? You will need to sign back in with your credentials to access your dashboard and files.
+            Are you sure you want to end your current session? You will be signed out and returned to the home page.
           </p>
 
           {/* Account Pill (Tight, cohesive layout with avatar — no empty gap) */}
@@ -506,7 +517,7 @@ function DetachmentOverlay({
               done={phase >= 2}
             />
             <StepItem
-              label="Decouple credentials & return to login"
+              label="Decouple credentials & return home"
               active={phase === 2}
               done={phase >= 3}
             />
@@ -525,7 +536,7 @@ function DetachmentOverlay({
         <div className="mt-4 text-center">
           <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-1">
             <Sparkles className="w-3 h-3 text-rose-500" />
-            <span>Redirecting to login portal safely...</span>
+            <span>Returning to home safely...</span>
           </p>
         </div>
       </div>

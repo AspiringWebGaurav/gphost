@@ -267,6 +267,26 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
+  const adminEmail = (process.env.ADMIN_EMAIL || "gauravpatil5737@gmail.com").trim().toLowerCase();
+  const userEmail = (user.email || "").trim().toLowerCase();
+
+  // Root Ban: Legacy 9262 account is permanently barred
+  if (userEmail === "gauravpatil9262@gmail.com") {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    url.pathname = "/login";
+    url.searchParams.set("error", "Access denied: Account decommissioned");
+    const res = redirectWithCsp(url);
+    res.cookies.delete("gphost_last_active");
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.startsWith("sb-")) {
+        res.cookies.delete(cookie.name);
+      }
+    });
+    return res;
+  }
+
   // Authenticated user on protected path or login: verify profile status
   const { data: profile } = await supabase
     .from("profiles")
@@ -276,7 +296,9 @@ export async function proxy(request: NextRequest) {
 
   const isApproved = profile?.status === "approved";
   const isRevoked = profile?.status === "revoked";
-  const isAdmin = profile?.role === "admin";
+  // Root Admin Security: ONLY the configured sole admin email can EVER be recognized as admin
+  const isSoleAdmin = Boolean(adminEmail && userEmail === adminEmail);
+  const isAdmin = isSoleAdmin && profile?.role === "admin";
 
   // Instant Revocation Gate: Immediately log out revoked users and strip credentials
   if (isRevoked) {

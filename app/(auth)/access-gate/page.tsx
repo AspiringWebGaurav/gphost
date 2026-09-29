@@ -186,9 +186,9 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
         </div>
 
         {/* Right Column: Edge-to-edge Interactive Console */}
-        <div className="lg:col-span-6 xl:col-span-5 h-full flex flex-col justify-between p-6 sm:p-8 xl:p-14 relative bg-background overflow-y-auto lg:overflow-hidden">
+        <div className="lg:col-span-6 xl:col-span-5 h-full flex flex-col justify-between p-4 sm:p-8 xl:p-14 relative bg-background overflow-y-auto lg:overflow-hidden">
           {/* Top Header Row: User info, Theme, Sign Out */}
-          <div className="flex items-center justify-between w-full max-w-md mx-auto pb-4">
+          <div className="flex items-center justify-between w-full max-w-md mx-auto pb-2.5 sm:pb-4">
             <div className="flex items-center gap-2 min-w-0">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
               <span className="text-xs text-muted-foreground truncate font-medium">
@@ -203,7 +203,7 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
           </div>
 
           {/* Centered Interactive Console */}
-          <div className="my-auto w-full py-2">
+          <div className="my-auto w-full py-1 sm:py-2">
             <AccessGateConsole
               userEmail={user.email || ""}
               hasExistingPendingRequest={!!existingPendingRequest}
@@ -223,14 +223,14 @@ export default async function AccessGatePage({ searchParams }: AccessGatePagePro
       </div>
 
       {/* Unified Full-Width Edge-to-Edge Footer Bar */}
-      <footer className="h-13 border-t border-border/80 bg-card/60 dark:bg-zinc-950/60 backdrop-blur-md px-6 sm:px-8 lg:px-12 flex items-center justify-between text-xs text-muted-foreground shrink-0 z-20 transition-colors">
+      <footer className="h-11 sm:h-13 border-t border-border/80 bg-card/60 dark:bg-zinc-950/60 backdrop-blur-md px-4 sm:px-8 lg:px-12 flex items-center justify-between text-xs text-muted-foreground shrink-0 z-20 transition-colors">
         <div>
           <span className="font-medium text-foreground/80">
             &copy; {new Date().getFullYear()} GPHosting (Gaurav Patil Hosting)
           </span>
         </div>
 
-        <div className="flex items-center gap-4 sm:gap-6 font-medium">
+        <div className="flex items-center gap-3 sm:gap-6 font-medium">
           <Link href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
             Terms of Service
           </Link>

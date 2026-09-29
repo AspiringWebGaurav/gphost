@@ -38,7 +38,11 @@ export default async function FilesPage() {
          id,
          slug,
          is_active,
-         expires_at
+         expires_at,
+         xurl_mappings (
+           xurl_short_url,
+           status
+         )
        )`,
       { count: "exact" }
     )
@@ -52,6 +56,9 @@ export default async function FilesPage() {
     slug: string;
     is_active: boolean;
     expires_at: string | null;
+    xurl_mappings?:
+      | { xurl_short_url: string; status: string }
+      | { xurl_short_url: string; status: string }[];
   }
 
   interface DbFileItem {
@@ -75,6 +82,11 @@ export default async function FilesPage() {
       : [];
     const activeShare = rawShareLinks.find((s) => s.is_active) || rawShareLinks[0];
     const shareSlug = activeShare?.slug || null;
+    const xurl = Array.isArray(activeShare?.xurl_mappings)
+      ? activeShare.xurl_mappings[0]
+      : activeShare?.xurl_mappings;
+    const xurlShortUrl = xurl?.status === "active" ? xurl.xurl_short_url : null;
+    const xurlStatus = xurl?.status || null;
     return {
       id: f.id,
       filename: f.filename,
@@ -86,7 +98,12 @@ export default async function FilesPage() {
       expires_at: f.expires_at,
       created_at: f.created_at,
       share_slug: shareSlug,
-      is_site: f.mime_type === "text/html" || Boolean(shareSlug),
+      is_site:
+        f.mime_type === "text/html" ||
+        f.sanitized_name?.toLowerCase().endsWith(".html") ||
+        f.sanitized_name?.toLowerCase().endsWith(".htm"),
+      xurl_short_url: xurlShortUrl,
+      xurl_status: xurlStatus,
     };
   });
 
@@ -94,13 +111,13 @@ export default async function FilesPage() {
   const totalPages = Math.ceil(totalCount / 20);
 
   return (
-    <div className="space-y-6 max-w-6xl w-full mx-auto">
+    <div className="space-y-3 sm:space-y-6 max-w-6xl w-full mx-auto">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+        <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           File Manager
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
           View, search, and manage all your uploaded files in one place.
         </p>
       </div>

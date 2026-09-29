@@ -132,7 +132,7 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
     share = fallbackShare
       ? {
           ...fallbackShare,
-          one_per_member: true,
+          one_per_member: false,
           burn_after_preview: false,
           first_previewed_at: null,
           preview_count: 0,
@@ -145,27 +145,31 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
   } else if (shareWithBurn) {
     share = {
       ...shareWithBurn,
-      one_per_member: shareWithBurn.one_per_member ?? true,
-      burn_after_preview: Boolean(shareWithBurn.burn_after_preview),
-      direct_download: Boolean(shareWithBurn.direct_download),
-      disable_preview: Boolean(shareWithBurn.disable_preview),
+      one_per_member: Boolean(shareWithBurn.one_per_member === true),
+      burn_after_preview: Boolean(shareWithBurn.burn_after_preview === true),
+      direct_download: Boolean(shareWithBurn.direct_download === true),
+      disable_preview: Boolean(shareWithBurn.disable_preview === true),
       recipient_note: shareWithBurn.recipient_note || null,
       password_hint: shareWithBurn.password_hint || null,
     };
   }
 
-  // If new schema fields are empty or fallback was used, check Redis for cached enhancements
-  if (share && (!share.recipient_note && !share.password_hint && !share.direct_download && !share.disable_preview)) {
+  // If enhancements are in Redis, check Redis for cached values (including one_per_member)
+  if (share) {
     try {
       const cached = await redis.get<{
+        one_per_member?: boolean;
+        burn_after_preview?: boolean;
         direct_download?: boolean;
         disable_preview?: boolean;
         recipient_note?: string | null;
         password_hint?: string | null;
       }>(`share_enhancements:${slug}`);
       if (cached) {
-        if (cached.direct_download !== undefined) share.direct_download = cached.direct_download;
-        if (cached.disable_preview !== undefined) share.disable_preview = cached.disable_preview;
+        if (typeof cached.one_per_member === "boolean") share.one_per_member = cached.one_per_member;
+        if (typeof cached.burn_after_preview === "boolean") share.burn_after_preview = cached.burn_after_preview;
+        if (typeof cached.direct_download === "boolean") share.direct_download = cached.direct_download;
+        if (typeof cached.disable_preview === "boolean") share.disable_preview = cached.disable_preview;
         if (cached.recipient_note !== undefined) share.recipient_note = cached.recipient_note;
         if (cached.password_hint !== undefined) share.password_hint = cached.password_hint;
       }
@@ -276,15 +280,14 @@ export default async function PublicSharePage({ params }: PageProps) {
         <StatusCard
           icon={<Clock className="w-12 h-12 text-amber-500" />}
           title={`Link Expired (${elapsedAgo})`}
-          description={`This link expired ${elapsedAgo} at ${formattedUtc}. In accordance with privacy policies, the file has been safely and permanently deleted from storage.`}
-          badgeText={`Lifecycle: Expired ${elapsedAgo}`}
+          description={`This link expired ${elapsedAgo} at ${formattedUtc}. To protect privacy, the file has been safely and permanently deleted.`}
+          badgeText={`Expired ${elapsedAgo}`}
           badgeColor="amber"
           lifecycleDetails={[
-            `Expired timestamp: ${formattedUtc}`,
-            `Elapsed duration: ${elapsedAgo}`,
-            "Time-to-Live (TTL) window has elapsed",
-            "Secure cloud storage scrubbed & purged",
-            "Zero residual server logs or copies retained",
+            `Expired at: ${formattedUtc}`,
+            "The sharing time limit has finished",
+            "File permanently deleted from servers",
+            "No copies or backups saved",
           ]}
         />
       </PublicShareLayout>
@@ -303,25 +306,25 @@ export default async function PublicSharePage({ params }: PageProps) {
               <Ban className="w-12 h-12 text-rose-500" />
             )
           }
-          title={isSingleUseBurn ? "Single-Use Link Burned" : "Download Limit Reached"}
+          title={isSingleUseBurn ? "1-Time Link Used" : "Download Limit Reached"}
           description={
             isSingleUseBurn
-              ? "This single-use file has already been downloaded. As per security policies, the file and link self-destructed immediately upon claim."
-              : `This transfer link has reached its maximum quota of ${share.max_downloads} downloads. Direct access is permanently closed.`
+              ? "This 1-time file has already been downloaded. To protect privacy, the file and link were deleted immediately after downloading."
+              : `This link has reached its maximum limit of ${share.max_downloads} downloads and is now permanently closed.`
           }
-          badgeText={isSingleUseBurn ? "Lifecycle: Burned on Claim" : "Lifecycle: Quota Exhausted"}
+          badgeText={isSingleUseBurn ? "1-Time Download Used" : "Download Limit Reached"}
           badgeColor="rose"
           lifecycleDetails={
             isSingleUseBurn
               ? [
-                  "1-time download slot was claimed",
-                  "Ephemeral link automatically self-destructed",
-                  "Storage scrubbed permanently",
+                  "File was downloaded once",
+                  "Link and file were permanently deleted",
+                  "No copies or backups saved",
                 ]
               : [
-                  `Reached quota ceiling (${share.download_count}/${share.max_downloads} claimed)`,
-                  "Direct access permanently revoked",
-                  "Storage scheduled for automatic cleanup",
+                  `Limit reached: ${share.download_count} of ${share.max_downloads} downloads used`,
+                  "Link permanently closed",
+                  "File deleted from servers",
                 ]
           }
         />
@@ -334,14 +337,14 @@ export default async function PublicSharePage({ params }: PageProps) {
       <PublicShareLayout>
         <StatusCard
           icon={<Ban className="w-12 h-12 text-neutral-500" />}
-          title="File Unavailable"
-          description="This share link has been revoked by the owner or the file is no longer active in storage."
-          badgeText="Lifecycle: Revoked by Sender"
+          title="Link Unavailable"
+          description="This link has been turned off by the person who sent it, or the file is no longer available."
+          badgeText="Disabled by Sender"
           badgeColor="neutral"
           lifecycleDetails={[
-            "Access manually revoked by file creator",
-            "Direct download link disabled",
-            "File deactivated",
+            "The sender turned off this link",
+            "Download link disabled",
+            "File is no longer accessible",
           ]}
         />
       </PublicShareLayout>
@@ -378,13 +381,13 @@ export default async function PublicSharePage({ params }: PageProps) {
       <DownloadCard
         slug={slug}
         metadata={publicMetadata}
-        isSingleUse={Boolean(share.is_single_use)}
-        onePerMember={Boolean(share.one_per_member ?? true)}
+        isSingleUse={Boolean(share.is_single_use === true)}
+        onePerMember={Boolean(share.one_per_member === true)}
         siteKey={siteKey}
         initialPreviewUrl={initialPreviewUrl}
         initialPreviewType={previewType}
-        directDownload={Boolean(share.direct_download)}
-        disablePreview={Boolean(share.disable_preview)}
+        directDownload={Boolean(share.direct_download === true)}
+        disablePreview={Boolean(share.disable_preview === true)}
         recipientNote={share.recipient_note || null}
         passwordHint={share.password_hint || null}
       />
@@ -396,7 +399,7 @@ function PublicShareLayout({ children }: { children: React.ReactNode }) {
   const currentYear = new Date().getFullYear();
 
   return (
-    <div className="min-h-dvh lg:h-dvh w-full max-w-full bg-background text-foreground flex flex-col antialiased selection:bg-blue-500/20 selection:text-blue-500 relative overflow-x-hidden">
+    <div className="h-dvh max-h-dvh w-full max-w-full bg-background text-foreground flex flex-col antialiased selection:bg-blue-500/20 selection:text-blue-500 relative overflow-hidden">
       {/* Subtle ambient lighting */}
       <div
         className="pointer-events-none fixed -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-blue-500/5 dark:bg-blue-500/10 blur-[140px]"
@@ -408,7 +411,7 @@ function PublicShareLayout({ children }: { children: React.ReactNode }) {
       />
 
       {/* Minimal Top Header Bar */}
-      <header className="h-12 sm:h-14 w-full px-4 sm:px-8 flex items-center justify-between border-b border-border/40 shrink-0 z-30">
+      <header className="h-11 sm:h-14 w-full px-3.5 sm:px-8 flex items-center justify-between border-b border-border/40 shrink-0 z-30">
         <BrandLogo size="sm" />
 
         <div className="flex items-center gap-3">
@@ -416,13 +419,13 @@ function PublicShareLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* Main Edge-to-Edge Viewport Content */}
-      <main className="flex-1 w-full flex flex-col overflow-y-auto lg:overflow-hidden relative z-10">
+      {/* Main Edge-to-Edge Viewport Content - Strict One-View, Zero Vertical Scroll */}
+      <main className="flex-1 w-full flex flex-col overflow-hidden relative z-10 min-h-0">
         {children}
       </main>
 
       {/* Unified Centralized Bottom Footer */}
-      <footer className="h-10 sm:h-11 w-full px-3 sm:px-6 border-t border-border/40 flex items-center justify-center gap-2 sm:gap-5 text-[11px] sm:text-xs text-muted-foreground shrink-0 z-20 whitespace-nowrap">
+      <footer className="h-8 sm:h-10 w-full px-3 sm:px-6 border-t border-border/40 flex items-center justify-center gap-2 sm:gap-5 text-[10px] sm:text-xs text-muted-foreground shrink-0 z-20 whitespace-nowrap">
         <span className="shrink-0">&copy; {currentYear} GPHosting</span>
         <span className="text-muted-foreground/30 shrink-0">•</span>
         <Link href="/" className="hover:text-foreground transition-colors cursor-pointer shrink-0">
@@ -465,41 +468,41 @@ function StatusCard({
   }[badgeColor];
 
   return (
-    <div className="h-full w-full flex flex-col items-center justify-center p-6 text-center">
-      <div className="max-w-md w-full space-y-4">
-        <div className="flex justify-center">{icon}</div>
-        <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${badgeClasses}`}>
+    <div className="h-full w-full flex flex-col items-center justify-center p-4 sm:p-6 text-center overflow-hidden">
+      <div className="max-w-md w-full space-y-2.5 sm:space-y-4 my-auto">
+        <div className="flex justify-center scale-90 sm:scale-100">{icon}</div>
+        <span className={`inline-block px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[11px] sm:text-xs font-semibold border ${badgeClasses}`}>
           {badgeText}
         </span>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">{title}</h1>
-        <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight leading-tight">{title}</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-3 sm:line-clamp-none">{description}</p>
 
         {lifecycleDetails && lifecycleDetails.length > 0 && (
-          <div className="text-left p-3.5 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-1.5">
-            <p className="font-semibold text-foreground text-[11px] uppercase tracking-wider">
-              Lifecycle Breakdown
+          <div className="text-left p-2.5 sm:p-3.5 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-1">
+            <p className="font-semibold text-foreground text-[10px] sm:text-[11px] uppercase tracking-wider">
+              What Happened
             </p>
-            <ul className="space-y-1 text-muted-foreground text-[11px]">
-              {lifecycleDetails.map((detail, idx) => (
+            <ul className="space-y-0.5 sm:space-y-1 text-muted-foreground text-[10px] sm:text-[11px]">
+              {lifecycleDetails.slice(0, 3).map((detail, idx) => (
                 <li key={idx} className="flex items-start gap-1.5">
                   <span className="text-blue-500 shrink-0">•</span>
-                  <span>{detail}</span>
+                  <span className="truncate sm:whitespace-normal">{detail}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
+        <div className="pt-1 sm:pt-2 flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
           <Link
             href="/"
-            className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             Upload a File
           </Link>
           <Link
             href="/"
-            className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-semibold transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-semibold transition-colors cursor-pointer"
           >
             Return to Home
           </Link>

@@ -22,12 +22,12 @@ import {
   Info,
   ChevronDown,
   Ban,
-  Zap,
   Lightbulb,
   MessageSquare,
   Archive,
   Globe,
   Users,
+  X,
 } from "lucide-react";
 import { type PublicShareMetadata, getPreviewType } from "@/lib/storage/share";
 import { ZipViewerModal } from "@/components/dashboard/zip-viewer-modal";
@@ -76,7 +76,7 @@ export function DownloadCard({
   slug,
   metadata,
   isSingleUse: isSingleUseProp = false,
-  onePerMember = true,
+  onePerMember = false,
   siteKey,
   initialPreviewType = null,
   disablePreview = false,
@@ -92,7 +92,7 @@ export function DownloadCard({
   const [unlocking, setUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [copiedFilename, setCopiedFilename] = useState(false);
-  const [showLifecycle, setShowLifecycle] = useState(false);
+  const [showLifecycleModal, setShowLifecycleModal] = useState(false);
   const [showZipViewer, setShowZipViewer] = useState(false);
 
   const isZip = (metadata.filename || "").toLowerCase().endsWith(".zip") || (metadata.mime_type || "").includes("zip");
@@ -128,6 +128,22 @@ export function DownloadCard({
   const [downloadPhase, setDownloadPhase] = useState("");
   const [leaseSeconds, setLeaseSeconds] = useState<number | null>(null);
   const [isSingleUseClaimed, setIsSingleUseClaimed] = useState(false);
+  const [downloadCooldown, setDownloadCooldown] = useState<number>(0);
+
+  // Download anti-spam rate limiting cooldown timer (e.g. 5-second cooldown)
+  useEffect(() => {
+    if (downloadCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setDownloadCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [downloadCooldown]);
 
   // 90-second countdown lease timer
   useEffect(() => {
@@ -198,13 +214,18 @@ export function DownloadCard({
   };
 
   const handleDownload = async () => {
-    if (claiming || isSingleUseClaimed || isTimeExpired) return;
+    if (claiming || downloadCooldown > 0 || isSingleUseClaimed || isTimeExpired || isLifetimeDownloaded) {
+      if (downloadCooldown > 0) {
+        setClaimError(`Please wait ${downloadCooldown}s before downloading again.`);
+      }
+      return;
+    }
 
     try {
       setClaiming(true);
       setClaimError(null);
       setDownloadProgress(25);
-      setDownloadPhase("Verifying quota & reserving download slot...");
+      setDownloadPhase("Preparing your download...");
 
       const t1 = setTimeout(() => {
         setDownloadProgress((prev) => (prev < 60 ? 60 : prev));
@@ -222,14 +243,18 @@ export function DownloadCard({
       if (!res.ok || !data.success) {
         setDownloadProgress(0);
         setDownloadPhase("");
-        if (res.status === 401 && data.code === "PASSWORD_REQUIRED") {
+        if (res.status === 429) {
+          const retrySec = data.retryAfter || 5;
+          setDownloadCooldown(retrySec);
+          setClaimError(data.error || `Too many download requests. Please wait ${retrySec}s.`);
+        } else if (res.status === 401 && data.code === "PASSWORD_REQUIRED") {
           setIsUnlocked(false);
           setUnlockError("Session expired. Please unlock the file again.");
         } else if (res.status === 403 && data.code === "ALREADY_DOWNLOADED") {
           setIsLifetimeDownloaded(true);
-          setClaimError(data.error || "You have already downloaded this file. Each member is limited to 1 download in their lifetime.");
+          setClaimError(data.error || "You have already downloaded this file. Each person can download once.");
         } else {
-          setClaimError(data.error || "Failed to claim download slot");
+          setClaimError(data.error || "Unable to start download. Please try again.");
         }
         setClaiming(false);
         return;
@@ -244,8 +269,10 @@ export function DownloadCard({
       }
 
       setDownloadProgress(100);
-      setDownloadPhase("Download stream initiated!");
+      setDownloadPhase("Download started!");
       setClaiming(false);
+      // Enforce anti-spam cooldown so user cannot spam click download
+      setDownloadCooldown(5);
 
       if (e2eKey) {
         setDownloadPhase("Decrypting file on your device...");
@@ -290,47 +317,42 @@ export function DownloadCard({
   const formatTitle = getFormatLabel(metadata.mime_type, metadata.filename);
 
   return (
-    <div className="w-full flex-1 flex flex-col lg:grid lg:grid-cols-12 overflow-y-auto lg:overflow-hidden min-h-0">
+    <div className="w-full h-full flex-1 flex flex-col overflow-hidden min-h-0">
       {/* ======================================================== */}
-      {/* LEFT PANE: File Spotlight (Desktop: Left-Stacked)         */}
+      {/* MOBILE VIEW (< lg): Strict One-View, Zero Vertical Scroll */}
       {/* ======================================================== */}
-      <div className="flex-1 lg:col-span-7 xl:col-span-8 flex flex-col justify-between p-4 sm:p-6 lg:p-12 xl:p-16 lg:border-r border-border/40 relative">
-        {/* Top Status Row */}
-        <div className="flex items-center justify-between gap-3 shrink-0 mb-3 lg:mb-0">
-          <div className="flex items-center gap-2">
+      <div className="lg:hidden flex flex-col justify-between w-full h-full p-3 sm:p-4 overflow-hidden min-h-0">
+        {/* Top Status & Expiry Bar */}
+        <div className="shrink-0 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {isTimeExpired ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                 <Clock className="w-3 h-3" />
-                Expired &amp; Purged
+                <span>Expired</span>
               </span>
             ) : isUnlocked ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Ready to download
+                <span>Ready to download</span>
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                 <Lock className="w-3 h-3" />
-                Password Protected
+                <span>Password Protected</span>
               </span>
             )}
 
             {isSingleUse && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                <Flame className="w-3 h-3" />
-                Single-Use
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <Flame className="w-2.5 h-2.5" />
+                <span>Single-Use</span>
               </span>
             )}
 
             {e2eKey && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Zero-Trust E2E</span>
-                <InfoTooltip
-                  variant="emerald"
-                  title="Zero-Trust End-to-End Encryption"
-                  content="This file was encrypted locally on the sender's device before upload. Your browser decrypts it directly in memory using the private key from your URL fragment (#key=...). GPHost servers never had access to the unencrypted file."
-                />
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <ShieldCheck className="w-3 h-3" />
+                <span>E2E</span>
               </span>
             )}
           </div>
@@ -338,25 +360,18 @@ export function DownloadCard({
           <ExpiryStatusBadge expiresAt={metadata.expires_at} />
         </div>
 
-        {/* Center: Hero File Focus (Full Show, Dynamically Flexed, Stacked on Left on Desktop) */}
-        <div className="flex-1 flex flex-col items-center justify-center text-center lg:items-start lg:text-left lg:justify-center my-auto py-3 sm:py-6 max-w-3xl w-full">
+        {/* Center Hero Card (File spotlight & metadata) */}
+        <div className="my-auto w-full max-w-sm mx-auto flex flex-col items-center justify-center text-center p-3.5 rounded-2xl bg-card/70 border border-border/70 shadow-xs space-y-2.5">
           {recipientNote && (
-            <div className="w-full max-w-xl mb-4 p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-foreground flex items-start gap-2.5 text-left animate-in fade-in duration-200">
-              <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-              <div className="space-y-0.5 min-w-0">
-                <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-                  Note from sender
-                </div>
-                <p className="text-[12px] text-foreground/90 leading-relaxed [overflow-wrap:anywhere] break-words">
-                  {recipientNote}
-                </p>
-              </div>
+            <div className="w-full p-2 rounded-xl bg-blue-500/10 border border-blue-500/25 text-[11px] text-foreground flex items-center gap-2 text-left">
+              <MessageSquare className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <p className="truncate text-foreground/90 font-medium">{recipientNote}</p>
             </div>
           )}
 
           {/* File Icon */}
           <div
-            className={`w-14 h-14 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-2xl sm:rounded-3xl border flex items-center justify-center shrink-0 mb-3 sm:mb-6 transition-transform hover:scale-105 duration-300 ${
+            className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 transition-transform ${
               isTimeExpired
                 ? "bg-muted border-border text-muted-foreground"
                 : resolvedPreviewType === "image"
@@ -367,152 +382,60 @@ export function DownloadCard({
             }`}
           >
             {resolvedPreviewType === "image" ? (
-              <ImageIcon className="w-7 h-7 sm:w-10 sm:h-10 lg:w-12 lg:h-12" />
+              <ImageIcon className="w-6 h-6" />
             ) : resolvedPreviewType === "pdf" ? (
-              <FileText className="w-7 h-7 sm:w-10 sm:h-10 lg:w-12 lg:h-12" />
+              <FileText className="w-6 h-6" />
             ) : (
-              <FileText className="w-7 h-7 sm:w-10 sm:h-10 lg:w-12 lg:h-12" />
+              <FileText className="w-6 h-6" />
             )}
           </div>
 
-          {/* Filename with copy button - Full Show, Dynamic Flex, Stacked Vertically */}
-          <div className="w-full flex items-start justify-center lg:justify-start gap-2 sm:gap-2.5 mb-3 sm:mb-4">
-            <h1 className="text-lg sm:text-2xl lg:text-3xl xl:text-4xl font-bold tracking-tight text-foreground [overflow-wrap:anywhere] break-words select-all leading-tight">
+          {/* Filename + Copy */}
+          <div className="flex items-center justify-center gap-1.5 max-w-full px-1">
+            <h1 className="text-sm font-bold tracking-tight text-foreground truncate max-w-[220px] select-all leading-tight">
               {metadata.filename}
             </h1>
             <button
               type="button"
               onClick={handleCopyFilename}
-              className="p-1.5 sm:p-2 mt-0.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition shrink-0 cursor-pointer"
-              title={copiedFilename ? "Copied!" : "Copy filename"}
-              aria-label="Copy filename"
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition shrink-0 cursor-pointer"
+              title="Copy filename"
             >
-              {copiedFilename ? (
-                <Check className="w-4 h-4 text-emerald-500" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
+              {copiedFilename ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          {/* File Spec Pills */}
-          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-1.5 sm:gap-2 text-xs">
-            <span className="inline-flex items-center gap-1 font-mono font-medium px-2.5 py-1 rounded-lg bg-muted text-foreground">
-              <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
+          {/* File Spec Pills - Clean, No Redundancies */}
+          <div className="flex flex-wrap items-center justify-center gap-1.5 text-[10.5px]">
+            <span className="inline-flex items-center gap-1 font-mono font-medium px-2 py-0.5 rounded-md bg-muted text-foreground">
+              <HardDrive className="w-3 h-3 text-muted-foreground" />
               {formatBytes(metadata.byte_size)}
             </span>
-            <span className="font-mono bg-muted/80 px-2.5 py-1 rounded-lg font-semibold text-foreground/90 uppercase">
+            <span className="font-mono bg-muted/80 px-2 py-0.5 rounded-md font-semibold text-foreground/90 uppercase">
               {metadata.mime_type.split("/")[1] || metadata.mime_type}
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-muted/60 text-muted-foreground font-medium">
-              {formatTitle}
-            </span>
             {onePerMember && !isSingleUse && (
-              <span className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 shadow-2xs">
+              <span className="inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                 <Users className="w-3 h-3 text-indigo-500" />
                 <span>1 Download / Person</span>
               </span>
             )}
-          </div>
-
-          {/* Mobile-only Transfer & Expiry Summary Bar */}
-          <div className="lg:hidden flex flex-wrap items-center justify-center gap-2 pt-1 text-xs">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 border border-border/60 text-muted-foreground font-medium">
-              <Clock className="w-3 h-3 text-blue-500" />
-              <ExpiryStatusBadge expiresAt={metadata.expires_at} />
-            </div>
-            {onePerMember && !isSingleUse && (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-medium">
-                <Users className="w-3 h-3 text-indigo-500" />
-                <span>{metadata.max_downloads ? `${metadata.download_count}/${metadata.max_downloads} claimed` : "Unlimited people (1 each)"}</span>
-              </div>
+            {metadata.max_downloads && !isSingleUse && (
+              <span className="inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground">
+                <Download className="w-3 h-3" />
+                <span>{metadata.download_count} / {metadata.max_downloads} DLs</span>
+              </span>
             )}
           </div>
         </div>
 
-        {/* Space filler for bottom alignment */}
-        <div className="hidden lg:block shrink-0 h-2" />
-      </div>
-
-      {/* ======================================================== */}
-      {/* RIGHT PANE: Action & Lifecycle Panel                      */}
-      {/* ======================================================== */}
-      <div className="lg:col-span-5 xl:col-span-4 flex flex-col justify-center lg:justify-between p-3.5 sm:p-6 lg:p-8 xl:p-10 bg-transparent lg:bg-muted/15 dark:lg:bg-muted/5 backdrop-blur-xs border-t border-border/30 lg:border-t-0 shrink-0">
-        {/* Transfer details table - visible on desktop, hidden on mobile where pills show info */}
-        <div className="hidden lg:block space-y-4">
-          <div className="pb-2 border-b border-border/40">
-            <h2 className="text-sm font-semibold text-foreground">Transfer Details</h2>
-          </div>
-
-          <div className="space-y-2.5 text-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>File Size</span>
-              <span className="font-mono font-semibold text-foreground">
-                {formatBytes(metadata.byte_size)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Format</span>
-              <span className="font-medium text-foreground">{formatTitle}</span>
-            </div>
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Expires</span>
-              <ExpiryStatusBadge expiresAt={metadata.expires_at} />
-            </div>
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Access Limit</span>
-              <span className="font-medium text-foreground">
-                {isSingleUse
-                  ? "Single-Use (1 Burn)"
-                  : onePerMember
-                  ? metadata.max_downloads
-                    ? `1 per member (${metadata.download_count}/${metadata.max_downloads})`
-                    : "1 per member (Lifetime)"
-                  : metadata.max_downloads
-                  ? `${metadata.download_count} / ${metadata.max_downloads} claimed`
-                  : "Unlimited"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Area: Buttons, Alerts & Lifecycle Accordion */}
-        <div className="my-auto lg:my-0 py-2 sm:py-4 space-y-3 max-w-sm mx-auto w-full">
-          {/* Post-Expiry Alert */}
-          {isTimeExpired && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold">
-                <Clock className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                <span>Transfer Expired</span>
-              </div>
-              <p className="text-[11px] text-rose-600/90 dark:text-rose-400/90 leading-relaxed">
-                The time-to-live has elapsed. The file has been automatically and permanently deleted.
-              </p>
-            </div>
-          )}
-
-          {/* Single-Use Warning */}
-          {isSingleUse && !isSingleUseClaimed && !isTimeExpired && (
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-              <span className="text-[11px] leading-tight">
-                Single-use link: Self-destructs immediately after download.
-              </span>
-            </div>
-          )}
-
-          {/* PASSWORD UNLOCK (When locked & not expired) */}
+        {/* Action Controls Area */}
+        <div className="shrink-0 w-full max-w-sm mx-auto space-y-2">
+          {/* Password unlock if locked */}
           {!isUnlocked && !isTimeExpired && (
-            <form onSubmit={handleUnlock} className="space-y-3">
-              <div className="text-center pb-1">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-1.5">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <h3 className="text-xs font-semibold text-foreground">Passphrase Required</h3>
-              </div>
-
+            <form onSubmit={handleUnlock} className="space-y-2">
               {unlockError && (
-                <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span>{unlockError}</span>
                 </div>
@@ -520,26 +443,23 @@ export function DownloadCard({
 
               <input
                 type="password"
-                data-testid="password-input"
+                data-testid="password-input-mobile"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter password to unlock..."
+                className="w-full h-10 px-3 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={unlocking}
-                autoFocus
               />
 
               {passwordHint && (
-                <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 animate-in fade-in duration-150">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span className="min-w-0 [overflow-wrap:anywhere] break-words">
-                    Hint: <strong className="font-semibold text-foreground">{passwordHint}</strong>
-                  </span>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10.5px] text-amber-700 dark:text-amber-300">
+                  <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />
+                  <span className="truncate">Hint: <strong>{passwordHint}</strong></span>
                 </div>
               )}
 
               {siteKey && (
-                <div className="flex justify-center scale-90 -my-1">
+                <div className="flex justify-center scale-80 -my-2">
                   <Turnstile
                     siteKey={siteKey}
                     onSuccess={setTurnstileToken}
@@ -550,9 +470,9 @@ export function DownloadCard({
 
               <button
                 type="submit"
-                data-testid="unlock-button"
+                data-testid="unlock-button-mobile"
                 disabled={unlocking}
-                className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:cursor-not-allowed"
+                className="w-full h-10 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
               >
                 {unlocking ? (
                   <>
@@ -569,293 +489,670 @@ export function DownloadCard({
             </form>
           )}
 
-          {/* UNLOCKED: ACTION BUTTONS */}
+          {/* Unlocked Actions */}
           {isUnlocked && (
-            <div className="space-y-2.5">
-              {/* Simple Words: 1 Download Per Person Rule Banner */}
-              {onePerMember && !isSingleUse && !isLifetimeDownloaded && !isTimeExpired && (
-                <div className="p-3 sm:p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-foreground text-xs space-y-1 shadow-2xs">
-                  <div className="flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400">
-                    <Users className="w-4 h-4 shrink-0" />
-                    <span>1 Download Per Person</span>
-                  </div>
-                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
-                    This file is shared for unlimited people, but each person can download it only <strong className="font-semibold text-foreground">once</strong>. When you click download, your personal slot is claimed on this device.
-                  </p>
-                </div>
-              )}
-
-              {/* Lifetime Download Notice (Simple Words) */}
+            <div className="space-y-2">
+              {/* Lifetime downloaded notice */}
               {isLifetimeDownloaded && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 text-xs space-y-1.5 shadow-2xs animate-in fade-in">
-                  <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
-                    <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
-                    <span>You Already Downloaded This File</span>
-                  </div>
-                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
-                    This file allows 1 download per person. Your download slot has already been claimed on this device or account. Repeat downloads are locked.
-                  </p>
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="text-[11px] leading-snug">
+                    You already downloaded this file (1 download per person limit).
+                  </span>
                 </div>
               )}
 
               {claimError && !isLifetimeDownloaded && (
-                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{claimError}</span>
+                  <span className="text-[11px]">{claimError}</span>
                 </div>
               )}
 
-              {/* Active Download Progress Card */}
+              {/* Active download progress card (compact for mobile) */}
               {(claiming || downloadSuccess) && (
-                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-card via-card to-card/90 border border-emerald-500/30 p-4 shadow-lg shadow-emerald-500/5 backdrop-blur-sm space-y-3 transition-all">
-                  {/* Subtle glowing corner */}
-                  <div className="absolute -top-10 -right-10 w-28 h-28 bg-emerald-500/10 rounded-full blur-xl pointer-events-none" />
-
-                  {/* Header: Status + Live percentage */}
-                  <div className="relative flex items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="relative w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 shadow-xs">
-                        {downloadSuccess ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
-                        )}
-                        {!downloadSuccess && (
-                          <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-foreground truncate">
-                          {downloadSuccess ? "Download Stream Established" : "Preparing Secure Download"}
-                        </p>
-                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
-                          {downloadPhase || (downloadSuccess ? "Fast Secure Delivery" : "Connecting to server...")}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="flex items-baseline gap-0.5 px-2.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 shadow-xs">
-                        <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                          {downloadProgress}
-                        </span>
-                        <span className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-bold">%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Ultra-Crisp Shimmer Progress Bar */}
-                  <div className="relative w-full h-2.5 rounded-full bg-muted/60 dark:bg-zinc-800/80 p-0.5 border border-border/70 dark:border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)] overflow-hidden">
-                    <div
-                      className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)] overflow-hidden"
-                      style={{ width: `${Math.max(3, downloadProgress)}%` }}
-                    >
-                      {/* Glossy animated shimmer beam */}
-                      <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-progress-shimmer" />
-                      {/* Glowing tip cursor */}
-                      <div className="absolute right-0 top-0 bottom-0 w-1.5 bg-white rounded-full shadow-[0_0_6px_#fff]" />
-                    </div>
-                  </div>
-
-                  {/* Telemetry and lease timer */}
-                  <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground pt-0.5">
-                    <span className="text-foreground font-medium truncate max-w-[170px]">
-                      {metadata.filename}
-                    </span>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      {leaseSeconds !== null && leaseSeconds > 0 ? (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                          <Clock className="w-3 h-3 text-emerald-500" />
-                          <span>{leaseSeconds}s slot active</span>
-                        </span>
-                      ) : isSingleUseClaimed ? (
-                        <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                          Link Burned
-                        </span>
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1.5 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {downloadSuccess ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       ) : (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <Zap className="w-3 h-3" />
-                          <span>Fast Cloud</span>
-                        </span>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
                       )}
+                      <span className="text-[11px] font-semibold text-foreground truncate">
+                        {downloadSuccess ? "Download Started" : downloadPhase || "Downloading..."}
+                      </span>
                     </div>
+                    <span className="font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                      {downloadProgress}%
+                    </span>
                   </div>
-
-                  {/* Simple Words UI/UX Explanation of the 50-Second Download Slot Lease */}
-                  {leaseSeconds !== null && leaseSeconds > 0 && (
-                    <div className="p-3 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs text-foreground space-y-1 mt-1">
-                      <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
-                        <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-                        <span>50-Second Secure Transfer Slot</span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        Your private download stream is active for <strong className="font-semibold text-foreground">{leaseSeconds} seconds</strong> to initiate. Your browser has started downloading. Once started, your transfer continues uninterrupted until 100% complete.
-                      </p>
-                    </div>
-                  )}
+                  <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all duration-300"
+                      style={{ width: `${Math.max(4, downloadProgress)}%` }}
+                    />
+                  </div>
                 </div>
               )}
 
-              {!isSingleUseClaimed ? (
-                <div className="space-y-2">
-                  {/* Primary Download Button */}
-                  <button
-                    type="button"
-                    data-testid="download-button"
-                    onClick={handleDownload}
-                    disabled={claiming || isTimeExpired || isLifetimeDownloaded}
-                    className="w-full h-12 sm:h-13 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-600/20 hover:shadow-blue-600/30 transition-all cursor-pointer disabled:cursor-not-allowed active:scale-[0.98]"
-                  >
-                    {isTimeExpired ? (
-                      <>
-                        <Clock className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        <span>Transfer Expired (Purged)</span>
-                      </>
-                    ) : isLifetimeDownloaded ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-500" />
-                        <span>1-Time Download Already Claimed</span>
-                      </>
-                    ) : claiming ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                        <span>Starting Stream...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 shrink-0" />
-                        <span>{onePerMember && !isSingleUse ? "Claim & Download" : "Download"}</span>
-                        <span className="text-xs font-mono font-normal opacity-90 px-1.5 py-0.5 rounded-md bg-white/20 whitespace-nowrap">
-                          {formatBytes(metadata.byte_size)}
-                        </span>
-                      </>
-                    )}
-                  </button>
+              {/* Primary Download Button */}
+              {!isSingleUseClaimed && (
+                <button
+                  type="button"
+                  data-testid="download-button-mobile"
+                  onClick={handleDownload}
+                  disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded}
+                  className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.98] cursor-pointer"
+                >
+                  {isTimeExpired ? (
+                    <>
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Link Expired</span>
+                    </>
+                  ) : isLifetimeDownloaded ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Already Downloaded</span>
+                    </>
+                  ) : claiming ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Preparing Download...</span>
+                    </>
+                  ) : downloadCooldown > 0 ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Download Started ({downloadCooldown}s)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>{downloadSuccess ? "Download Again" : "Download File"}</span>
+                      <span className="text-[11px] font-mono opacity-80 px-1.5 py-0.5 rounded bg-white/20">
+                        {formatBytes(metadata.byte_size)}
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
 
-                  {/* Secondary Preview Button */}
+              {/* Secondary Actions (Preview / ZIP / Site) in a single compact row */}
+              {(hasPreview || isZip || isHtml) && !isSingleUseClaimed && !isTimeExpired && (
+                <div className="flex items-center gap-2">
                   {hasPreview && (
                     <a
                       href={`/f/${slug}/preview`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full h-11 rounded-xl border border-border/80 bg-background hover:bg-muted text-foreground font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      className="flex-1 h-9 rounded-xl border border-border bg-background hover:bg-muted text-foreground text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-2xs"
                     >
-                      <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <span>Preview in Browser</span>
-                      <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0" />
+                      <Eye className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Preview</span>
+                      <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
                     </a>
                   )}
-
-                  {/* Client-Side In-Browser ZIP Archive Inspector */}
-                  {isZip && !isTimeExpired && (
+                  {isZip && (
                     <button
                       type="button"
                       onClick={() => setShowZipViewer(true)}
-                      className="w-full h-11 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      className="flex-1 h-9 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
                     >
                       <Archive className="w-3.5 h-3.5" />
-                      <span>Browse Archive Files (Zero-Download ZIP)</span>
+                      <span>View ZIP</span>
                     </button>
                   )}
-
-                  {/* GP-Sites: 1-Click Static Web Preview */}
-                  {isHtml && !isTimeExpired && (
+                  {isHtml && (
                     <a
                       href={`/site/${slug}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full h-11 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      className="flex-1 h-9 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-2xs"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      <span>Launch Live Site (GP-Sites)</span>
-                      <ExternalLink className="w-3 h-3 text-cyan-500/70" />
+                      <span>Live Site</span>
+                      <ExternalLink className="w-2.5 h-2.5 text-cyan-500" />
                     </a>
                   )}
-                </div>
-              ) : (
-                <div className="w-full py-3 rounded-xl bg-muted/40 border border-border text-center text-xs text-muted-foreground">
-                  Single-use link has expired and burned.
                 </div>
               )}
             </div>
           )}
 
-          {/* Transfer Lifecycle & Post-Expiry Policy Accordion (Available on All Screens) */}
-          <div className="pt-2 border-t border-border/30">
+          {/* Mobile Lifecycle Button */}
+          <div className="pt-1 flex items-center justify-center">
             <button
               type="button"
-              onClick={() => setShowLifecycle(!showLifecycle)}
-              className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1 cursor-pointer"
+              onClick={() => setShowLifecycleModal(true)}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition cursor-pointer"
             >
-              <span className="flex items-center gap-1.5 font-medium">
-                <Info className="w-3.5 h-3.5 text-blue-500" />
-                Lifecycle: What happens after expiry?
-              </span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                  showLifecycle ? "rotate-180" : ""
-                }`}
-              />
+              <Info className="w-3 h-3 text-blue-500" />
+              <span>What happens to your file after expiry?</span>
             </button>
+          </div>
+        </div>
+      </div>
 
-            {showLifecycle && (
-              <div className="mt-2 p-3 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
-                <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">
-                  Ephemeral End-of-Life Scenarios
-                </p>
-                <div className="space-y-2 text-[11px]">
-                  <div className="flex items-start gap-2">
-                    <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-foreground">Time Expiry (TTL):</strong>
-                      <p className="text-muted-foreground leading-relaxed">
-                        Files are automatically and permanently deleted from secure cloud servers once the timer expires.
-                      </p>
-                    </div>
-                  </div>
+      {/* ======================================================== */}
+      {/* DESKTOP VIEW (lg+): Spacious 2-Column Split Layout        */}
+      {/* ======================================================== */}
+      <div className="hidden lg:grid lg:grid-cols-12 w-full h-full flex-1 overflow-hidden min-h-0">
+        {/* LEFT PANE: File Spotlight (Desktop) */}
+        <div className="lg:col-span-7 xl:col-span-8 flex flex-col justify-between p-8 xl:p-12 border-r border-border/40 relative overflow-hidden">
+          {/* Top Status Row */}
+          <div className="flex items-center justify-between gap-3 shrink-0 mb-4">
+            <div className="flex items-center gap-2">
+              {isTimeExpired ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  <Clock className="w-3 h-3" />
+                  Expired &amp; Deleted
+                </span>
+              ) : isUnlocked ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Ready to download
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <Lock className="w-3 h-3" />
+                  Password Protected
+                </span>
+              )}
 
-                  <div className="flex items-start gap-2">
-                    <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-foreground">Single-Use Burn:</strong>
-                      <p className="text-muted-foreground leading-relaxed">
-                        Single-use files self-destruct immediately upon completion of the first download claim.
-                      </p>
-                    </div>
-                  </div>
+              {isSingleUse && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  <Flame className="w-3 h-3" />
+                  Single-Use
+                </span>
+              )}
 
-                  <div className="flex items-start gap-2">
-                    <Ban className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-foreground">Download Quota:</strong>
-                      <p className="text-muted-foreground leading-relaxed">
-                        Access closes permanently once the maximum download quota is reached.
-                      </p>
-                    </div>
-                  </div>
+              {e2eKey && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Zero-Trust E2E</span>
+                  <InfoTooltip
+                    variant="emerald"
+                    title="Zero-Trust End-to-End Encryption"
+                    content="This file was encrypted locally on the sender's device before upload. Your browser decrypts it directly in memory using the private key from your URL fragment (#key=...). GPHost servers never had access to the unencrypted file."
+                  />
+                </span>
+              )}
+            </div>
 
-                  <div className="flex items-start gap-2">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-foreground">Zero Retention:</strong>
-                      <p className="text-muted-foreground leading-relaxed">
-                        No residual backups, IP caches, or server-side logs are ever retained after termination.
-                      </p>
-                    </div>
+            <ExpiryStatusBadge expiresAt={metadata.expires_at} />
+          </div>
+
+          {/* Center: Hero File Focus */}
+          <div className="flex-1 flex flex-col items-start justify-center text-left my-auto py-6 max-w-3xl w-full">
+            {recipientNote && (
+              <div className="w-full max-w-xl mb-4 p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-foreground flex items-start gap-2.5 text-left animate-in fade-in duration-200">
+                <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 min-w-0">
+                  <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                    Note from sender
                   </div>
+                  <p className="text-[12px] text-foreground/90 leading-relaxed [overflow-wrap:anywhere] break-words">
+                    {recipientNote}
+                  </p>
                 </div>
               </div>
             )}
+
+            {/* File Icon */}
+            <div
+              className={`w-20 h-20 xl:w-24 xl:h-24 rounded-3xl border flex items-center justify-center shrink-0 mb-6 transition-transform hover:scale-105 duration-300 ${
+                isTimeExpired
+                  ? "bg-muted border-border text-muted-foreground"
+                  : resolvedPreviewType === "image"
+                  ? "bg-purple-500/10 border-purple-500/25 text-purple-600 dark:text-purple-400"
+                  : resolvedPreviewType === "pdf"
+                  ? "bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400"
+                  : "bg-blue-500/10 border-blue-500/25 text-blue-600 dark:text-blue-400"
+              }`}
+            >
+              {resolvedPreviewType === "image" ? (
+                <ImageIcon className="w-10 h-10 xl:w-12 xl:h-12" />
+              ) : resolvedPreviewType === "pdf" ? (
+                <FileText className="w-10 h-10 xl:w-12 xl:h-12" />
+              ) : (
+                <FileText className="w-10 h-10 xl:w-12 xl:h-12" />
+              )}
+            </div>
+
+            {/* Filename with copy button */}
+            <div className="w-full flex items-start justify-start gap-2.5 mb-4">
+              <h1 className="text-2xl xl:text-3xl font-bold tracking-tight text-foreground [overflow-wrap:anywhere] break-words select-all leading-tight">
+                {metadata.filename}
+              </h1>
+              <button
+                type="button"
+                onClick={handleCopyFilename}
+                className="p-2 mt-0.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 transition shrink-0 cursor-pointer"
+                title={copiedFilename ? "Copied!" : "Copy filename"}
+                aria-label="Copy filename"
+              >
+                {copiedFilename ? (
+                  <Check className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            {/* File Spec Pills - Clean, No Redundancies */}
+            <div className="flex flex-wrap items-center justify-start gap-2 text-xs">
+              <span className="inline-flex items-center gap-1 font-mono font-medium px-2.5 py-1 rounded-lg bg-muted text-foreground">
+                <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
+                {formatBytes(metadata.byte_size)}
+              </span>
+              <span className="font-mono bg-muted/80 px-2.5 py-1 rounded-lg font-semibold text-foreground/90 uppercase">
+                {metadata.mime_type.split("/")[1] || metadata.mime_type}
+              </span>
+              {onePerMember && !isSingleUse && (
+                <span className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 shadow-2xs">
+                  <Users className="w-3 h-3 text-indigo-500" />
+                  <span>1 Download / Person</span>
+                </span>
+              )}
+              {metadata.max_downloads && !isSingleUse && (
+                <span className="inline-flex items-center gap-1 font-medium px-2.5 py-1 rounded-lg bg-muted text-muted-foreground">
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{metadata.download_count} / {metadata.max_downloads} downloads</span>
+                </span>
+              )}
+            </div>
           </div>
+
+          <div className="shrink-0 h-2" />
         </div>
 
-        {/* Space filler for bottom alignment */}
-        <div className="hidden lg:block shrink-0 h-2" />
+        {/* RIGHT PANE: Action & Lifecycle Panel (Desktop) */}
+        <div className="lg:col-span-5 xl:col-span-4 flex flex-col justify-between p-8 xl:p-10 bg-muted/15 dark:bg-muted/5 backdrop-blur-xs shrink-0 overflow-hidden">
+          {/* Transfer details table */}
+          <div className="space-y-4">
+            <div className="pb-2 border-b border-border/40">
+              <h2 className="text-sm font-semibold text-foreground">Transfer Details</h2>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>File Size</span>
+                <span className="font-mono font-semibold text-foreground">
+                  {formatBytes(metadata.byte_size)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Format</span>
+                <span className="font-medium text-foreground">{formatTitle}</span>
+              </div>
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Expires</span>
+                <ExpiryStatusBadge expiresAt={metadata.expires_at} />
+              </div>
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Access Limit</span>
+                <span className="font-medium text-foreground">
+                  {isSingleUse
+                    ? "Single-Use (Deletes after 1st download)"
+                    : onePerMember
+                    ? metadata.max_downloads
+                      ? `1 per person (${metadata.download_count}/${metadata.max_downloads} claimed)`
+                      : "1 download per person"
+                    : metadata.max_downloads
+                    ? `${metadata.download_count} / ${metadata.max_downloads} downloads`
+                    : "Unlimited downloads"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Area: Buttons, Alerts & Lifecycle */}
+          <div className="my-auto py-4 space-y-3 max-w-sm mx-auto w-full">
+            {/* Post-Expiry Alert */}
+            {isTimeExpired && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <Clock className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <span>Transfer Expired</span>
+                </div>
+                <p className="text-[11px] text-rose-600/90 dark:text-rose-400/90 leading-relaxed">
+                  The time limit for this link has ended. This file was automatically and permanently deleted.
+                </p>
+              </div>
+            )}
+
+            {/* Single-Use Warning */}
+            {isSingleUse && !isSingleUseClaimed && !isTimeExpired && (
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="text-[11px] leading-tight">
+                  1-time link: Deletes permanently right after downloading.
+                </span>
+              </div>
+            )}
+
+            {/* PASSWORD UNLOCK */}
+            {!isUnlocked && !isTimeExpired && (
+              <form onSubmit={handleUnlock} className="space-y-3">
+                <div className="text-center pb-1">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-1.5">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-xs font-semibold text-foreground">Passphrase Required</h3>
+                </div>
+
+                {unlockError && (
+                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{unlockError}</span>
+                  </div>
+                )}
+
+                <input
+                  type="password"
+                  data-testid="password-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={unlocking}
+                  autoFocus
+                />
+
+                {passwordHint && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300">
+                    <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="min-w-0 [overflow-wrap:anywhere] break-words">
+                      Hint: <strong className="font-semibold text-foreground">{passwordHint}</strong>
+                    </span>
+                  </div>
+                )}
+
+                {siteKey && (
+                  <div className="flex justify-center scale-90 -my-1">
+                    <Turnstile
+                      siteKey={siteKey}
+                      onSuccess={setTurnstileToken}
+                      options={{ theme: resolvedTheme }}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  data-testid="unlock-button"
+                  disabled={unlocking}
+                  className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:cursor-not-allowed"
+                >
+                  {unlocking ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Unlock File</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+
+            {/* UNLOCKED: ACTION BUTTONS */}
+            {isUnlocked && (
+              <div className="space-y-2.5">
+                {onePerMember && !isSingleUse && !isLifetimeDownloaded && !isTimeExpired && (
+                  <div className="p-3 sm:p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-foreground text-xs space-y-1 shadow-2xs">
+                    <div className="flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400">
+                      <Users className="w-4 h-4 shrink-0" />
+                      <span>1 Download Per Person</span>
+                    </div>
+                    <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                      This file allows unlimited people, but each person can download only <strong className="font-semibold text-foreground">once</strong>.
+                    </p>
+                  </div>
+                )}
+
+                {isLifetimeDownloaded && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 text-xs space-y-1.5 shadow-2xs animate-in fade-in">
+                    <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
+                      <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>You Already Downloaded This File</span>
+                    </div>
+                    <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                      You already downloaded this file on this device. Each person can download once.
+                    </p>
+                  </div>
+                )}
+
+                {claimError && !isLifetimeDownloaded && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{claimError}</span>
+                  </div>
+                )}
+
+                {/* Active Download Progress Card */}
+                {(claiming || downloadSuccess) && (
+                  <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-card via-card to-card/90 border border-emerald-500/30 p-4 shadow-lg shadow-emerald-500/5 backdrop-blur-sm space-y-3 transition-all">
+                    <div className="relative flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="relative w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 shadow-xs">
+                          {downloadSuccess ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                          ) : (
+                            <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-foreground truncate">
+                            {downloadSuccess ? "Your Download Has Started" : "Preparing Download"}
+                          </p>
+                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                            {downloadPhase || (downloadSuccess ? "Saving file to your device..." : "Connecting to server...")}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-baseline gap-0.5 px-2.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 shadow-xs">
+                          <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                            {downloadProgress}
+                          </span>
+                          <span className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-bold">%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative w-full h-2.5 rounded-full bg-muted/60 dark:bg-zinc-800/80 p-0.5 border border-border/70 dark:border-white/10 overflow-hidden">
+                      <div
+                        className="relative h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-300 ease-out"
+                        style={{ width: `${Math.max(3, downloadProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {!isSingleUseClaimed ? (
+                  <div className="space-y-2">
+                    {/* Primary Download Button */}
+                    <button
+                      type="button"
+                      data-testid="download-button"
+                      onClick={handleDownload}
+                      disabled={claiming || downloadCooldown > 0 || isTimeExpired || isLifetimeDownloaded}
+                      className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-muted disabled:text-muted-foreground text-white font-semibold text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-600/20 hover:shadow-blue-600/30 transition-all cursor-pointer disabled:cursor-not-allowed active:scale-[0.98]"
+                    >
+                      {isTimeExpired ? (
+                        <>
+                          <Clock className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          <span>Link Expired</span>
+                        </>
+                      ) : isLifetimeDownloaded ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-amber-500" />
+                          <span>Already Downloaded</span>
+                        </>
+                      ) : claiming ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                          <span>Preparing Download...</span>
+                        </>
+                      ) : downloadCooldown > 0 ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                          <span>Download Started — Ready in {downloadCooldown}s</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 shrink-0" />
+                          <span>{downloadSuccess ? "Download Again" : (onePerMember && !isSingleUse ? "Claim & Download" : "Download File")}</span>
+                          <span className="text-xs font-mono font-normal opacity-90 px-1.5 py-0.5 rounded-md bg-white/20 whitespace-nowrap">
+                            {formatBytes(metadata.byte_size)}
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Secondary Preview Button */}
+                    {hasPreview && (
+                      <a
+                        href={`/f/${slug}/preview`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full h-10 rounded-xl border border-border/80 bg-background hover:bg-muted text-foreground font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>Preview in Browser</span>
+                        <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0" />
+                      </a>
+                    )}
+
+                    {/* Client-Side ZIP Archive Inspector */}
+                    {isZip && !isTimeExpired && (
+                      <button
+                        type="button"
+                        onClick={() => setShowZipViewer(true)}
+                        className="w-full h-10 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                        <span>Browse ZIP Files (Without Downloading)</span>
+                      </button>
+                    )}
+
+                    {/* GP-Sites: 1-Click Static Web Preview */}
+                    {isHtml && !isTimeExpired && (
+                      <a
+                        href={`/site/${slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full h-10 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>Open Live Webpage</span>
+                        <ExternalLink className="w-3 h-3 text-cyan-500/70" />
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-full py-3 rounded-xl bg-muted/40 border border-border text-center text-xs text-muted-foreground">
+                    This 1-time link has already been used and deleted.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Transfer Lifecycle Button */}
+            <div className="pt-2 border-t border-border/30">
+              <button
+                type="button"
+                onClick={() => setShowLifecycleModal(true)}
+                className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1 cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Info className="w-3.5 h-3.5 text-blue-500" />
+                  What happens to your file after expiry?
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+
+          <div className="shrink-0 h-2" />
+        </div>
       </div>
+
+      {/* Lifecycle & Security Policy Modal */}
+      {showLifecycleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-5 shadow-xl space-y-4 animate-in zoom-in-95 duration-150 relative">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2">
+                <Info className="w-4 h-4 text-blue-500" />
+                <h3 className="text-sm font-semibold text-foreground">How Your File Stays Safe</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLifecycleModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex items-start gap-2.5">
+                <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-foreground">Automatic Deletion:</strong>
+                  <p className="text-muted-foreground leading-relaxed text-[11.5px]">
+                    Your file is permanently deleted from our servers as soon as time runs out. No one can download it anymore.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <Flame className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-foreground">1-Time Download Links:</strong>
+                  <p className="text-muted-foreground leading-relaxed text-[11.5px]">
+                    If a 1-time link was created, the file automatically deletes itself as soon as the first download finishes.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <Ban className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-foreground">Download Limit:</strong>
+                  <p className="text-muted-foreground leading-relaxed text-[11.5px]">
+                    If the sender set a download limit, access permanently closes once that number of downloads is reached.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-foreground">No Copies Saved:</strong>
+                  <p className="text-muted-foreground leading-relaxed text-[11.5px]">
+                    We never keep hidden copies, backups, or logs. Once deleted, your file is gone forever.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowLifecycleModal(false)}
+              className="w-full py-2.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Client-Side In-Browser ZIP Archive Inspector Modal */}
       {showZipViewer && (

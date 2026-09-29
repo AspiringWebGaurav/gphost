@@ -134,6 +134,17 @@ GEMINI.md
 /scripts/Makefile
 scripts/sync_vercel_env.mjs
 scripts/test_all_services.mjs
+scripts/audit_app_ui.mjs
+scripts/audit_*.mjs
+scripts/inspect_live_db.mjs
+scripts/inspect_*.mjs
+audit_results*.json
+public/audit-screenshots/
+
+# --- Local Supabase Apply Scratchpads (Kept local, excluded from repo) ---
+supabase/apply_phase9_migrations.sql
+supabase/apply_phase10_root_admin_fix.sql
+supabase/apply_phase11_robust_claim_and_one_per_member.sql
 
 # --- Local Testing Artifacts ---
 temp-test/

@@ -43,7 +43,7 @@ export function formatPublicShareMetadata(
     download_count: share.download_count,
     max_downloads: share.max_downloads,
     is_single_use: Boolean(share.is_single_use),
-    one_per_member: share.one_per_member ?? true,
+    one_per_member: Boolean(share.one_per_member),
     burn_after_preview: Boolean(share.burn_after_preview),
   };
 }
