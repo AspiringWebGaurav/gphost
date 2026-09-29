@@ -1017,8 +1017,8 @@ export function ShareModal({
                             ? "1 max"
                             : onePerMember
                             ? maxDownloads && parseInt(maxDownloads, 10) > 1
-                              ? `${maxDownloads} people max (1 each)`
-                              : "Unlimited People (1 each)"
+                              ? `${maxDownloads} max (1 each)`
+                              : "1 download each"
                             : maxDownloads
                             ? `${maxDownloads} max`
                             : "Unlimited"}
@@ -1051,7 +1051,7 @@ export function ShareModal({
                           className={`w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer ${onePerMember ? "accent-indigo-600" : "accent-blue-600"} disabled:opacity-50`}
                           title={
                             onePerMember
-                              ? "Slide to cap total people (0 or 1 = Unlimited People, 1 download each)"
+                              ? "Slide to set total limit (0 or 1 = 1 download each)"
                               : "Slide to set download quota (0 = Unlimited)"
                           }
                         />
@@ -1065,7 +1065,7 @@ export function ShareModal({
                           className="w-10 h-5.5 px-1 rounded bg-background border border-border/80 text-center font-mono text-[10.5px] text-foreground placeholder:text-muted-foreground/50 disabled:opacity-50 shrink-0 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           title={
                             onePerMember
-                              ? "Enter max people cap (leave empty or 0 for Unlimited People, 1 each)"
+                              ? "Enter limit (leave empty or 0 for 1 download each)"
                               : "Enter exact quota (leave empty for unlimited)"
                           }
                         />
@@ -1085,7 +1085,7 @@ export function ShareModal({
                         <div className="flex items-center gap-1.5 shrink-0">
                           <InfoTooltip
                             title="1 Download / Person"
-                            content="Unlimited different people can download this file, but each person can download it only 1 time in their lifetime. Once claimed on their device, repeat downloads are locked."
+                            content="Each person can download this file only once. Once downloaded on their device, repeat downloads are locked."
                             side="top"
                             align="end"
                             variant="purple"

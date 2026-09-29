@@ -393,7 +393,7 @@ export function DownloadCard({
       setDownloadSuccess(true);
       setLeaseSeconds(data.expires_in_seconds || 50);
       setDownloadProgress(100);
-      setDownloadPhase(onePerMember ? "Download started! 1 per person limit claimed." : "Download started! Saving file to your device...");
+      setDownloadPhase("Download started! Saving file to your device...");
       setClaiming(false);
       // Enforce anti-spam cooldown so user cannot spam click download
       setDownloadCooldown(5);
@@ -556,7 +556,7 @@ export function DownloadCard({
             {onePerMember && !isSingleUse && (
               <span className="inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                 <Users className="w-3 h-3 text-indigo-500" />
-                <span>1 DL / Person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : " · Unlimited People"}</span>
+                <span>1 Download per person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : ""}</span>
               </span>
             )}
             {maxDownloads && !onePerMember && !isSingleUse && (
@@ -636,7 +636,7 @@ export function DownloadCard({
                 <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
                   <span className="text-[11px] leading-snug">
-                    You already claimed your 1 download on this device. Other people can still download.
+                    You have already downloaded this file on this device. Each person can download once.
                   </span>
                 </div>
               )}
@@ -718,7 +718,7 @@ export function DownloadCard({
                   ) : (
                     <>
                       <Download className="w-4 h-4" />
-                      <span>{downloadSuccess ? "Download Again" : (onePerMember && !isSingleUse ? "Claim & Download" : "Download File")}</span>
+                      <span>{downloadSuccess ? "Download Again" : "Download File"}</span>
                       <span className="text-[11px] font-mono opacity-80 px-1.5 py-0.5 rounded bg-white/20">
                         {formatBytes(metadata.byte_size)}
                       </span>
@@ -920,7 +920,7 @@ export function DownloadCard({
               {onePerMember && !isSingleUse && (
                 <span className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 shadow-2xs">
                   <Users className="w-3 h-3 text-indigo-500" />
-                  <span>1 Download / Person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : " · Unlimited People"}</span>
+                  <span>1 Download per person{maxDownloads ? ` (${downloadCount}/${maxDownloads})` : ""}</span>
                 </span>
               )}
               {maxDownloads && !onePerMember && !isSingleUse && (
@@ -962,11 +962,11 @@ export function DownloadCard({
                 <span>Access Limit</span>
                 <span className="font-medium text-foreground">
                   {isSingleUse
-                    ? "Single-Use (Deletes after 1st download)"
+                    ? "1 download (Single-use)"
                     : onePerMember
                     ? maxDownloads
-                      ? `1 per person (${downloadCount}/${maxDownloads} people claimed)`
-                      : "1 download per person (Unlimited people)"
+                      ? `1 download per person (${downloadCount}/${maxDownloads})`
+                      : "1 download per person"
                     : maxDownloads
                     ? `${downloadCount} / ${maxDownloads} downloads`
                     : "Unlimited downloads"}
@@ -1075,10 +1075,10 @@ export function DownloadCard({
                   <div className="p-3 sm:p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-foreground text-xs space-y-1 shadow-2xs">
                     <div className="flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400">
                       <Users className="w-4 h-4 shrink-0" />
-                      <span>1 Download Per Person</span>
+                      <span>1 Download</span>
                     </div>
                     <p className="text-[11.5px] text-muted-foreground leading-relaxed">
-                      This file allows unlimited people, but each person can download only <strong className="font-semibold text-foreground">once</strong>.
+                      Each person can download this file once.
                     </p>
                   </div>
                 )}
@@ -1088,10 +1088,10 @@ export function DownloadCard({
                   <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 dark:text-amber-200 text-xs space-y-1.5 shadow-2xs animate-in fade-in">
                     <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400 text-xs sm:text-sm">
                       <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />
-                      <span>You Already Downloaded This File</span>
+                      <span>Already Downloaded</span>
                     </div>
                     <p className="text-[11.5px] text-muted-foreground leading-relaxed">
-                      You already claimed your 1 download on this device. Each person can download once. Other people can still open this link to download.
+                      You have already downloaded this file on this device. Each person can download once.
                     </p>
                   </div>
                 )}
@@ -1120,8 +1120,6 @@ export function DownloadCard({
                             {downloadSuccess
                               ? isSingleUse
                                 ? "Download Complete (1-Time Link Used)"
-                                : onePerMember
-                                ? "Download Complete (1-Per-Person Claimed)"
                                 : "Download Complete"
                               : "Preparing Download"}
                           </p>
@@ -1188,7 +1186,7 @@ export function DownloadCard({
                       ) : (
                         <>
                           <Download className="w-4 h-4 shrink-0" />
-                          <span>{downloadSuccess ? "Download Again" : (onePerMember && !isSingleUse ? "Claim & Download" : "Download File")}</span>
+                          <span>{downloadSuccess ? "Download Again" : "Download File"}</span>
                           <span className="text-xs font-mono font-normal opacity-90 px-1.5 py-0.5 rounded-md bg-white/20 whitespace-nowrap">
                             {formatBytes(metadata.byte_size)}
                           </span>
