@@ -82,14 +82,21 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      logs: formattedLogs,
-      totalCount,
-      page,
-      pageSize,
-      totalPages,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        logs: formattedLogs,
+        totalCount,
+        page,
+        pageSize,
+        totalPages,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {

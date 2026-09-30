@@ -152,9 +152,9 @@ export const getUserProfile = cache(async (userId: string): Promise<UserProfile 
 
 /**
  * Authoritative Server Guard: Requires that the user is authenticated and approved.
- * Throws or returns an error if not authorized.
+ * Memoized per-request via React cache() to prevent redundant profile lookups across layout and page.
  */
-export async function requireApprovedUser(): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> {
+export const requireApprovedUser = cache(async (): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> => {
   const user = await getAuthenticatedUser();
   if (!user) {
     throw new Error("UNAUTHENTICATED");
@@ -170,13 +170,14 @@ export async function requireApprovedUser(): Promise<{ user: NonNullable<Awaited
   }
 
   return { user, profile };
-}
+});
 
 /**
  * Authoritative Server Guard: Requires that the user is authenticated, approved, has admin role,
  * AND strictly matches the sole authoritative admin email.
+ * Memoized per-request via React cache().
  */
-export async function requireAdminUser(): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> {
+export const requireAdminUser = cache(async (): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> => {
   const { user, profile } = await requireApprovedUser();
 
   const userEmail = (user.email || "").toLowerCase();
@@ -185,13 +186,14 @@ export async function requireAdminUser(): Promise<{ user: NonNullable<Awaited<Re
   }
 
   return { user, profile };
-}
+});
 
 /**
  * Authoritative Server Guard: Requires that the user is authenticated, approved, has admin role,
  * and matches the authoritative permanent owner email (ADMIN_EMAIL).
+ * Memoized per-request via React cache().
  */
-export async function requireOwnerUser(): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> {
+export const requireOwnerUser = cache(async (): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> => {
   const { user, profile } = await requireAdminUser();
 
   if (user.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
@@ -199,5 +201,28 @@ export async function requireOwnerUser(): Promise<{ user: NonNullable<Awaited<Re
   }
 
   return { user, profile };
-}
+});
+
+/**
+ * Memoized per-request check for user's active onboarding PIN.
+ */
+export const checkUserActivePin = cache(async (userEmail: string): Promise<boolean> => {
+  if (!userEmail) return false;
+  try {
+    const adminClient = createAdminClient();
+    const nowIso = new Date().toISOString();
+    const { data } = await adminClient
+      .from("onboarding_pins")
+      .select("id")
+      .eq("is_active", true)
+      .ilike("label", `%User: ${userEmail}%`)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .limit(1)
+      .maybeSingle();
+
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+});
 

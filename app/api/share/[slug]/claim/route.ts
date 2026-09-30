@@ -44,24 +44,39 @@ export async function POST(
 
     const adminClient = createAdminClient();
 
-    // 1b. Look up share link metadata with schema fallback
+    // 1b. Look up share link metadata with fast Redis cache fallback (60s TTL)
     let shareRecord: { id: string; file_id: string; password_hash?: string | null; one_per_member?: boolean } | null = null;
-    const { data: sData, error: sErr } = await adminClient
-      .from("share_links")
-      .select("id, file_id, password_hash, one_per_member")
-      .eq("slug", slug)
-      .maybeSingle();
+    try {
+      const cached = await redis.get<{ id: string; file_id: string; password_hash?: string | null; one_per_member?: boolean }>(`share:claim_meta:${slug}`);
+      if (cached) {
+        shareRecord = cached;
+      }
+    } catch {}
 
-    if (!sErr && sData) {
-      shareRecord = sData;
-    } else {
-      const { data: fbData } = await adminClient
+    if (!shareRecord) {
+      const { data: sData, error: sErr } = await adminClient
         .from("share_links")
-        .select("id, file_id, password_hash")
+        .select("id, file_id, password_hash, one_per_member")
         .eq("slug", slug)
         .maybeSingle();
-      if (fbData) {
-        shareRecord = { ...fbData, one_per_member: false };
+
+      if (!sErr && sData) {
+        shareRecord = sData;
+      } else {
+        const { data: fbData } = await adminClient
+          .from("share_links")
+          .select("id, file_id, password_hash")
+          .eq("slug", slug)
+          .maybeSingle();
+        if (fbData) {
+          shareRecord = { ...fbData, one_per_member: false };
+        }
+      }
+
+      if (shareRecord) {
+        try {
+          await redis.set(`share:claim_meta:${slug}`, shareRecord, { ex: 60 });
+        } catch {}
       }
     }
 

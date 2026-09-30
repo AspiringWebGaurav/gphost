@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { requireApprovedUser } from "@/lib/auth/session";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { ApiKeysManager } from "@/components/dashboard/api-keys-manager";
 import { GdprComplianceCard } from "@/components/dashboard/gdpr-compliance-card";
@@ -8,17 +8,15 @@ import { Settings } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/settings");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
+  let profile;
+  try {
+    const auth = await requireApprovedUser();
+    profile = auth.profile;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/settings");
+    }
     redirect("/access-gate");
   }
 

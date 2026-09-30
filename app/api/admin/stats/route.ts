@@ -19,16 +19,23 @@ export async function GET() {
       );
     }
 
-    // Check Redis cache first (15-second TTL to withstand bursts & rapid tab switching)
+    // Check Redis cache first (30-second TTL to withstand bursts & rapid tab switching)
     const CACHE_KEY = "admin:dashboard:stats";
     try {
       const cached = await redis.get<Record<string, unknown>>(CACHE_KEY);
       if (cached) {
-        return NextResponse.json({
-          success: true,
-          stats: cached,
-          cached: true,
-        });
+        return NextResponse.json(
+          {
+            success: true,
+            stats: cached,
+            cached: true,
+          },
+          {
+            headers: {
+              "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+            },
+          }
+        );
       }
     } catch {}
 
@@ -254,15 +261,22 @@ export async function GET() {
       },
     };
 
-    // Cache in Redis for 15 seconds
+    // Cache in Redis for 30 seconds
     try {
-      await redis.set(CACHE_KEY, stats, { ex: 15 });
+      await redis.set(CACHE_KEY, stats, { ex: 30 });
     } catch {}
 
-    return NextResponse.json({
-      success: true,
-      stats,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        stats,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {

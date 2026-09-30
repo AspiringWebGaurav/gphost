@@ -1,8 +1,7 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { requireApprovedUser, checkUserActivePin } from "@/lib/auth/session";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { QuotaWidget } from "@/components/dashboard/quota-widget";
 import { StorageProvider } from "@/components/storage/storage-provider";
@@ -21,41 +20,25 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/dashboard");
-  }
-
-  const adminClient = createAdminClient();
-  const nowIso = new Date().toISOString();
-
-  const [profile, activePinRes] = await Promise.all([
-    getUserProfile(user.id),
-    user.email
-      ? adminClient
-          .from("onboarding_pins")
-          .select("id")
-          .eq("is_active", true)
-          .ilike("label", `%User: ${user.email}%`)
-          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
-
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status === "revoked") {
-    redirect("/login?reason=revoked");
-  }
-
-  if (profile.status !== "approved") {
+  let user, profile;
+  try {
+    const auth = await requireApprovedUser();
+    user = auth.user;
+    profile = auth.profile;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/dashboard");
+    }
+    if (msg.includes("REVOKED")) {
+      redirect("/login?reason=revoked");
+    }
     redirect("/access-gate");
   }
 
-  if (activePinRes.data) {
+  // Active onboarding PIN check (memoized per-request, zero duplicate DB roundtrip)
+  const hasActivePin = await checkUserActivePin(user.email || "");
+  if (hasActivePin) {
     redirect("/access-gate");
   }
 

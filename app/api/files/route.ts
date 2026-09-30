@@ -109,22 +109,34 @@ export async function GET(req: NextRequest) {
       .order(sortBy, { ascending: sortOrder === "asc" })
       .range(from, to);
 
-    const [filesRes, profileRes, shareLinksRes] = await Promise.all([
+    // Check for cached user share stats in Redis (30-second TTL)
+    let activeLinksCount = 0;
+    let totalDownloads = 0;
+    const shareStatsCacheKey = `user:share_stats:${user.id}`;
+    let hasCachedStats = false;
+
+    try {
+      const cachedStats = await redis.get<{ activeLinks: number; totalDownloads: number }>(shareStatsCacheKey);
+      if (cachedStats && typeof cachedStats.activeLinks === "number") {
+        activeLinksCount = cachedStats.activeLinks;
+        totalDownloads = cachedStats.totalDownloads;
+        hasCachedStats = true;
+      }
+    } catch {}
+
+    const [filesRes, shareLinksRes] = await Promise.all([
       query,
-      adminClient
-        .from("profiles")
-        .select("quota_bytes, storage_used_bytes, reserved_bytes")
-        .eq("id", user.id)
-        .single(),
-      adminClient
-        .from("share_links")
-        .select(
-          `id, download_count, max_downloads, expires_at, is_active,
-           files!inner(id, user_id, status, expires_at)`
-        )
-        .eq("files.user_id", user.id)
-        .eq("files.status", "ACTIVE")
-        .eq("is_active", true),
+      hasCachedStats
+        ? Promise.resolve({ data: null, error: null })
+        : adminClient
+            .from("share_links")
+            .select(
+              `id, download_count, max_downloads, expires_at, is_active,
+               files!inner(id, user_id, status, expires_at)`
+            )
+            .eq("files.user_id", user.id)
+            .eq("files.status", "ACTIVE")
+            .eq("is_active", true),
     ]);
 
     if (filesRes.error) {
@@ -132,32 +144,40 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Failed to load files" }, { status: 500 });
     }
 
-    interface DbShareLinkStatsRow {
-      id: string;
-      download_count: number;
-      max_downloads: number | null;
-      expires_at: string | null;
-      is_active: boolean;
-      files:
-        | { id: string; user_id: string; status: string; expires_at: string | null }
-        | { id: string; user_id: string; status: string; expires_at: string | null }[];
+    if (!hasCachedStats && shareLinksRes.data) {
+      interface DbShareLinkStatsRow {
+        id: string;
+        download_count: number;
+        max_downloads: number | null;
+        expires_at: string | null;
+        is_active: boolean;
+        files:
+          | { id: string; user_id: string; status: string; expires_at: string | null }
+          | { id: string; user_id: string; status: string; expires_at: string | null }[];
+      }
+
+      const allUserLinks = (shareLinksRes.data as unknown as DbShareLinkStatsRow[] | null) || [];
+      const nowMs = Date.now();
+      const activeShareLinks = allUserLinks.filter((l) => {
+        const file = Array.isArray(l.files) ? l.files[0] : l.files;
+        if (!file || file.status !== "ACTIVE") return false;
+        if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) return false;
+        if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) return false;
+        if (l.max_downloads !== null && l.download_count >= l.max_downloads) return false;
+        return true;
+      });
+
+      activeLinksCount = activeShareLinks.length;
+      totalDownloads = allUserLinks.reduce(
+        (sum, l) => sum + (Number(l.download_count) || 0),
+        0
+      );
+
+      // Cache stats in Redis for 30 seconds
+      try {
+        await redis.set(shareStatsCacheKey, { activeLinks: activeLinksCount, totalDownloads }, { ex: 30 });
+      } catch {}
     }
-
-    const allUserLinks = (shareLinksRes.data as unknown as DbShareLinkStatsRow[] | null) || [];
-    const nowMs = Date.now();
-    const activeShareLinks = allUserLinks.filter((l) => {
-      const file = Array.isArray(l.files) ? l.files[0] : l.files;
-      if (!file || file.status !== "ACTIVE") return false;
-      if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) return false;
-      if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) return false;
-      if (l.max_downloads !== null && l.download_count >= l.max_downloads) return false;
-      return true;
-    });
-
-    const totalDownloads = allUserLinks.reduce(
-      (sum, l) => sum + (Number(l.download_count) || 0),
-      0
-    );
 
     interface DbShareLink {
       id: string;
@@ -217,26 +237,31 @@ export async function GET(req: NextRequest) {
     });
     const totalCount = filesRes.count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
-    const currentProfile = profileRes.data;
-
-    return NextResponse.json({
-      success: true,
-      files: files || [],
-      totalCount,
-      page,
-      pageSize,
-      totalPages,
-      stats: {
-        totalFiles: totalCount,
-        activeLinks: activeShareLinks.length,
-        totalDownloads,
+    return NextResponse.json(
+      {
+        success: true,
+        files: files || [],
+        totalCount,
+        page,
+        pageSize,
+        totalPages,
+        stats: {
+          totalFiles: totalCount,
+          activeLinks: activeLinksCount,
+          totalDownloads,
+        },
+        quota: {
+          quota_bytes: profile.quota_bytes,
+          storage_used_bytes: profile.storage_used_bytes,
+          reserved_bytes: profile.reserved_bytes,
+        },
       },
-      quota: {
-        quota_bytes: currentProfile?.quota_bytes ?? profile.quota_bytes,
-        storage_used_bytes: currentProfile?.storage_used_bytes ?? profile.storage_used_bytes,
-        reserved_bytes: currentProfile?.reserved_bytes ?? profile.reserved_bytes,
-      },
-    });
+      {
+        headers: {
+          "Cache-Control": "private, max-age=5, stale-while-revalidate=30",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {

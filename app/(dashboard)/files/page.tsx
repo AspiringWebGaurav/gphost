@@ -1,22 +1,21 @@
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
 
 export default async function FilesPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/files");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
+  let user, profile;
+  try {
+    const auth = await requireApprovedUser();
+    user = auth.user;
+    profile = auth.profile;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/files");
+    }
     redirect("/access-gate");
   }
 

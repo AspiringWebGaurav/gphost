@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { requireApprovedUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -13,19 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const { user, profile } = await requireApprovedUser();
-    const adminClient = createAdminClient();
-
-    // Query user profile storage and files summary
-    const { data: currentProfile } = await adminClient
-      .from("profiles")
-      .select("storage_used_bytes, quota_bytes, reserved_bytes, updated_at")
-      .eq("id", user.id)
-      .single();
-
-    const storageUsedBytes = currentProfile?.storage_used_bytes ?? profile.storage_used_bytes;
-    const quotaBytes = currentProfile?.quota_bytes ?? profile.quota_bytes;
-    const reservedBytes = currentProfile?.reserved_bytes ?? profile.reserved_bytes;
-    const updatedAt = currentProfile?.updated_at ?? new Date().toISOString();
+    // Use profile already memoized from requireApprovedUser() for zero extra DB query overhead
+    const storageUsedBytes = profile.storage_used_bytes;
+    const quotaBytes = profile.quota_bytes;
+    const reservedBytes = profile.reserved_bytes;
+    const updatedAt = profile.updated_at || new Date().toISOString();
 
     // Compute smart checksum ETag
     const signatureRaw = `${user.id}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${updatedAt}`;

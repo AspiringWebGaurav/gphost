@@ -67,10 +67,17 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      pins: enrichedPins,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        pins: enrichedPins,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {

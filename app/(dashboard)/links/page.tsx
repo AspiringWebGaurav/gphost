@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LinksTable, ShareLinkItem } from "@/components/dashboard/links-table";
 
@@ -127,17 +127,15 @@ async function fetchActiveShareLinks(userId: string): Promise<ShareLinkItem[]> {
 }
 
 export default async function LinksPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/links");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
+  let user;
+  try {
+    const auth = await requireApprovedUser();
+    user = auth.user;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/links");
+    }
     redirect("/access-gate");
   }
 

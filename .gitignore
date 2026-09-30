@@ -139,6 +139,7 @@ scripts/audit_*.mjs
 scripts/inspect_live_db.mjs
 scripts/inspect_*.mjs
 audit_results*.json
+scripts/api-audit-report.json
 public/audit-screenshots/
 
 # --- Local Supabase Apply Scratchpads (Kept local, excluded from repo) ---

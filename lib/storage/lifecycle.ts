@@ -19,6 +19,8 @@ export async function purgeShareLinkRedisData(slug: string): Promise<void> {
       `share:pub:${slug}`,
       `share:slug:${slug}`,
       `share:meta:${slug}`,
+      `share:claim_meta:${slug}`,
+      `check_slug:${slug}`,
       `share_enhancements:${slug}`,
     ];
 

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redis } from "@/lib/redis/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -7,8 +8,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *
  * Checks Upstash Redis cache first for sub-millisecond resolution,
  * falling back to PostgreSQL audit log records.
+ * Memoized per-request via React cache().
  */
-export async function getUserMaxFiles(userId: string): Promise<number | null> {
+export const getUserMaxFiles = cache(async (userId: string): Promise<number | null> => {
   if (!userId) return null;
 
   try {
@@ -38,23 +40,24 @@ export async function getUserMaxFiles(userId: string): Promise<number | null> {
       if ("max_files" in meta) {
         const val = Number(meta.max_files);
         const resolved = isNaN(val) || val < 0 ? null : val;
-        // Populate cache
+        // Populate cache with 1-hour TTL
         try {
-          if (resolved !== null) {
-            await redis.set(`user:max_files:${userId}`, resolved);
-          } else {
-            await redis.set(`user:max_files:${userId}`, -1);
-          }
+          await redis.set(`user:max_files:${userId}`, resolved !== null ? resolved : -1, { ex: 3600 });
         } catch {}
         return resolved;
       }
     }
+
+    // If no limit was configured, cache -1 (unlimited) with 1-hour TTL to prevent repeated DB scans
+    try {
+      await redis.set(`user:max_files:${userId}`, -1, { ex: 3600 });
+    } catch {}
   } catch (err) {
     console.warn("[getUserMaxFiles] Database fallback error:", err);
   }
 
   return null; // Unlimited by default
-}
+});
 
 /**
  * Sets the maximum active files allowed for a specific user.

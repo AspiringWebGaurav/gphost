@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Clock, ArrowRight } from "lucide-react";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
@@ -37,17 +37,15 @@ async function fetchExpiringFiles(userId: string) {
 }
 
 export default async function ExpiringPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/expiring");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
+  let user;
+  try {
+    const auth = await requireApprovedUser();
+    user = auth.user;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/expiring");
+    }
     redirect("/access-gate");
   }
 

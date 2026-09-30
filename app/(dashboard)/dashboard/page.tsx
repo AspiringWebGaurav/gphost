@@ -1,47 +1,58 @@
 import { redirect } from "next/navigation";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { after } from "next/server";
+import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserMaxFiles } from "@/lib/storage/user-limits";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    redirect("/login?next=/dashboard");
-  }
-
-  const profile = await getUserProfile(user.id);
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.status !== "approved") {
+  let user, profile;
+  try {
+    const auth = await requireApprovedUser();
+    user = auth.user;
+    profile = auth.profile;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "UNAUTHENTICATED") {
+      redirect("/login?next=/dashboard");
+    }
     redirect("/access-gate");
   }
-
-  // Fetch user file limits and approval context
-  const maxFiles = await getUserMaxFiles(user.id);
 
   // Fetch initial files for server rendering
   const adminClient = createAdminClient();
   const nowIso = new Date().toISOString();
 
-  // Reconcile past-due files to EXPIRED before rendering
-  await adminClient
-    .from("files")
-    .update({ status: "EXPIRED", updated_at: nowIso })
-    .eq("user_id", user.id)
-    .in("status", ["ACTIVE", "EXPIRING"])
-    .not("expires_at", "is", null)
-    .lte("expires_at", nowIso);
+  // Non-blocking Lazy Reconciliation: Transition past-due files to EXPIRED in background (throttled to once per 5m per user)
+  try {
+    after(async () => {
+      try {
+        const acquired = await redis.set(`reconcile:user:${user.id}`, "1", { nx: true, ex: 300 });
+        if (!acquired) return;
+      } catch {}
+
+      await adminClient
+        .from("files")
+        .update({ status: "EXPIRED", updated_at: nowIso })
+        .eq("user_id", user.id)
+        .in("status", ["ACTIVE", "EXPIRING"])
+        .not("expires_at", "is", null)
+        .lte("expires_at", nowIso);
+    });
+  } catch {
+    // Non-blocking fallback
+  }
 
   const [
+    maxFiles,
     { data: filesRaw, count: totalFilesCount },
     { data: shareLinksRaw },
     { data: approvedRequest },
   ] = await Promise.all([
+    getUserMaxFiles(user.id),
     adminClient
       .from("files")
       .select(

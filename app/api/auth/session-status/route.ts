@@ -35,14 +35,21 @@ export async function GET(request: NextRequest) {
     const isRevoked = profile.status === "revoked";
     const isApproved = profile.status === "approved";
 
-    const response = NextResponse.json({
-      success: true,
-      authenticated: true,
-      status: profile.status,
-      role: profile.role,
-      isApproved,
-      isRevoked,
-    });
+    const response = NextResponse.json(
+      {
+        success: true,
+        authenticated: true,
+        status: profile.status,
+        role: profile.role,
+        isApproved,
+        isRevoked,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=5, stale-while-revalidate=15",
+        },
+      }
+    );
 
     // If revoked, clear cookies immediately to enforce instant logout
     if (isRevoked) {

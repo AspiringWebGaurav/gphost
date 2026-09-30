@@ -51,14 +51,21 @@ export async function GET(req: NextRequest) {
     try {
       const cached = await redis.get<{ available: boolean; error?: string }>(cacheKey);
       if (cached) {
-        return NextResponse.json({
-          available: cached.available,
-          slug,
-          isTaken: !cached.available,
-          error: cached.error,
-          message: cached.available ? "Slug is available" : undefined,
-          cached: true,
-        });
+        return NextResponse.json(
+          {
+            available: cached.available,
+            slug,
+            isTaken: !cached.available,
+            error: cached.error,
+            message: cached.available ? "Slug is available" : undefined,
+            cached: true,
+          },
+          {
+            headers: {
+              "Cache-Control": "private, max-age=10, stale-while-revalidate=20",
+            },
+          }
+        );
       }
     } catch {}
 
@@ -101,11 +108,18 @@ export async function GET(req: NextRequest) {
       await redis.set(cacheKey, { available: true }, { ex: 20 });
     } catch {}
 
-    return NextResponse.json({
-      available: true,
-      slug,
-      message: "Slug is available",
-    });
+    return NextResponse.json(
+      {
+        available: true,
+        slug,
+        message: "Slug is available",
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=10, stale-while-revalidate=20",
+        },
+      }
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ available: false, error: errorMsg }, { status: 500 });

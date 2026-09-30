@@ -172,11 +172,18 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({
-      claimed: alreadyClaimed,
-      onePerMember: true,
-      reason: claimReason || null,
-    });
+    return NextResponse.json(
+      {
+        claimed: alreadyClaimed,
+        onePerMember: true,
+        reason: claimReason || null,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=5, stale-while-revalidate=15",
+        },
+      }
+    );
   } catch (err) {
     console.error("Error in check-claim endpoint:", err);
     return NextResponse.json({ claimed: false, error: "Internal error" }, { status: 500 });
