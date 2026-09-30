@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   X,
   Globe,
@@ -102,6 +102,17 @@ export function HtmlHostModal({
   const [copiedRawUrl, setCopiedRawUrl] = useState(false);
   const [copiedSharePayload, setCopiedSharePayload] = useState(false);
   const [showQrCode, setShowQrCode] = useState(false);
+  const qrSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showQrCode && qrSectionRef.current) {
+      const timer = setTimeout(() => {
+        qrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [showQrCode]);
+
   const [copiedQrImg, setCopiedQrImg] = useState(false);
   const [isDownloadingQr, setIsDownloadingQr] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -339,8 +350,8 @@ export function HtmlHostModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl bg-card border border-border/80 p-5 sm:p-7 shadow-2xl relative space-y-5">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 overflow-y-auto">
+      <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto modal-scrollbar rounded-3xl bg-card border border-border/80 p-5 sm:p-7 shadow-2xl relative space-y-5 overscroll-contain">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/60 pb-4">
           <div className="flex items-center gap-3">
@@ -501,7 +512,10 @@ export function HtmlHostModal({
 
             {/* QR Code Expansion Card with Download Actions */}
             {showQrCode && (
-              <div className="p-4 rounded-2xl bg-card border-2 border-cyan-500/30 flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-150">
+              <div
+                ref={qrSectionRef}
+                className="p-4 rounded-2xl bg-card border-2 border-cyan-500/30 flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-150"
+              >
                 <div className="p-2.5 bg-white rounded-xl shadow-xs border shrink-0 flex items-center justify-center">
                   <QRCodeSVG
                     id="html-host-qr-svg"

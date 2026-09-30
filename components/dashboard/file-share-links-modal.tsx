@@ -117,9 +117,9 @@ export function FileShareLinksModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <div
-        className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-in zoom-in-95 duration-150"
+        className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden animate-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-links-modal-title"
@@ -150,7 +150,7 @@ export function FileShareLinksModal({
         </div>
 
         {/* Modal Body: 3 Link Channels */}
-        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto">
+        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto modal-scrollbar overscroll-contain">
           {/* Channel 1: Default Public Share Page */}
           <div className="p-3.5 rounded-xl bg-muted/20 border border-border/80 hover:border-blue-500/40 transition shadow-2xs space-y-2">
             <div className="flex items-center justify-between gap-2">

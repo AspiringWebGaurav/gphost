@@ -101,14 +101,14 @@ export function QrCodeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
       role="dialog"
       aria-modal="true"
     >
-      <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+      <div className="w-full max-w-md max-h-[90vh] bg-card border border-border rounded-2xl shadow-2xl overflow-y-auto modal-scrollbar overscroll-contain animate-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border/70 bg-muted/20">
           <div className="flex items-center gap-2.5 min-w-0">

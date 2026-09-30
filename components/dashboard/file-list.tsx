@@ -291,6 +291,17 @@ export function FileList({
   const [shareResult, setShareResult] = useState<ShareResponseData | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [showQrCode, setShowQrCode] = useState(false);
+  const qrSectionRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (showQrCode && qrSectionRef.current) {
+      const timer = setTimeout(() => {
+        qrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [showQrCode]);
+
   const [copiedQrImg, setCopiedQrImg] = useState(false);
   const [isDownloadingQr, setIsDownloadingQr] = useState(false);
   const [copiedDirect, setCopiedDirect] = useState(false);
@@ -837,8 +848,8 @@ export function FileList({
         const preferredShareUrl = formattedXurl || displayShareUrl;
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-            <div className="w-full max-w-4xl xl:max-w-5xl bg-card border border-border rounded-2xl p-3.5 sm:p-4.5 shadow-2xl space-y-2.5 sm:space-y-3 max-h-[96vh] overflow-y-auto sm:overflow-visible scrollbar-none transition-all">
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="w-full max-w-4xl xl:max-w-5xl bg-card border border-border rounded-2xl p-3.5 sm:p-4.5 shadow-2xl space-y-2.5 sm:space-y-3 max-h-[88vh] overflow-y-auto modal-scrollbar overscroll-contain transition-all">
               <div className="flex items-center justify-between border-b border-border pb-2">
                 <div className="flex items-center gap-2.5">
                   <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
@@ -1764,6 +1775,20 @@ export function FileList({
                         {copiedDirect ? <Check className="w-4 h-4 stroke-[2.5]" /> : <Copy className="w-4 h-4" />}
                         <span>{copiedDirect ? "Copied!" : "Copy Link"}</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowQrCode((prev) => !prev)}
+                        className={`h-10 px-3.5 rounded-xl border text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                          showQrCode
+                            ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
+                            : "bg-background hover:bg-muted text-foreground border-border"
+                        }`}
+                        title={showQrCode ? "Hide QR Code" : "Show & Download QR Code"}
+                      >
+                        <QrCode className="w-4 h-4 text-blue-500" />
+                        <span>{showQrCode ? "Hide QR" : "QR Code"}</span>
+                      </button>
                       {openShareUrl && (
                         <a
                           href={openShareUrl}
@@ -1995,7 +2020,10 @@ export function FileList({
 
                   {/* Instant Client-Side QR Code with Download Actions */}
                   {showQrCode && (
-                    <div className="p-4 rounded-xl bg-card border-2 border-blue-500/30 shadow-xs flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-200">
+                    <div
+                      ref={qrSectionRef}
+                      className="p-4 rounded-xl bg-card border-2 border-blue-500/30 shadow-xs flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-200"
+                    >
                       <div className="p-2.5 bg-white rounded-xl shadow-xs border border-neutral-200 shrink-0 flex items-center justify-center">
                         <QRCodeSVG
                           id="file-list-qr-svg"
