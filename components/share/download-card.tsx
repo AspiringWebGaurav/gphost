@@ -112,6 +112,7 @@ export function DownloadCard({
     },
     () => {
       try {
+        if (!isOnePerMemberActive) return false;
         return typeof window !== "undefined" && localStorage.getItem(`gphost_downloaded_${slug}`) === "1";
       } catch {
         return false;
@@ -119,14 +120,24 @@ export function DownloadCard({
     },
     () => false
   );
-  const isLifetimeDownloaded = sessionDownloaded || persistedDownloaded;
+  const isLifetimeDownloaded = Boolean(isOnePerMemberActive && (sessionDownloaded || persistedDownloaded));
   const [deviceFp, setDeviceFp] = useState<string | null>(null);
 
   // Deep hardware device pre-flight check across Incognito, Normal, and post-purge sessions:
   // Contacts server with hardware fingerprint (Canvas, WebGL GPU, Audio DSP, CPU).
   // Automatically syncs state so if the database was purged, stale client storage is auto-cleared!
   useEffect(() => {
-    if (!isOnePerMemberActive) return;
+    if (!isOnePerMemberActive) {
+      // If one-per-member is NOT active for this link, clean up any stale localStorage key
+      try {
+        if (typeof window !== "undefined" && localStorage.getItem(`gphost_downloaded_${slug}`)) {
+          localStorage.removeItem(`gphost_downloaded_${slug}`);
+          window.dispatchEvent(new Event("storage"));
+        }
+      } catch {}
+      setSessionDownloaded(false);
+      return;
+    }
 
     let isMounted = true;
     (async () => {
@@ -350,11 +361,15 @@ export function DownloadCard({
           setIsUnlocked(false);
           setUnlockError("Session expired. Please unlock the file again.");
         } else if (res.status === 403 && data.code === "ALREADY_DOWNLOADED") {
-          setSessionDownloaded(true);
-          try {
-            localStorage.setItem(`gphost_downloaded_${slug}`, "1");
-          } catch {}
-          setClaimError(data.error || "You have already downloaded this file. Each person can download once.");
+          if (isOnePerMemberActive) {
+            setSessionDownloaded(true);
+            try {
+              localStorage.setItem(`gphost_downloaded_${slug}`, "1");
+            } catch {}
+            setClaimError(data.error || "You have already downloaded this file. Each person can download once.");
+          } else {
+            setClaimError(data.error || "Download limit reached.");
+          }
         } else {
           setClaimError(data.error || "Unable to start download. Please try again.");
         }
@@ -383,7 +398,7 @@ export function DownloadCard({
         setIsSingleUseClaimed(true);
       }
 
-      if (onePerMember) {
+      if (isOnePerMemberActive) {
         setSessionDownloaded(true);
         try {
           localStorage.setItem(`gphost_downloaded_${slug}`, "1");
