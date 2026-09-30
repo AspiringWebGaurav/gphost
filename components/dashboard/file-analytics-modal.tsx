@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { FileAnalyticsResponse } from "@/app/api/files/[id]/analytics/route";
 import { WorldMap } from "@/components/dashboard/world-map";
+import { getCountryCentroid } from "@/components/dashboard/world-map-data";
 
 interface FileAnalyticsModalProps {
   fileId: string;
@@ -26,6 +27,7 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
   const [data, setData] = useState<FileAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
 
   const fetchAnalytics = useCallback(async () => {
     try {
@@ -170,7 +172,13 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
               </div>
 
               {/* Interactive Vector World Map */}
-              <WorldMap countries={data.countries} />
+              <WorldMap
+                countries={data.countries}
+                selectedCountry={selectedCountry}
+                onSelectCountry={(code) =>
+                  setSelectedCountry((prev) => (prev === code ? null : code))
+                }
+              />
 
               {/* Geographic Distribution & Referrers Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -179,11 +187,21 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                       <Globe2 className="w-3.5 h-3.5 text-blue-500" />
-                      Top Visitor Countries
+                      <span>Top Visitor Countries</span>
                     </h4>
-                    <span className="text-[10px] text-muted-foreground">
-                      Global Visitors
-                    </span>
+                    {selectedCountry ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCountry(null)}
+                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-mono cursor-pointer"
+                      >
+                        Reset Filter ({selectedCountry})
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        Global Visitors
+                      </span>
+                    )}
                   </div>
 
                   {data.countries.length === 0 ? (
@@ -195,17 +213,46 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                       {data.countries.map((c) => {
                         const total = data.summary.totalEvents || 1;
                         const pct = Math.round((c.count / total) * 100);
+                        const code = c.country.toUpperCase();
+                        const isSelected = selectedCountry === code;
+                        const info = getCountryCentroid(code);
+                        const fullName = info ? info.name : code;
+
+                        // Country flag emoji
+                        let flag = "🌐";
+                        if (code.length === 2) {
+                          try {
+                            flag = String.fromCodePoint(
+                              code.charCodeAt(0) + 127397,
+                              code.charCodeAt(1) + 127397
+                            );
+                          } catch {
+                            flag = "🌐";
+                          }
+                        }
+
                         return (
-                          <div key={c.country} className="space-y-1">
-                            <div className="flex items-center justify-between text-xs font-mono">
-                              <span className="font-semibold text-foreground flex items-center gap-1.5">
-                                <span className="w-5 h-3.5 rounded bg-muted border border-border inline-flex items-center justify-center text-[9px] text-muted-foreground">
-                                  {c.country.slice(0, 2)}
+                          <div
+                            key={c.country}
+                            onClick={() =>
+                              setSelectedCountry((prev) => (prev === code ? null : code))
+                            }
+                            className={`p-2 rounded-lg border transition cursor-pointer space-y-1.5 ${
+                              isSelected
+                                ? "bg-blue-500/10 border-blue-500/40 shadow-xs"
+                                : "bg-card/50 hover:bg-muted/40 border-border/70"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-foreground flex items-center gap-2 truncate">
+                                <span className="text-base leading-none">{flag}</span>
+                                <span className="truncate">{fullName}</span>
+                                <span className="text-[10px] font-mono text-muted-foreground">
+                                  ({code})
                                 </span>
-                                {c.country}
                               </span>
-                              <span className="text-muted-foreground">
-                                {c.count} ({pct}%)
+                              <span className="text-muted-foreground font-mono text-[11px] shrink-0">
+                                <strong className="text-foreground">{c.count}</strong> ({pct}%)
                               </span>
                             </div>
                             <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
@@ -226,7 +273,7 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                       <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
-                      Top Traffic Sources
+                      <span>Top Traffic Sources</span>
                     </h4>
                     <span className="text-[10px] text-muted-foreground font-mono">
                       Referrers
@@ -242,7 +289,7 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                       {data.referrers.map((r) => (
                         <div
                           key={r.referrer}
-                          className="flex items-center justify-between text-xs p-2 rounded-lg bg-card border border-border/60"
+                          className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-card border border-border/60"
                         >
                           <span className="truncate max-w-[180px] font-mono text-[11px] text-foreground" title={r.referrer}>
                             {r.referrer}
@@ -262,11 +309,18 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     <Activity className="w-3.5 h-3.5 text-purple-500" />
-                    Recent Edge Events Log
+                    <span>Recent Edge Events Log</span>
                   </h4>
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    Latest 20 hits
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {selectedCountry && (
+                      <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                        Filtering: {selectedCountry}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      Latest 20 hits
+                    </span>
+                  </div>
                 </div>
 
                 {data.recentEvents.length === 0 ? (
@@ -275,36 +329,56 @@ export function FileAnalyticsModal({ fileId, filename, onClose }: FileAnalyticsM
                   </p>
                 ) : (
                   <div className="border border-border rounded-xl overflow-hidden divide-y divide-border/60 max-h-56 overflow-y-auto">
-                    {data.recentEvents.map((ev) => {
-                      const isDownload = ev.eventType === "download";
-                      const isRaw = ev.eventType === "raw_view";
-                      return (
-                        <div
-                          key={ev.id}
-                          className="p-2.5 flex items-center justify-between gap-3 text-xs bg-card hover:bg-muted/30 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 ${
-                                isDownload
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                  : isRaw
-                                  ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
-                                  : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                              }`}
-                            >
-                              {ev.eventType}
-                            </span>
-                            <span className="text-muted-foreground text-[11px] truncate">
-                              {ev.city ? `${ev.city}, ` : ""}{ev.countryCode || "Unknown Location"}
+                    {data.recentEvents
+                      .filter((ev) => !selectedCountry || (ev.countryCode && ev.countryCode.toUpperCase() === selectedCountry))
+                      .map((ev) => {
+                        const isDownload = ev.eventType === "download";
+                        const isRaw = ev.eventType === "raw_view";
+                        const code = (ev.countryCode || "").toUpperCase();
+                        let flag = "🌐";
+                        if (code.length === 2) {
+                          try {
+                            flag = String.fromCodePoint(
+                              code.charCodeAt(0) + 127397,
+                              code.charCodeAt(1) + 127397
+                            );
+                          } catch {
+                            flag = "🌐";
+                          }
+                        }
+
+                        return (
+                          <div
+                            key={ev.id}
+                            className={`p-2.5 flex items-center justify-between gap-3 text-xs transition-colors ${
+                              selectedCountry && code === selectedCountry
+                                ? "bg-blue-500/10 hover:bg-blue-500/15"
+                                : "bg-card hover:bg-muted/30"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 ${
+                                  isDownload
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                    : isRaw
+                                    ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
+                                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                                }`}
+                              >
+                                {ev.eventType}
+                              </span>
+                              <span className="text-base leading-none shrink-0">{flag}</span>
+                              <span className="text-muted-foreground text-[11px] truncate">
+                                {ev.city ? `${ev.city}, ` : ""}{ev.countryCode || "Unknown Location"}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                              {new Date(ev.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                            {new Date(ev.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                          </span>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 )}
               </div>
