@@ -8,8 +8,6 @@ import { createClient } from "@/lib/supabase/client";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 // Throttle activity updates to once every 15 seconds to avoid performance overhead
 const THROTTLE_MS = 15 * 1000;
-// Periodic token refresh interval while user is active (4 minutes to guarantee token freshness)
-const TOKEN_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 
 const STORAGE_KEY = "gphost_last_active";
 const COOKIE_NAME = "gphost_last_active";
@@ -43,7 +41,6 @@ export function IdleSessionMonitor() {
   const lastActiveRef = useRef<number>(getStoredLastActive());
   const lastThrottleRef = useRef<number>(0);
   const idleCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const tokenRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isLoggingOutRef = useRef<boolean>(false);
 
   const handleIdleLogout = useCallback(async () => {
@@ -56,7 +53,7 @@ export function IdleSessionMonitor() {
       }
       setCookie(COOKIE_NAME, "0", 0);
       const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     } catch (err) {
       console.error("Error during idle logout:", err);
     } finally {
@@ -76,7 +73,7 @@ export function IdleSessionMonitor() {
       }
       setCookie(COOKIE_NAME, "0", 0);
       const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     } catch (err) {
       console.error("Error during revocation logout:", err);
@@ -222,18 +219,6 @@ export function IdleSessionMonitor() {
         }
         if (!isLoggingOutRef.current) {
           recordActivity();
-          // Proactively ensure Supabase session token is kept fresh upon focusing tab
-          try {
-            const client = createClient();
-            const { data } = await client.auth.getSession();
-            const session = data?.session;
-            if (session) {
-              const expiresAtMs = (session.expires_at || 0) * 1000;
-              if (expiresAtMs > 0 && expiresAtMs - Date.now() < 5 * 60 * 1000) {
-                await client.auth.refreshSession();
-              }
-            }
-          } catch {}
         }
       }
     };
@@ -242,23 +227,6 @@ export function IdleSessionMonitor() {
 
     // 5. Background periodic client-only timer to check idle timeout (every 45 seconds, 0 network requests)
     idleCheckIntervalRef.current = setInterval(checkIdleStatus, 45000);
-
-    // 6. Periodic Supabase session keep-alive while user is active
-    tokenRefreshIntervalRef.current = setInterval(async () => {
-      const elapsed = Date.now() - lastActiveRef.current;
-      if (elapsed < IDLE_TIMEOUT_MS) {
-        try {
-          const client = createClient();
-          const { data: { session } } = await client.auth.getSession();
-          if (session) {
-            const expiresAtMs = (session.expires_at || 0) * 1000;
-            if (expiresAtMs > 0 && expiresAtMs - Date.now() < 5 * 60 * 1000) {
-              await client.auth.refreshSession();
-            }
-          }
-        } catch {}
-      }
-    }, TOKEN_REFRESH_INTERVAL_MS);
 
     return () => {
       isCancelled = true;
@@ -274,7 +242,6 @@ export function IdleSessionMonitor() {
         realtimeChannel = null;
       }
       if (idleCheckIntervalRef.current) clearInterval(idleCheckIntervalRef.current);
-      if (tokenRefreshIntervalRef.current) clearInterval(tokenRefreshIntervalRef.current);
     };
   }, [recordActivity, checkIdleStatus, checkRevocationStatus, handleRevocationLogout]);
 

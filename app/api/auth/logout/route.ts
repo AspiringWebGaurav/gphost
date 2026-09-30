@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: "local" });
 
   const acceptHeader = request.headers.get("accept") || "";
   if (acceptHeader.includes("text/html")) {
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: "local" });
   const res = NextResponse.redirect(new URL("/", request.url));
   res.cookies.delete("gphost_last_active");
   return res;

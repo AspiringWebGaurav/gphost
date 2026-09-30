@@ -629,7 +629,15 @@ export default async function HomePage() {
               Terms of Service
             </Link>
             <Link
-              href="/developers"
+              href="/acceptable-use"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              Acceptable Use
+            </Link>
+            <Link
+              href="/how-it-works"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-foreground transition-colors"

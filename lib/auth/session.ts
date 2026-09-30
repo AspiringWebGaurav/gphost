@@ -2,6 +2,12 @@ import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  isSupabaseSessionCookie,
+  extractAccessTokenFromCookies,
+  decodeJwtPayload,
+} from "@/lib/supabase/cookie-utils";
+import "@/lib/supabase/suppress-auth-warnings";
 
 export interface UserProfile {
   id: string;
@@ -52,7 +58,7 @@ export const getAuthenticatedUser = cache(async () => {
     const cookieStore = await cookies();
     const hasAuthCookie = cookieStore
       .getAll()
-      .some((c) => c.name.startsWith("sb-") || c.name.includes("auth-token"));
+      .some((c) => isSupabaseSessionCookie(c));
 
     if (!hasAuthCookie) {
       return null;
@@ -61,11 +67,30 @@ export const getAuthenticatedUser = cache(async () => {
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
 
-    if (error || !user) {
-      return null;
+    if (!error && user) {
+      return user;
     }
 
-    return user;
+    // 3. Concurrent Multi-Tab / Multi-Device Resilience:
+    // If standard getUser() failed (e.g. refresh_token_already_used because another concurrent tab rotated tokens),
+    // extract the access_token JWT from the cookie and validate it authoritatively via adminClient.
+    // This allows active concurrent sessions to execute requests cleanly as long as the JWT is unexpired.
+    const accessToken = extractAccessTokenFromCookies(cookieStore);
+    if (accessToken) {
+      const payload = decodeJwtPayload(accessToken);
+      const isUnexpired = Boolean(
+        payload?.exp && typeof payload.exp === "number" && payload.exp * 1000 > Date.now()
+      );
+      if (isUnexpired) {
+        const adminClient = createAdminClient();
+        const { data: { user: adminUser }, error: adminErr } = await adminClient.auth.getUser(accessToken);
+        if (!adminErr && adminUser) {
+          return adminUser;
+        }
+      }
+    }
+
+    return null;
   } catch {
     // If refresh token is expired, invalid, or purged, gracefully treat as unauthenticated
     return null;

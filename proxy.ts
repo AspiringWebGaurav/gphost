@@ -1,6 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import crypto from "crypto";
+import {
+  isSupabaseSessionCookie,
+  purgeStaleAuthCookies,
+  extractAccessTokenFromCookies,
+  decodeJwtPayload,
+} from "@/lib/supabase/cookie-utils";
+import { createAdminClient } from "@/lib/supabase/admin";
+import "@/lib/supabase/suppress-auth-warnings";
 
 export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7-day persistent session window (active users stay logged in)
 export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30-minute inactivity window (background idle timeout)
@@ -75,7 +83,7 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
 
-  const supabaseResponse = NextResponse.next({
+  let supabaseResponse = NextResponse.next({
     request: {
       headers: requestHeaders,
     },
@@ -101,7 +109,8 @@ export async function proxy(request: NextRequest) {
       res.cookies.set(cookie.name, cookie.value, {
         path: cookie.path || "/",
         sameSite: (cookie.sameSite as "lax" | "strict" | "none") || "lax",
-        maxAge: SESSION_MAX_AGE_SECONDS,
+        maxAge: cookie.value === "" ? 0 : (cookie.maxAge ?? SESSION_MAX_AGE_SECONDS),
+        expires: cookie.expires,
         httpOnly: cookie.httpOnly,
         secure: cookie.secure,
       });
@@ -110,11 +119,11 @@ export async function proxy(request: NextRequest) {
   };
 
   // Fast-Path Auth Cookie Check for Vercel Hobby Quota Preservation:
-  // If the browser presents no Supabase auth cookies, skip initializing Supabase SSR
+  // If the browser presents no valid Supabase auth cookies, skip initializing Supabase SSR
   // and avoid redundant network roundtrips completely.
   const hasAuthCookie = request.cookies
     .getAll()
-    .some((c) => c.name.startsWith("sb-") || c.name.includes("auth-token"));
+    .some((c) => isSupabaseSessionCookie(c));
 
   if (!hasAuthCookie) {
     if (isProtectedPath) {
@@ -164,6 +173,12 @@ export async function proxy(request: NextRequest) {
             request.cookies.set(name, value);
             supabaseResponse.cookies.set(name, value, cookieOptions);
           });
+          // Also sync requestHeaders cookie string so downstream Server Components see refreshed tokens
+          const updatedCookieHeader = request.cookies
+            .getAll()
+            .map((c) => `${c.name}=${c.value}`)
+            .join("; ");
+          requestHeaders.set("cookie", updatedCookieHeader);
           if (headers) {
             Object.entries(headers).forEach(([key, value]) => {
               supabaseResponse.headers.set(key, value);
@@ -174,48 +189,73 @@ export async function proxy(request: NextRequest) {
     }
   );
 
+  // Helper to recover user from unexpired access token if refresh token rotated concurrently
+  const recoverUserFromJwt = async () => {
+    try {
+      const accessToken = extractAccessTokenFromCookies(request.cookies);
+      if (!accessToken) return null;
+      const payload = decodeJwtPayload(accessToken);
+      const isUnexpired = Boolean(
+        payload?.exp && typeof payload.exp === "number" && payload.exp * 1000 > Date.now()
+      );
+      if (!isUnexpired) return null;
+
+      const adminClient = createAdminClient();
+      const { data: { user: adminUser }, error: adminErr } = await adminClient.auth.getUser(accessToken);
+      if (!adminErr && adminUser) {
+        return adminUser;
+      }
+    } catch {
+      // Recovery failed
+    }
+    return null;
+  };
+
   // Refresh auth session safely
   let user = null;
   try {
     const userRes = await supabase.auth.getUser();
     if (userRes.error) {
-      // If refresh token is invalid/purged, clear stale cookies so errors do not repeat
-      const err = userRes.error as { status?: number; message?: string; code?: string };
-      if (
-        err.status === 400 ||
-        err.code === "refresh_token_not_found" ||
-        err.message?.includes("Refresh Token")
-      ) {
-        request.cookies.getAll().forEach((c) => {
-          // Strictly protect PKCE code verifier cookies
-          if (c.name.includes("code-verifier") || c.name.includes("code_verifier")) {
-            return;
-          }
-          if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
-            supabaseResponse.cookies.delete(c.name);
-          }
-        });
+      // Step 1: Check if the access token in cookies is still valid and unexpired.
+      // This prevents multi-tab / multi-device concurrent sessions from wiping cookies
+      // when another tab rotated the single-use refresh token.
+      const recoveredUser = await recoverUserFromJwt();
+      if (recoveredUser) {
+        user = recoveredUser;
+      } else {
+        // If refresh token is truly invalid/expired and JWT cannot be recovered, clear stale cookies
+        const err = userRes.error as { status?: number; message?: string; code?: string };
+        const isStale =
+          err.status === 400 ||
+          err.code === "refresh_token_not_found" ||
+          err.code === "refresh_token_already_used" ||
+          err.code === "session_expired" ||
+          err.message?.includes("Refresh Token");
+
+        if (isStale) {
+          supabaseResponse = purgeStaleAuthCookies(request, requestHeaders, cspHeader);
+        }
       }
     } else {
       user = userRes.data?.user ?? null;
     }
   } catch (err: unknown) {
-    // Catch AuthApiError gracefully and purge invalid cookies
-    const authErr = err as { code?: string; status?: number; message?: string };
-    if (
-      authErr?.code === "refresh_token_not_found" ||
-      authErr?.status === 400 ||
-      authErr?.message?.includes("Refresh Token")
-    ) {
-      request.cookies.getAll().forEach((c) => {
-        // Strictly protect PKCE code verifier cookies
-        if (c.name.includes("code-verifier") || c.name.includes("code_verifier")) {
-          return;
-        }
-        if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
-          supabaseResponse.cookies.delete(c.name);
-        }
-      });
+    const recoveredUser = await recoverUserFromJwt();
+    if (recoveredUser) {
+      user = recoveredUser;
+    } else {
+      // Catch AuthApiError gracefully and purge invalid cookies
+      const authErr = err as { code?: string; status?: number; message?: string };
+      const isStale =
+        authErr?.status === 400 ||
+        authErr?.code === "refresh_token_not_found" ||
+        authErr?.code === "refresh_token_already_used" ||
+        authErr?.code === "session_expired" ||
+        authErr?.message?.includes("Refresh Token");
+
+      if (isStale) {
+        supabaseResponse = purgeStaleAuthCookies(request, requestHeaders, cspHeader);
+      }
     }
   }
 
@@ -229,8 +269,8 @@ export async function proxy(request: NextRequest) {
   if (user && isProtectedPath && lastActiveCookie) {
     const lastActiveTime = parseInt(lastActiveCookie, 10);
     if (!isNaN(lastActiveTime) && now - lastActiveTime > IDLE_TIMEOUT_MS) {
-      // User was completely idle in background for > 30 minutes -> log out
-      await supabase.auth.signOut();
+      // User was completely idle in background for > 30 minutes -> log out locally
+      await supabase.auth.signOut({ scope: "local" });
       url.pathname = "/login";
       url.searchParams.set("reason", "idle_timeout");
       const res = redirectWithCsp(url);
@@ -273,15 +313,20 @@ export async function proxy(request: NextRequest) {
   // Root Ban: Legacy 9262 account is permanently barred
   if (userEmail === "gauravpatil9262@gmail.com") {
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     } catch {}
     url.pathname = "/login";
     url.searchParams.set("error", "Access denied: Account decommissioned");
     const res = redirectWithCsp(url);
     res.cookies.delete("gphost_last_active");
     request.cookies.getAll().forEach((cookie) => {
-      if (cookie.name.startsWith("sb-")) {
-        res.cookies.delete(cookie.name);
+      if (isSupabaseSessionCookie(cookie)) {
+        res.cookies.set(cookie.name, "", {
+          path: "/",
+          maxAge: 0,
+          expires: new Date(0),
+          sameSite: "lax",
+        });
       }
     });
     return res;
@@ -303,18 +348,20 @@ export async function proxy(request: NextRequest) {
   // Instant Revocation Gate: Immediately log out revoked users and strip credentials
   if (isRevoked) {
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     } catch {}
     url.pathname = "/login";
     url.searchParams.set("reason", "revoked");
     const res = redirectWithCsp(url);
     res.cookies.delete("gphost_last_active");
     request.cookies.getAll().forEach((cookie) => {
-      if (cookie.name.includes("code-verifier") || cookie.name.includes("code_verifier")) {
-        return;
-      }
-      if (cookie.name.startsWith("sb-")) {
-        res.cookies.delete(cookie.name);
+      if (isSupabaseSessionCookie(cookie)) {
+        res.cookies.set(cookie.name, "", {
+          path: "/",
+          maxAge: 0,
+          expires: new Date(0),
+          sameSite: "lax",
+        });
       }
     });
     return res;

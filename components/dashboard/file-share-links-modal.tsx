@@ -12,8 +12,10 @@ import {
   RotateCw,
   AlertTriangle,
   Code2,
+  QrCode,
 } from "lucide-react";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { QrCodeModal } from "@/components/ui/qr-code-modal";
 import { authFetch } from "@/lib/auth/client-fetch";
 
 export interface FileShareLinksModalProps {
@@ -51,6 +53,12 @@ export function FileShareLinksModal({
   const [xurlShortUrl, setXurlShortUrl] = useState<string | null>(file?.xurl_short_url || null);
   const [isGeneratingXurl, setIsGeneratingXurl] = useState<boolean>(false);
   const [xurlError, setXurlError] = useState<string | null>(null);
+  const [activeQrModal, setActiveQrModal] = useState<{
+    url: string;
+    title: string;
+    subtitle?: string;
+    filename?: string;
+  } | null>(null);
 
   if (file && file.id !== prevFileId) {
     setPrevFileId(file.id);
@@ -189,6 +197,22 @@ export function FileShareLinksModal({
                     </>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveQrModal({
+                      url: gphostPublicUrl,
+                      title: file.sanitized_name,
+                      subtitle: "Public Share Page",
+                      filename: file.sanitized_name,
+                    })
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                  title="View & Download QR Code"
+                >
+                  <QrCode className="w-3.5 h-3.5 text-blue-500" />
+                  <span>QR</span>
+                </button>
               </div>
             </div>
 
@@ -249,6 +273,22 @@ export function FileShareLinksModal({
                       <span>Copy</span>
                     </>
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveQrModal({
+                      url: directPublicUrl,
+                      title: file.sanitized_name,
+                      subtitle: isSite ? "Hosted Webpage" : "Direct CDN Stream",
+                      filename: `${file.sanitized_name}-direct`,
+                    })
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                  title="View & Download QR Code"
+                >
+                  <QrCode className="w-3.5 h-3.5 text-purple-500" />
+                  <span>QR</span>
                 </button>
               </div>
             </div>
@@ -313,6 +353,22 @@ export function FileShareLinksModal({
                         <span>Copy</span>
                       </>
                     )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveQrModal({
+                        url: formattedXurl!,
+                        title: file.sanitized_name,
+                        subtitle: "XURL Shortlink",
+                        filename: `${file.sanitized_name}-xurl`,
+                      })
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                    title="View & Download QR Code"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>QR</span>
                   </button>
                 </div>
               ) : (
@@ -382,6 +438,18 @@ export function FileShareLinksModal({
           </button>
         </div>
       </div>
+
+      {/* QR Code Viewer & Download Modal */}
+      {activeQrModal && (
+        <QrCodeModal
+          isOpen={Boolean(activeQrModal)}
+          onClose={() => setActiveQrModal(null)}
+          url={activeQrModal.url}
+          title={activeQrModal.title}
+          subtitle={activeQrModal.subtitle}
+          filename={activeQrModal.filename}
+        />
+      )}
     </div>
   );
 }

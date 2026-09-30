@@ -48,6 +48,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import {
+  downloadQrCodePng,
+  downloadQrCodeSvg,
+  copyQrCodeImage,
+} from "@/lib/utils/qr-export";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { formatTimeRemaining } from "@/lib/storage/expiry";
 import { storageEvents } from "@/lib/storage/events";
@@ -270,6 +275,8 @@ export function FileManager({
   const [creatingShare, setCreatingShare] = useState<boolean>(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [showQrCode, setShowQrCode] = useState<boolean>(false);
+  const [copiedQrImg, setCopiedQrImg] = useState<boolean>(false);
+  const [isDownloadingQr, setIsDownloadingQr] = useState<boolean>(false);
   const [copiedMarkdown, setCopiedMarkdown] = useState<boolean>(false);
 
   const shareDomainConfig = getShareDomainConfig(shareEnableXurl);
@@ -2178,28 +2185,92 @@ export function FileManager({
                     </div>
                   </div>
 
-                  {/* Instant Client-Side QR Code */}
+                  {/* Instant Client-Side QR Code with Download Actions */}
                   {showQrCode && (
-                    <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col sm:flex-row items-center gap-4 animate-in fade-in duration-200">
-                      <div className="p-2.5 bg-white rounded-xl shadow-xs border border-neutral-200 shrink-0">
+                    <div className="p-4 rounded-xl bg-card border-2 border-blue-500/30 shadow-xs flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-200">
+                      <div className="p-2.5 bg-white rounded-xl shadow-xs border border-neutral-200 shrink-0 flex items-center justify-center">
                         <QRCodeSVG
+                          id="file-manager-qr-svg"
                           value={preferredShareUrl}
-                          size={120}
-                          level="M"
+                          size={130}
+                          level="H"
                           includeMargin={false}
-                          className="w-[110px] h-[110px]"
+                          className="w-[120px] h-[120px]"
                         />
                       </div>
-                      <div className="space-y-1.5 text-center sm:text-left min-w-0">
+                      <div className="space-y-2 text-center sm:text-left min-w-0 flex-1">
                         <div className="flex items-center justify-center sm:justify-start gap-1.5 text-xs font-semibold text-foreground">
                           <QrCode className="w-4 h-4 text-blue-500" />
                           <span>Instant Mobile QR Code</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          Point your mobile phone camera at this QR code to instantly open or download this file on your mobile device.
+                          Point your mobile phone camera at this QR code to instantly open or download. You can also download or copy this QR image below.
                         </p>
                         <div className="text-[10.5px] font-mono text-blue-600 dark:text-blue-400 truncate max-w-[250px] sm:max-w-md">
                           {preferredShareUrl}
+                        </div>
+
+                        {/* Download QR Actions */}
+                        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isDownloadingQr}
+                            onClick={async () => {
+                              setIsDownloadingQr(true);
+                              try {
+                                await downloadQrCodePng("file-manager-qr-svg", {
+                                  filename: `QR-${selectedFileForShare?.sanitized_name || "share"}.png`,
+                                  title: selectedFileForShare?.sanitized_name || "Share Link",
+                                  subtitle: "GPHost Share Link",
+                                  size: 512,
+                                });
+                              } finally {
+                                setIsDownloadingQr(false);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition cursor-pointer disabled:opacity-50"
+                            title="Download high-resolution PNG image"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{isDownloadingQr ? "Saving..." : "Download PNG"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              downloadQrCodeSvg("file-manager-qr-svg", `QR-${selectedFileForShare?.sanitized_name || "share"}.svg`)
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                            title="Download vector SVG format"
+                          >
+                            <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span>Download SVG</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ok = await copyQrCodeImage("file-manager-qr-svg");
+                              if (ok) {
+                                setCopiedQrImg(true);
+                                setTimeout(() => setCopiedQrImg(false), 2000);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                            title="Copy QR image to clipboard for instant pasting"
+                          >
+                            {copiedQrImg ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied Image!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                                <span>Copy Image</span>
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
                     </div>

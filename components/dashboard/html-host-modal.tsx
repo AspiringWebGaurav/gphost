@@ -18,8 +18,15 @@ import {
   HardDrive,
   ShieldCheck,
   Sparkles,
+  Download,
+  Image as ImageIcon,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import {
+  downloadQrCodePng,
+  downloadQrCodeSvg,
+  copyQrCodeImage,
+} from "@/lib/utils/qr-export";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
 import { storageEvents } from "@/lib/storage/events";
 import { authFetch } from "@/lib/auth/client-fetch";
@@ -95,6 +102,8 @@ export function HtmlHostModal({
   const [copiedRawUrl, setCopiedRawUrl] = useState(false);
   const [copiedSharePayload, setCopiedSharePayload] = useState(false);
   const [showQrCode, setShowQrCode] = useState(false);
+  const [copiedQrImg, setCopiedQrImg] = useState(false);
+  const [isDownloadingQr, setIsDownloadingQr] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -490,19 +499,91 @@ export function HtmlHostModal({
               </div>
             </div>
 
-            {/* QR Code Expansion Card */}
+            {/* QR Code Expansion Card with Download Actions */}
             {showQrCode && (
-              <div className="p-4 rounded-2xl bg-card border border-border flex flex-col sm:flex-row items-center gap-4 animate-in fade-in duration-150">
-                <div className="p-2.5 bg-white rounded-xl shadow-xs border shrink-0">
-                  <QRCodeSVG value={deployedResult.siteUrl} size={110} />
+              <div className="p-4 rounded-2xl bg-card border-2 border-cyan-500/30 flex flex-col sm:flex-row items-center sm:items-start gap-4 animate-in fade-in duration-150">
+                <div className="p-2.5 bg-white rounded-xl shadow-xs border shrink-0 flex items-center justify-center">
+                  <QRCodeSVG
+                    id="html-host-qr-svg"
+                    value={deployedResult.siteUrl}
+                    size={120}
+                    level="H"
+                    className="w-[110px] h-[110px]"
+                  />
                 </div>
-                <div className="space-y-1 text-xs text-center sm:text-left">
-                  <div className="font-semibold text-foreground">Mobile Instant Scan</div>
+                <div className="space-y-2 text-xs text-center sm:text-left flex-1 min-w-0">
+                  <div className="font-semibold text-foreground flex items-center justify-center sm:justify-start gap-1.5">
+                    <QrCode className="w-4 h-4 text-cyan-500" />
+                    <span>Mobile Instant Scan</span>
+                  </div>
                   <p className="text-muted-foreground leading-relaxed">
                     Scan with any smartphone camera to open and test this hosted HTML site directly on mobile.
                   </p>
-                  <div className="pt-1 font-mono text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold truncate">
+                  <div className="font-mono text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold truncate">
                     {deployedResult.siteUrl}
+                  </div>
+
+                  {/* QR Download Action Strip */}
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isDownloadingQr}
+                      onClick={async () => {
+                        setIsDownloadingQr(true);
+                        try {
+                          await downloadQrCodePng("html-host-qr-svg", {
+                            filename: `QR-${deployedResult.filename || deployedResult.slug || "site"}.png`,
+                            title: deployedResult.filename || deployedResult.slug || "Hosted Site",
+                            subtitle: "GPHost HTML Site",
+                            size: 512,
+                          });
+                        } finally {
+                          setIsDownloadingQr(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-2xs transition cursor-pointer disabled:opacity-50"
+                      title="Download high-resolution PNG image"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{isDownloadingQr ? "Saving..." : "Download PNG"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadQrCodeSvg("html-host-qr-svg", `QR-${deployedResult.filename || deployedResult.slug || "site"}.svg`)
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                      title="Download vector SVG format"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span>Download SVG</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await copyQrCodeImage("html-host-qr-svg");
+                        if (ok) {
+                          setCopiedQrImg(true);
+                          setTimeout(() => setCopiedQrImg(false), 2000);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                      title="Copy QR image to clipboard for instant pasting"
+                    >
+                      {copiedQrImg ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied Image!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span>Copy Image</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>

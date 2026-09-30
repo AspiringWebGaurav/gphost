@@ -94,7 +94,7 @@ export function LogoutButton({
         sessionStorage.clear();
       }
       const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     } catch (err) {
       console.error("SignOut error:", err);

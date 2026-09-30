@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, Home, BookOpen } from "lucide-react";
+import { ArrowRight, Menu, X, Sparkles, HelpCircle, Shield, FileText, UploadCloud, LayoutDashboard, Home, BookOpen, Ban } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -344,6 +344,16 @@ export function LandingNavbar({ user, profile, isApproved, isAdmin }: LandingNav
             >
               <FileText className="w-4 h-4 text-muted-foreground" />
               <span>Terms of Service</span>
+            </Link>
+            <Link
+              href="/acceptable-use"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+            >
+              <Ban className="w-4 h-4 text-rose-500" />
+              <span>Acceptable Use</span>
             </Link>
           </div>
 

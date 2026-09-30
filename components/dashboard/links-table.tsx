@@ -20,11 +20,13 @@ import {
   Archive,
   Music,
   Code2,
+  QrCode,
 } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { ExpiryStatusBadge } from "@/components/ui/expiry-status-badge";
 import { FileAnalyticsModal } from "@/components/dashboard/file-analytics-modal";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { QrCodeModal } from "@/components/ui/qr-code-modal";
 import { storageEvents } from "@/lib/storage/events";
 import { authFetch } from "@/lib/auth/client-fetch";
 
@@ -91,6 +93,12 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
   const [analyticsFile, setAnalyticsFile] = useState<{ id: string; filename: string } | null>(null);
   const [retryingSlug, setRetryingSlug] = useState<string | null>(null);
   const [xurlActionError, setXurlActionError] = useState<{ [slug: string]: string }>({});
+  const [activeQrModal, setActiveQrModal] = useState<{
+    url: string;
+    title: string;
+    subtitle?: string;
+    filename?: string;
+  } | null>(null);
 
   const [mounted, setMounted] = useState(false);
   // Real-time live countdown ticker (ticks every second after mount)
@@ -279,6 +287,22 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                  <button
+                    onClick={() =>
+                      setActiveQrModal({
+                        url: gphostPublicUrl,
+                        title: link.file_name,
+                        subtitle: "Public Share Page",
+                        filename: link.file_name,
+                      })
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-xs font-medium transition cursor-pointer"
+                    title="View & Download QR Code"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">QR Code</span>
+                  </button>
+
                   {link.file_id && (
                     <button
                       onClick={() => setAnalyticsFile({ id: link.file_id!, filename: link.file_name })}
@@ -356,6 +380,21 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                         </>
                       )}
                     </button>
+                    <button
+                      onClick={() =>
+                        setActiveQrModal({
+                          url: gphostPublicUrl,
+                          title: link.file_name,
+                          subtitle: "Public Share Page",
+                          filename: link.file_name,
+                        })
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                      title="View & Download QR Code for Public Share Page"
+                    >
+                      <QrCode className="w-3 h-3 text-blue-500" />
+                      <span>QR</span>
+                    </button>
                   </div>
                 </div>
 
@@ -412,6 +451,21 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                           <span>Copy</span>
                         </>
                       )}
+                    </button>
+                    <button
+                      onClick={() =>
+                        setActiveQrModal({
+                          url: directStreamPublicUrl,
+                          title: link.file_name,
+                          subtitle: isSite ? "Hosted Webpage" : "Direct CDN Stream",
+                          filename: `${link.file_name}-direct`,
+                        })
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                      title="View & Download QR Code for Direct Stream"
+                    >
+                      <QrCode className="w-3 h-3 text-purple-500" />
+                      <span>QR</span>
                     </button>
                   </div>
                 </div>
@@ -473,6 +527,21 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
                               <span>Copy</span>
                             </>
                           )}
+                        </button>
+                        <button
+                          onClick={() =>
+                            setActiveQrModal({
+                              url: formattedXurl,
+                              title: link.file_name,
+                              subtitle: "XURL Shortlink",
+                              filename: `${link.file_name}-xurl`,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-medium transition cursor-pointer"
+                          title="View & Download QR Code for XURL Shortlink"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>QR</span>
                         </button>
                       </>
                     ) : (
@@ -554,6 +623,18 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
           fileId={analyticsFile.id}
           filename={analyticsFile.filename}
           onClose={() => setAnalyticsFile(null)}
+        />
+      )}
+
+      {/* QR Code Viewer & Download Modal */}
+      {activeQrModal && (
+        <QrCodeModal
+          isOpen={Boolean(activeQrModal)}
+          onClose={() => setActiveQrModal(null)}
+          url={activeQrModal.url}
+          title={activeQrModal.title}
+          subtitle={activeQrModal.subtitle}
+          filename={activeQrModal.filename}
         />
       )}
     </div>
