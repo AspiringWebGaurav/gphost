@@ -4,7 +4,6 @@ import React, { useState, useMemo } from "react";
 import { Globe2, Layers, MapPin, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import {
   WORLD_MAP_PATHS,
-  COUNTRY_CENTROIDS,
   getCountryCentroid,
 } from "./world-map-data";
 
@@ -197,7 +196,7 @@ export function WorldMap({
                           ? "fill-blue-500/25 dark:fill-blue-500/35 stroke-blue-500/70 hover:fill-blue-500/40 stroke-[0.8]"
                           : "fill-foreground/[0.05] dark:fill-foreground/[0.07] stroke-foreground/[0.12] dark:stroke-foreground/[0.15] hover:fill-foreground/[0.12] stroke-[0.3]"
                       }`}
-                      onMouseEnter={(e) => {
+                      onMouseEnter={() => {
                         if (path.code) {
                           const centroid = getCountryCentroid(path.code);
                           if (centroid) {

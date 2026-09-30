@@ -6,7 +6,6 @@ import {
   HardDrive,
   Globe,
   Zap,
-  ArrowUpRight,
   RefreshCw,
   ShieldCheck,
   CheckCircle2,

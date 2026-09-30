@@ -10,15 +10,11 @@ import {
   ChevronRight,
   History,
   ShieldCheck,
-  Server,
-  Lock,
   Cpu,
-  FileCode,
   LifeBuoy,
   Scale,
   Sparkles,
   Flame,
-  Globe,
   Terminal,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";

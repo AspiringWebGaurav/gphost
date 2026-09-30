@@ -135,7 +135,6 @@ export function DownloadCard({
           window.dispatchEvent(new Event("storage"));
         }
       } catch {}
-      setSessionDownloaded(false);
       return;
     }
 

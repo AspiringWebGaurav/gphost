@@ -13,7 +13,6 @@ import {
   Loader2,
   ExternalLink,
   Sparkles,
-  Info,
   Copy,
   Check,
   FileCheck,

@@ -16,9 +16,6 @@ import {
   History,
   Zap,
   Layers,
-  ChevronRight,
-  QrCode,
-  CheckCircle2,
   Cpu,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
