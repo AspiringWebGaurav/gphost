@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { getAuthenticatedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dataExportRatelimit } from "@/lib/redis/ratelimit";
@@ -6,6 +7,7 @@ import {
   ExportDataPayload,
   formatBytes,
   generateGdprHtmlReport,
+  generateGdprReadmeText,
 } from "@/lib/gdpr/export-report";
 
 export const dynamic = "force-dynamic";
@@ -296,7 +298,32 @@ export async function GET(req: NextRequest) {
     })),
   };
 
-  // 10. Record an Audit Event for GDPR Data Export
+  // 10. Compute Authoritative SHA-256 Checksum for Scrutiny and Integrity Verification
+  const canonicalPayload = JSON.stringify({
+    exportMetadata: payload.exportMetadata,
+    accountProfile: payload.accountProfile,
+    lifecyclePolicies: payload.lifecyclePolicies,
+    storageFootprint: payload.storageFootprint,
+    files: payload.files,
+    shareLinks: payload.shareLinks,
+    downloadActivity: payload.downloadActivity,
+    auditLogs: payload.auditLogs,
+    apiKeys: payload.apiKeys,
+  });
+  const sha256Checksum = crypto.createHash("sha256").update(canonicalPayload).digest("hex");
+
+  payload.integrity = {
+    algorithm: "SHA-256",
+    sha256Hash: sha256Checksum,
+    verifiedAt: new Date().toISOString(),
+    architect: "Gaurav",
+    portfolioUrl: "https://gauravpatil.site",
+    serviceUrl: "https://gphost.eu.cc",
+    license: "GDPR Article 20 - Personal Data Portability & Unrestricted Ownership",
+  };
+
+  // 11. Record an Audit Event for GDPR Data Export
+  const format = (req.nextUrl.searchParams.get("format") || "json").toLowerCase();
   try {
     const clientIp =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -307,9 +334,10 @@ export async function GET(req: NextRequest) {
       user_id: user.id,
       action: "gdpr_data_export",
       details: {
-        format: req.nextUrl.searchParams.get("format") === "html" ? "html" : "json",
+        format,
         file_count: safeFiles.length,
         share_count: shareLinks.length,
+        sha256: sha256Checksum,
       },
       ip_address: clientIp,
     });
@@ -317,12 +345,28 @@ export async function GET(req: NextRequest) {
     console.warn("Could not log GDPR data export audit event:", auditErr);
   }
 
-  // 11. Format Output: HTML or JSON
-  const format = req.nextUrl.searchParams.get("format") || "json";
+  // 12. Format Output: HTML, Plain Text License, or Raw JSON
   const dateStr = new Date().toISOString().slice(0, 10);
   const cleanEmail = profile.email.replace(/[^a-zA-Z0-9_-]/g, "_");
 
-  if (format.toLowerCase() === "html") {
+  // Format: Plain Text README / Manifest / License
+  if (format === "txt" || format === "readme" || format === "license") {
+    const readmeText = generateGdprReadmeText(payload);
+    return new Response(readmeText, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename="gphost-data-license-and-checksum-${cleanEmail}-${dateStr}.txt"`,
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        "X-RateLimit-Limit": String(rateLimitResult.limit),
+        "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+        "X-SHA256-Checksum": sha256Checksum,
+      },
+    });
+  }
+
+  // Format: Visual HTML Report
+  if (format === "html") {
     const html = generateGdprHtmlReport(payload);
     return new Response(html, {
       status: 200,
@@ -332,10 +376,12 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "private, no-cache, no-store, must-revalidate",
         "X-RateLimit-Limit": String(rateLimitResult.limit),
         "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+        "X-SHA256-Checksum": sha256Checksum,
       },
     });
   }
 
+  // Format: Raw JSON with embedded integrity seal
   return new Response(JSON.stringify(payload, null, 2), {
     status: 200,
     headers: {
@@ -344,6 +390,7 @@ export async function GET(req: NextRequest) {
       "Cache-Control": "private, no-cache, no-store, must-revalidate",
       "X-RateLimit-Limit": String(rateLimitResult.limit),
       "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+      "X-SHA256-Checksum": sha256Checksum,
     },
   });
 }

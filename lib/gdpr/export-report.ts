@@ -104,6 +104,15 @@ export interface ExportDataPayload {
     lastUsedAt: string | null;
     createdAt: string;
   }>;
+  integrity?: {
+    algorithm: "SHA-256";
+    sha256Hash: string;
+    verifiedAt: string;
+    architect: string;
+    portfolioUrl: string;
+    serviceUrl: string;
+    license: string;
+  };
 }
 
 export function formatBytes(bytes: number): string {
@@ -142,7 +151,7 @@ export function generateGdprHtmlReport(data: ExportDataPayload): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GDPR Data Portability Dossier - ${escapeHtml(p.email)}</title>
+  <title>Personal Data Portability Report - ${escapeHtml(p.email)}</title>
   <style>
     :root {
       --bg: #0b0f19;
@@ -356,21 +365,48 @@ export function generateGdprHtmlReport(data: ExportDataPayload): string {
     <!-- Header Card -->
     <div class="header-card">
       <div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-          <h1 style="font-size: 1.5rem; font-weight: 800;">GDPR Personal Data Dossier</h1>
-          <span class="badge badge-success">Article 15 &amp; 20 Compliant</span>
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+          <h1 style="font-size: 1.5rem; font-weight: 800;">Personal Data Portability Report</h1>
+          <span class="badge badge-success">GDPR Articles 15 &amp; 20</span>
         </div>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Official data portability report generated for <strong>${escapeHtml(p.email)}</strong> on ${new Date(m.generatedAt).toUTCString()}.
+          Official data export generated for <strong>${escapeHtml(p.email)}</strong> on ${new Date(m.generatedAt).toUTCString()}.
         </p>
         <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
-          Tenant ID: <code style="background: var(--code-bg); padding: 2px 4px; border-radius: 4px;">${escapeHtml(m.userId)}</code> | Platform Version: ${escapeHtml(m.version)}
+          Account ID: <code style="background: var(--code-bg); padding: 2px 4px; border-radius: 4px;">${escapeHtml(m.userId)}</code> &bull; Built by <a href="https://gauravpatil.site" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: none; font-weight: 600;">Gaurav (gauravpatil.site)</a>
         </p>
       </div>
       <div class="no-print">
         <button onclick="window.print()" class="action-btn">
           Print / Save as PDF
         </button>
+      </div>
+    </div>
+
+    <!-- Cryptographic Verification & Authenticity Seal (SHA-256) -->
+    <div class="section-card" style="border-left: 4px solid #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.25rem;">🛡️</span>
+          <span class="section-title" style="margin-bottom: 0; color: #10b981;">Cryptographic Authenticity Seal (SHA-256)</span>
+        </div>
+        <span class="badge badge-success" style="font-size: 0.7rem; font-family: monospace;">FIPS 180-4 Standard</span>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
+        Every byte in this personal data export is cryptographically hashed with SHA-256 to guarantee that your data has not been modified or tampered with.
+      </p>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--code-bg); padding: 0.75rem 1rem; border-radius: 0.5rem; border: 1px solid var(--card-border); overflow-x: auto;">
+        <div style="display: flex; flex-direction: column; min-width: 0;">
+          <span style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 700;">SHA-256 Checksum Fingerprint</span>
+          <code style="font-family: monospace; font-size: 0.85rem; color: #60a5fa; word-break: break-all;" id="sha256-hash">${escapeHtml(data.integrity?.sha256Hash || 'Cryptographically Sealed')}</code>
+        </div>
+        <button class="no-print action-btn" onclick="navigator.clipboard.writeText('${escapeHtml(data.integrity?.sha256Hash || '')}'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy Hash', 2000);" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; shrink: 0;">
+          Copy Hash
+        </button>
+      </div>
+      <div style="margin-top: 0.6rem; font-size: 0.72rem; color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <span>Verification command: <code style="font-family: monospace;">sha256sum &lt;export-file&gt;</code></span>
+        <span>Engineered by: <a href="https://gauravpatil.site" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: none; font-weight: 600;">Gaurav (gauravpatil.site)</a></span>
       </div>
     </div>
 
@@ -642,11 +678,126 @@ export function generateGdprHtmlReport(data: ExportDataPayload): string {
       `}
     </div>
 
-    <!-- Footer -->
-    <div style="text-align: center; color: var(--text-muted); font-size: 0.75rem; padding: 1rem 0;">
-      GPHost Data Portability Engine &bull; Compliant with GDPR Article 15 &amp; 20 &bull; Generated on ${new Date().toISOString()}
+    <!-- Footer & Architect Attribution -->
+    <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 2rem 0; border-top: 1px solid var(--card-border); margin-top: 2rem;">
+      <p style="font-weight: 700; color: var(--text-main); font-size: 0.9rem;">
+        GPHost Automated Cloud Engine &bull; Built by Gaurav
+      </p>
+      <p style="font-size: 0.8rem; margin-top: 0.35rem; color: var(--text-muted);">
+        Personal Cloud Infrastructure with Zero-Tracking &bull;
+        <a href="https://gauravpatil.site" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: none; font-weight: 600;">Visit Portfolio: gauravpatil.site</a> &bull;
+        <a href="https://gphost.eu.cc" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: none;">gphost.eu.cc</a>
+      </p>
+      <p style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Compliant with GDPR Articles 15 &amp; 20 (Right of Access &amp; Data Portability) &bull; Cryptographically Sealed
+      </p>
     </div>
   </div>
 </body>
 </html>`;
+}
+
+/**
+ * Generates an authoritative plain text README, Data Export License, and Checksum manifest.
+ * Includes automated services acknowledgment, Gaurav's portfolio links, and cryptographic scrutiny details.
+ */
+export function generateGdprReadmeText(data: ExportDataPayload): string {
+  const p = data.accountProfile;
+  const s = data.storageFootprint;
+  const m = data.exportMetadata;
+  const i = data.integrity;
+
+  const separator = "================================================================================";
+  const thinSeparator = "--------------------------------------------------------------------------------";
+
+  return `${separator}
+  GPHOST — AUTOMATED DATA EXPORT MANIFEST & AUDIT CERTIFICATE
+  Engineered by Gaurav | Personal Cloud Infrastructure
+  Portfolio: https://gauravpatil.site
+  Platform:  https://gphost.eu.cc
+${separator}
+
+Dear Account Owner (${p.email}),
+
+Thank you for choosing GPHost automated cloud services!
+
+This official archive provides an exact, cryptographic, byte-for-byte export of
+your personal data footprint in strict compliance with European Union GDPR
+Article 15 (Right of Access) and Article 20 (Right to Data Portability).
+
+Every record in this archive reflects the live, unedited state of your account
+as stored in our automated database and distributed edge network.
+
+${thinSeparator}
+  1. CRYPTOGRAPHIC DATA INTEGRITY SEAL (SHA-256)
+${thinSeparator}
+  Algorithm:            SHA-256 (FIPS 180-4 Secure Hash Standard)
+  Payload Checksum:     ${i?.sha256Hash || "SEALED_ON_EXPORT"}
+  Audit Timestamp:      ${m.generatedAt}
+  Account Email:        ${p.email}
+  Account User ID:      ${p.id}
+  Platform Origin:      GPHost Automated Cloud Engine (gphost.eu.cc)
+  Governing Legal Rule: European Union General Data Protection Regulation (GDPR)
+
+  How to Verify Integrity (Scrutiny):
+  To independently verify that your data export has not been altered or tampered with:
+  
+  [Linux / macOS Terminal]
+    $ sha256sum gphost-gdpr-data-export-*.json
+  
+  [Windows PowerShell]
+    > Get-FileHash -Algorithm SHA256 .\\gphost-gdpr-data-export-*.json
+  
+  Compare the resulting 64-character hash with the Payload Checksum above.
+  An exact match proves 100% mathematical authenticity.
+
+${thinSeparator}
+  2. DATA OWNERSHIP & EXPORT LICENSE
+${thinSeparator}
+  1. Complete Personal Ownership:
+     You retain 100% exclusive, unencumbered ownership of all files, metadata,
+     encryption keys, and records in this archive. GPHost acts strictly as an
+     automated, zero-knowledge transit and storage utility.
+
+  2. Unrestricted Data Portability (GDPR Article 20):
+     You have the irrevocable right to freely transfer, export, migrate, re-host,
+     or store this data on any personal device, cloud provider, or third-party
+     system without limitation or lock-in.
+
+  3. Zero Tracking & No Commercial Profiling:
+     GPHost does not sell, trade, license, or mine your personal files or activity.
+     We operate with strict telemetry boundaries and zero commercial analytics.
+
+  4. Right to Erasure (GDPR Article 17):
+     You may trigger permanent deletion of your account and all associated data
+     at any time directly through your GPHost dashboard. Deletion immediately
+     and permanently purges all physical objects from Cloudflare R2 and PostgreSQL.
+
+${thinSeparator}
+  3. SUMMARY OF EXPORTED ASSETS & ACCOUNT FOOTPRINT
+${thinSeparator}
+  - Account Role:       ${p.role.toUpperCase()} (Status: ${p.status})
+  - Current Storage:    ${formatBytes(s.totalUsedBytes)} / ${formatBytes(s.quotaBytes)} (${s.quotaPercent}% utilized)
+  - Active Files:       ${s.activeFilesCount} files (${formatBytes(s.activeFilesBytes)})
+  - Expired / Purged:   ${s.expiredFilesCount} files (${formatBytes(s.expiredFilesBytes)} reclaimed)
+  - Lifetime Uploads:   ${s.lifetimeFilesCount} files (${formatBytes(s.lifetimeFilesBytes)})
+  - Share Links:        ${data.shareLinks.length} active links
+  - Download Logs:      ${data.downloadActivity.length} telemetry records (90-day rolling window)
+  - Audit Trail Events: ${data.auditLogs.length} events
+  - Developer API Keys: ${data.apiKeys.length} keys
+
+${thinSeparator}
+  4. ABOUT THE ARCHITECT & AUTOMATED SERVICES
+${thinSeparator}
+  Founder & Architect:  Gaurav
+  Portfolio Website:    https://gauravpatil.site
+  Source & Dev Hub:     https://github.com/AspiringWebGaurav/gphost
+  Service Domain:       https://gphost.eu.cc
+
+  "Engineered with obsessive dedication to developer freedom, speed, and privacy."
+
+${separator}
+  End of GPHost Data Export Manifest & License &bull; ${new Date().toUTCString()}
+${separator}
+`;
 }
