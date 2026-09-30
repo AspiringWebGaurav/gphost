@@ -61,46 +61,59 @@ export default async function OpenGraphImage() {
         {/* Title */}
         <div
           style={{
-            fontSize: 68,
-            fontWeight: 800,
+            fontSize: 72,
+            fontWeight: 900,
             letterSpacing: "-0.03em",
-            marginBottom: 16,
+            marginBottom: 10,
             background: "linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%)",
             backgroundClip: "text",
             color: "transparent",
           }}
         >
-          GPHosting
+          GPHost
+        </div>
+
+        {/* Creator Subtitle */}
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "#60a5fa",
+            letterSpacing: "0.02em",
+            marginBottom: 16,
+          }}
+        >
+          Built by Gaurav for Developers &amp; Creators
         </div>
 
         {/* Tagline */}
         <div
           style={{
-            fontSize: 28,
+            fontSize: 26,
             color: "#94a3b8",
             textAlign: "center",
-            maxWidth: 780,
+            maxWidth: 820,
             lineHeight: 1.4,
-            marginBottom: 44,
+            marginBottom: 40,
           }}
         >
-          Fast, Simple &amp; Private Ephemeral File Sharing
+          High-Speed Ephemeral &amp; Permanent Cloud File Hosting
         </div>
 
         {/* Feature Badges */}
         <div style={{ display: "flex", gap: 16 }}>
           {[
-            "Ultra Fast Uploads",
-            "Password Protected",
+            "Direct CDN Hotlinks",
+            "Client-Side Encryption",
             "Self-Destructing Links",
-            "Private & Secure",
+            "Zero Tracking & No Ads",
           ].map((feature) => (
             <div
               key={feature}
               style={{
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: 600,
-                padding: "10px 24px",
+                padding: "10px 22px",
                 borderRadius: 9999,
                 background: "rgba(255, 255, 255, 0.08)",
                 border: "1px solid rgba(255, 255, 255, 0.14)",

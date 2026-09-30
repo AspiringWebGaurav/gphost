@@ -17,10 +17,12 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc").replace(/\/$/, "");
+
   if (!slug) {
     return {
-      title: "File Preview — GPHosting",
-      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+      title: "File Preview — GPHost (Built by Gaurav)",
+      robots: { index: false, follow: false },
     };
   }
 
@@ -30,7 +32,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     .select(`
       id,
       file:files (
-        sanitized_name
+        sanitized_name,
+        byte_size
       )
     `)
     .eq("slug", slug)
@@ -38,11 +41,36 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const file = Array.isArray(share?.file) ? share.file[0] : share?.file;
   const filename = file?.sanitized_name || "File";
+  const ogImageUrl = `${appUrl}/f/${slug}/opengraph-image`;
 
   return {
-    title: `Preview ${filename} — GPHosting`,
-    description: `Interactive in-browser preview for ${filename}`,
-    robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+    title: `Preview: ${filename} — GPHost (Built by Gaurav)`,
+    description: `Interactive high-speed preview for "${filename}" on GPHost. Built by Gaurav for developers.`,
+    authors: [{ name: "Gaurav", url: appUrl }],
+    creator: "Gaurav",
+    publisher: "GPHost — Built by Gaurav",
+    robots: { index: false, follow: false },
+    openGraph: {
+      title: `Preview: ${filename} — GPHost`,
+      description: `Interactive high-speed preview for "${filename}" on GPHost. Built by Gaurav for developers.`,
+      url: `${appUrl}/f/${slug}/preview`,
+      siteName: "GPHost — Built by Gaurav for Developers",
+      images: [
+        {
+          url: ogImageUrl,
+          width: 1200,
+          height: 630,
+          alt: `Preview ${filename} on GPHost`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `Preview: ${filename} — GPHost`,
+      description: `Interactive high-speed preview for "${filename}" on GPHost. Built by Gaurav for developers.`,
+      images: [ogImageUrl],
+      creator: "@Gaurav",
+    },
   };
 }
 

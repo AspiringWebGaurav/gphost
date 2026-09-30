@@ -439,7 +439,9 @@ export default function PrivacyPage() {
                 You retain complete autonomy and ownership of your data at all times:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                <li><strong>Right of Access:</strong> You can view all your uploaded files, active links, and analytics directly from your personal dashboard.</li>
+                <li><strong>Right of Access (Article 15):</strong> You have complete visibility into every byte stored on GPHost. Your dashboard and Settings display real-time storage metrics, categorized byte breakdowns, active links, and audit history.</li>
+                <li><strong>Right to Data Portability (Article 20 &mdash; 1-Click Export):</strong> You can export your entire personal data archive directly from <Link href="/settings" className="text-blue-600 dark:text-blue-400 font-semibold underline underline-offset-2">Account Settings</Link> in both Structured JSON and a Standalone HTML Dossier. Data export requests are rate-limited to 5 requests per hour per account to safeguard platform availability.</li>
+                <li><strong>Data Retention Lifecycles:</strong> Uploaded files are strictly governed by their configured expiration presets (1 hour to 90 days TTL, or permanent if granted) and are physically destroyed immediately upon expiration. Single-use links are purged 50 seconds after their download lease concludes. Download telemetry and access audit records are retained on a strict 90-day rolling lifecycle, after which older records are permanently purged by our automated lifecycle sweeper.</li>
                 <li><strong>Right to Erasure (1-Click File Deletion):</strong> You can delete any uploaded file or share link instantly with one click.</li>
                 <li><strong>Complete Account Deletion:</strong> You can permanently delete your entire account in Account Settings. Doing so immediately purges all your profile information, files, database records, and API keys with zero grace period.</li>
               </ul>

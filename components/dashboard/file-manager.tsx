@@ -2138,7 +2138,7 @@ export function FileManager({
                     <div className="flex flex-wrap items-center gap-2">
                       <a
                         href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                          `Download "${selectedFileForShare?.sanitized_name}" securely on GPHost: ${preferredShareUrl}`
+                          `📁 ${selectedFileForShare?.sanitized_name} (${formatBytes(selectedFileForShare?.byte_size || 0)})\n⚡ Download securely on GPHost (Built by Gaurav for developers):\n${preferredShareUrl}`
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -2153,7 +2153,7 @@ export function FileManager({
                         href={`https://t.me/share/url?url=${encodeURIComponent(
                           preferredShareUrl
                         )}&text=${encodeURIComponent(
-                          `Download "${selectedFileForShare?.sanitized_name}" securely on GPHost`
+                          `📁 "${selectedFileForShare?.sanitized_name}" (${formatBytes(selectedFileForShare?.byte_size || 0)}) — Secure high-speed transfer on GPHost (Built by Gaurav for developers)`
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -2166,9 +2166,9 @@ export function FileManager({
 
                       <a
                         href={`mailto:?subject=${encodeURIComponent(
-                          `Download: ${selectedFileForShare?.sanitized_name}`
+                          `Download: ${selectedFileForShare?.sanitized_name} (${formatBytes(selectedFileForShare?.byte_size || 0)})`
                         )}&body=${encodeURIComponent(
-                          `Hi,\n\nI have shared "${selectedFileForShare?.sanitized_name}" with you via GPHost.\n\nYou can access or download it here:\n${preferredShareUrl}\n\nThis link will automatically expire based on security settings.\n`
+                          `Hi,\n\nI have shared "${selectedFileForShare?.sanitized_name}" (${formatBytes(selectedFileForShare?.byte_size || 0)}) with you via GPHost (Built by Gaurav for developers).\n\nYou can access or download it securely here:\n${preferredShareUrl}\n\nHigh-speed edge delivery with zero tracking.\n`
                         )}`}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-medium transition cursor-pointer"
                         title="Share via Email"

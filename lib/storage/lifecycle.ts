@@ -305,6 +305,27 @@ export async function executeLifecycleSweep(): Promise<{
         abandonedUploadsCount++;
       }
     }
+
+    // 5. GDPR Data Retention Lifecycle: Purge stale telemetry, download, and audit records older than 90 days
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      await adminClient
+        .from("file_events")
+        .delete()
+        .lte("created_at", ninetyDaysAgo);
+
+      await adminClient
+        .from("file_downloads")
+        .delete()
+        .lte("created_at", ninetyDaysAgo);
+
+      await adminClient
+        .from("audit_logs")
+        .delete()
+        .lte("created_at", ninetyDaysAgo);
+    } catch (gdprErr) {
+      console.warn("[Lifecycle Sweep] GDPR log retention cleanup notice:", gdprErr);
+    }
   } catch (err) {
     console.error("[Lifecycle Sweep] Error during opportunistic sweep:", err);
   }

@@ -29,11 +29,28 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc"),
   title: {
-    default: "GPHosting — Fast, Simple & Private File Sharing",
-    template: "%s | GPHosting",
+    default: "GPHost — Built by Gaurav for Developers",
+    template: "%s | GPHost",
   },
-  description: "Share files simply and securely. Direct encrypted uploads, password protection, and self-destructing links.",
-  applicationName: "GPHosting",
+  description:
+    "High-performance ephemeral and permanent cloud file hosting. Built by Gaurav for developers, engineers, and modern creators with direct CDN hotlinks, client-side encryption, and instant sharing.",
+  applicationName: "GPHost",
+  authors: [{ name: "Gaurav", url: "https://gphost.eu.cc" }],
+  creator: "Gaurav",
+  publisher: "GPHost — Built by Gaurav",
+  keywords: [
+    "GPHost",
+    "Built by Gaurav",
+    "file hosting",
+    "developer tools",
+    "cloud storage",
+    "ephemeral file sharing",
+    "direct CDN hotlinks",
+    "client-side encryption",
+    "self-destructing links",
+    "S3 R2 storage",
+    "zero tracking",
+  ],
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -52,36 +69,40 @@ export const metadata: Metadata = {
       {
         rel: "mask-icon",
         url: "/safari-pinned-tab.svg",
-        color: "#4f46e5",
+        color: "#2563eb",
       },
     ],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "GPHosting",
+    title: "GPHost",
   },
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://gphost.eu.cc",
-    siteName: "GPHosting",
-    title: "GPHosting — Fast, Simple & Private File Sharing",
-    description: "Share files simply and securely. Direct encrypted uploads, password protection, and self-destructing links.",
+    siteName: "GPHost — Built by Gaurav for Developers",
+    title: "GPHost — Built by Gaurav for Developers & Creators",
+    description:
+      "High-performance ephemeral and permanent cloud file hosting. Built by Gaurav for developers, engineers, and creators. Direct CDN hotlinks, client-side encryption, and instant sharing.",
     images: [
       {
-        url: "/og-image.png",
+        url: "/opengraph-image",
         width: 1200,
         height: 630,
-        alt: "GPHosting — Private File Sharing",
+        alt: "GPHost — Built by Gaurav for Developers & Creators",
+        type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "GPHosting — Fast, Simple & Private File Sharing",
-    description: "Share files simply and securely. Direct encrypted uploads, password protection, and self-destructing links.",
-    images: ["/og-image.png"],
+    title: "GPHost — Built by Gaurav for Developers & Creators",
+    description:
+      "High-performance ephemeral and permanent cloud file hosting. Built by Gaurav for developers, engineers, and creators.",
+    images: ["/opengraph-image"],
+    creator: "@Gaurav",
   },
 };
 

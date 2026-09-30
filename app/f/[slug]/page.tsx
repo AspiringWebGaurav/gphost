@@ -181,12 +181,22 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
   return share;
 });
 
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc").replace(/\/$/, "");
+
   if (!slug) {
     return {
-      title: "Download File — GPHosting",
-      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+      title: "Download File — GPHost (Built by Gaurav)",
+      robots: { index: false, follow: false },
     };
   }
 
@@ -194,32 +204,73 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const file = Array.isArray(share?.file) ? share.file[0] : share?.file;
   if (!file) {
     return {
-      title: "File Not Found — GPHosting",
-      robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+      title: "File Not Found — GPHost (Built by Gaurav)",
+      description: "This file link may have expired or was purged by its owner on GPHost.",
+      robots: { index: false, follow: false },
     };
   }
 
-  const title = `Download ${file.sanitized_name} — GPHosting`;
-  const description = "Secure, high-speed direct ephemeral file transfer powered by GPHosting.";
+  const formattedSize = formatBytes(file.byte_size);
+  const isProtected = Boolean(share?.password_hash || file.is_password_protected);
+  const isSingleUse = Boolean(share?.is_single_use);
+  const isBurn = Boolean(share?.burn_after_preview);
+
+  let title = `${file.sanitized_name} (${formattedSize}) — GPHost`;
+  let description = `Download "${file.sanitized_name}" (${formattedSize}) securely on GPHost. Built by Gaurav for developers. High-speed direct edge delivery with zero tracking.`;
+
+  if (isProtected) {
+    title = `🔒 Protected: ${file.sanitized_name} (${formattedSize}) — GPHost`;
+    description = `Password-protected file "${file.sanitized_name}" (${formattedSize}) on GPHost. Built by Gaurav for developers. Enter password to access secure download.`;
+  } else if (isSingleUse) {
+    title = `⚡ Single-Use: ${file.sanitized_name} (${formattedSize}) — GPHost`;
+    description = `Single-use self-destructing file "${file.sanitized_name}" (${formattedSize}) on GPHost. Built by Gaurav for developers. Link purges automatically after download.`;
+  } else if (isBurn) {
+    title = `🔥 Burn After View: ${file.sanitized_name} (${formattedSize}) — GPHost`;
+    description = `Burn-after-view file "${file.sanitized_name}" (${formattedSize}) on GPHost. Built by Gaurav for developers.`;
+  }
+
+  const pageUrl = `${appUrl}/f/${slug}`;
+  const ogImageUrl = `${appUrl}/f/${slug}/opengraph-image`;
 
   return {
     title,
     description,
+    authors: [{ name: "Gaurav", url: appUrl }],
+    creator: "Gaurav",
+    publisher: "GPHost — Built by Gaurav",
     robots: {
       index: false,
       follow: false,
-      noarchive: true,
-      nosnippet: true,
     },
     openGraph: {
       title,
       description,
-      siteName: "GPHosting",
+      url: pageUrl,
+      siteName: "GPHost — Built by Gaurav for Developers",
+      type: "website",
+      locale: "en_US",
+      images: [
+        {
+          url: ogImageUrl,
+          width: 1200,
+          height: 630,
+          alt: `${file.sanitized_name} (${formattedSize}) on GPHost`,
+          type: "image/png",
+        },
+      ],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [ogImageUrl],
+      creator: "@Gaurav",
+    },
+    other: {
+      "twitter:label1": "File Size",
+      "twitter:data1": formattedSize,
+      "twitter:label2": "Engine",
+      "twitter:data2": "GPHost (Built by Gaurav for Developers)",
     },
   };
 }

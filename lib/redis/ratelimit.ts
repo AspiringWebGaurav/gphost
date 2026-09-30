@@ -407,3 +407,19 @@ export async function checkOwnerDownloadRateLimit(
 
   return { success: true };
 }
+
+/**
+ * GDPR / Privacy Data Export Rate Limiter:
+ * Allows a maximum of 5 data export requests per hour per user.
+ * Protects against database exhaustion while supporting legitimate data portability rights.
+ */
+export const dataExportRatelimit = createResilientLimiter(
+  {
+    redis,
+    limiter: Ratelimit.slidingWindow(5, "1 h"),
+    analytics: false,
+    prefix: "gphost:ratelimit:data_export",
+  },
+  { max: 5, windowMs: 60 * 60 * 1000 }
+);
+

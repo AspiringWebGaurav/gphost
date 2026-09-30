@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { ApiKeysManager } from "@/components/dashboard/api-keys-manager";
+import { GdprComplianceCard } from "@/components/dashboard/gdpr-compliance-card";
 import { Settings } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-2.5 sm:space-y-3 max-w-5xl mx-auto">
+    <div className="space-y-3 sm:space-y-4 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
@@ -33,7 +34,7 @@ export default async function SettingsPage() {
               Account &amp; Developer Settings
             </h1>
             <p className="text-xs text-muted-foreground truncate">
-              Manage your profile, credentials, and developer API keys for terminal uploads.
+              Manage your profile, data transparency, and developer API keys.
             </p>
           </div>
         </div>
@@ -52,7 +53,15 @@ export default async function SettingsPage() {
         }}
       />
 
+      <GdprComplianceCard
+        storageUsedBytes={profile.storage_used_bytes || 0}
+        quotaBytes={profile.quota_bytes || 0}
+        role={profile.role}
+        memberSince={profile.created_at}
+      />
+
       <ApiKeysManager />
     </div>
   );
 }
+
