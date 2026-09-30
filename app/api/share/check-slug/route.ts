@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { RESERVED_SLUGS } from "@/lib/share/constants";
+import { purgeShareRedisKeys } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ export async function GET(req: NextRequest) {
       if (isExpired) {
         // Zero Stale Data: Opportunistically purge the expired/stale row on-the-fly to free the slug immediately
         await adminClient.from("share_links").delete().eq("id", existingShare.id);
+        await purgeShareRedisKeys(slug);
       } else {
         return NextResponse.json({
           available: false,

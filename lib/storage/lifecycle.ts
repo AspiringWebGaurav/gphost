@@ -34,6 +34,8 @@ export async function purgeShareLinkRedisData(slug: string): Promise<void> {
   }
 }
 
+export const purgeShareRedisKeys = purgeShareLinkRedisData;
+
 /**
  * Sweeps and purges claimed single-use files and expired assets from PostgreSQL and Cloudflare R2.
  * Fully self-contained: works on Vercel Hobby, self-hosted, or Supabase without requiring external crons.

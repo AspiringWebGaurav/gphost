@@ -9,6 +9,7 @@ import { shortenUrl } from "@/lib/xurl/client";
 import { reserveXurlMapping, updateXurlMapping } from "@/lib/xurl/mapping";
 import { redis } from "@/lib/redis/client";
 import { RESERVED_SLUGS } from "@/lib/share/constants";
+import { purgeShareRedisKeys } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +174,7 @@ export async function POST(req: NextRequest) {
         if (isExpired) {
           // Zero Stale Data: Opportunistically purge expired share link so slug can be reused immediately
           await adminClient.from("share_links").delete().eq("id", existingShare.id);
+          await purgeShareRedisKeys(sanitizedCustomSlug);
         } else {
           return NextResponse.json(
             {
@@ -317,6 +319,13 @@ export async function POST(req: NextRequest) {
         },
         { ex: 86400 * 30 }
       );
+      // Ensure any previous metadata or stale slot claims for this slug are purged
+      await Promise.all([
+        redis.del(`share:meta:${slug}`),
+        redis.del(`raw:meta:${slug}`),
+        redis.del(`share:pub:${slug}`),
+        redis.del(`share:slug:${slug}`),
+      ]);
     } catch {
       // Non-blocking Redis cache fallback
     }
