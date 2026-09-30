@@ -22,7 +22,9 @@ import {
 import { BackToTop } from "@/components/ui/back-to-top";
 import { BrandLogoSymbol } from "@/components/ui/brand-logo";
 
-export const dynamic = "force-dynamic";
+// Vercel Hobby Quota Optimization: ISR edge caching for 1 hour
+// Anonymous visitors and bots hit Edge CDN at 0ms CPU / 0 function invocations
+export const revalidate = 3600;
 
 export default async function HomePage() {
   const user = await getAuthenticatedUser();

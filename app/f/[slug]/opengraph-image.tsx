@@ -281,6 +281,12 @@ export default async function Image({
     ),
     {
       ...size,
+      headers: {
+        "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000",
+      },
     }
   );
 }
+
+// Cache generated OG images at Vercel Global Edge CDN for 24 hours (zero CPU / function re-invocation)
+export const revalidate = 86400;

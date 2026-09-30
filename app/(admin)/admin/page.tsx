@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CheckCircle2,
 } from "lucide-react";
+import { VercelQuotaCard } from "@/components/admin/vercel-quota-card";
 
 export const dynamic = "force-dynamic";
 
@@ -172,6 +173,9 @@ export default async function AdminOverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Vercel Hobby Free Quotas & Platform Optimization Card */}
+      <VercelQuotaCard />
 
       {/* Integration & Health Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

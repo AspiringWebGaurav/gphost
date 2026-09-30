@@ -128,6 +128,9 @@ export default async function OpenGraphImage() {
     ),
     {
       ...size,
+      headers: {
+        "Cache-Control": "public, max-age=604800, s-maxage=31536000, immutable",
+      },
     }
   );
 }

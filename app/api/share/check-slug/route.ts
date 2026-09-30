@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { RESERVED_SLUGS } from "@/lib/share/constants";
 import { purgeShareRedisKeys } from "@/lib/storage/lifecycle";
+import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,22 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Fast-path: Check Redis cache (20s TTL) to prevent hammering database during typing
+    const cacheKey = `check_slug:${slug}`;
+    try {
+      const cached = await redis.get<{ available: boolean; error?: string }>(cacheKey);
+      if (cached) {
+        return NextResponse.json({
+          available: cached.available,
+          slug,
+          isTaken: !cached.available,
+          error: cached.error,
+          message: cached.available ? "Slug is available" : undefined,
+          cached: true,
+        });
+      }
+    } catch {}
+
     const adminClient = createAdminClient();
     const { data: existingShare, error } = await adminClient
       .from("share_links")
@@ -66,13 +83,23 @@ export async function GET(req: NextRequest) {
         await adminClient.from("share_links").delete().eq("id", existingShare.id);
         await purgeShareRedisKeys(slug);
       } else {
+        const errorMsg = `The custom slug '${slug}' is already taken`;
+        try {
+          await redis.set(cacheKey, { available: false, error: errorMsg }, { ex: 20 });
+        } catch {}
+
         return NextResponse.json({
           available: false,
           isTaken: true,
-          error: `The custom slug '${slug}' is already taken`,
+          error: errorMsg,
         });
       }
     }
+
+    // Cache available status for 20s
+    try {
+      await redis.set(cacheKey, { available: true }, { ex: 20 });
+    } catch {}
 
     return NextResponse.json({
       available: true,

@@ -54,7 +54,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:all*(svg|jpg|png|webp|ico|woff|woff2)",
+        source: "/:path*\\.(ico|png|jpg|jpeg|svg|webp|woff|woff2|ttf|eot|css|js)",
         headers: [
           {
             key: "Cache-Control",
@@ -63,11 +63,47 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/manifest.webmanifest",
+        source: "/:path*/opengraph-image",
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
+            value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000",
+          },
+        ],
+      },
+      {
+        source: "/opengraph-image",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000",
+          },
+        ],
+      },
+      {
+        source: "/(icon|apple-icon)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=604800, s-maxage=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/(manifest.webmanifest|robots.txt|sitemap.xml)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
+        source: "/(terms|privacy|acceptable-use|acceptance-of-use|how-it-works|developers|docs)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800",
           },
         ],
       },
