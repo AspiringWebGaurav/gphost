@@ -315,18 +315,19 @@ export async function POST(req: NextRequest) {
         .update({
           file_id: binFile.id,
           is_active: true,
-          updated_at: new Date().toISOString(),
+          expires_at: null,
         })
         .eq("id", existingShare.id);
     } else {
+      const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
       await adminClient
         .from("share_links")
         .insert({
           file_id: binFile.id,
           slug: "gpn-app",
+          token_hash: tokenHash,
           is_active: true,
-          is_permanent: true,
-          user_id: auth.userId,
+          expires_at: null,
         });
     }
 
@@ -341,19 +342,31 @@ export async function POST(req: NextRequest) {
       if (sigShare) {
         await adminClient
           .from("share_links")
-          .update({ file_id: resolvedSigFileId, is_active: true, updated_at: new Date().toISOString() })
+          .update({ file_id: resolvedSigFileId, is_active: true, expires_at: null })
           .eq("id", sigShare.id);
       } else {
+        const sigTokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
         await adminClient
           .from("share_links")
           .insert({
             file_id: resolvedSigFileId,
             slug: "gpn-app-sig",
+            token_hash: sigTokenHash,
             is_active: true,
-            is_permanent: true,
-            user_id: auth.userId,
+            expires_at: null,
           });
       }
+    }
+
+    if (redis) {
+      try {
+        await Promise.allSettled([
+          redis.del("raw:meta:gpn-app"),
+          redis.del("raw:meta:gpn-app-sig"),
+          redis.del("share:gpn-app"),
+          redis.del("share:gpn-app-sig"),
+        ]);
+      } catch {}
     }
 
     // 12. Resilient Manifest Cache Invalidation

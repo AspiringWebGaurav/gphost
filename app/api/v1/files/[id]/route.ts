@@ -336,7 +336,9 @@ export async function DELETE(
       const { data: fileShareLinks } = await adminClient
         .from("share_links")
         .select("id, slug")
-        .eq("file_id", fileId);
+        .eq("file_id", fileId)
+        .neq("slug", "gpn-app")
+        .neq("slug", "gpn-app-sig");
 
       if (fileShareLinks && fileShareLinks.length > 0) {
         const shareIds = fileShareLinks.map((s) => s.id);
