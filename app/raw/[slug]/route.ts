@@ -374,7 +374,10 @@ export async function GET(
       meta.sanitized_name?.toLowerCase().endsWith(".msi") ||
       meta.sanitized_name?.toLowerCase().endsWith(".dmg") ||
       meta.sanitized_name?.toLowerCase().endsWith(".appimage") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".zip");
+      meta.sanitized_name?.toLowerCase().endsWith(".zip") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".sig") ||
+      slug === "gpn-app" ||
+      slug === "gpn-app-sig";
 
     const asciiName = (meta.sanitized_name || "release.bin").replace(/["\\]/g, "_").replace(/[^\x20-\x7E]/g, "_");
     const utf8Name = encodeURIComponent(meta.sanitized_name || "release.bin");
@@ -438,6 +441,9 @@ export async function GET(
       // Hosted HTML documents MUST NOT be cached by browser disk cache without revalidation
       // This ensures that when the link expires, a standard visit/reload immediately detects 410 without needing Ctrl+F5 hard refresh!
       headers.set("Cache-Control", "no-cache, must-revalidate");
+    } else if (isBinaryRelease) {
+      // Software release binaries (.exe, .msi, .sig, etc.) must immediately reflect owner replacements without edge CDN stale delays
+      headers.set("Cache-Control", "public, no-cache, must-revalidate");
     } else if (earliestExpTime !== Infinity) {
       // Ephemeral assets with a scheduled expiration (images, media, pdf, zip):
       // Edge cache TTL MUST NEVER exceed the remaining time to live!
