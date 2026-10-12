@@ -150,13 +150,18 @@ export async function GET(req: NextRequest) {
       const legacyImmutableUrl = `${origin}/api/v1/releases/gpn/download/${version}`;
       const permanentDownloadUrl = `${origin}/raw/gpn-app`;
 
+      let legacySig = signatureString.trim();
+      if (legacySig && (legacySig.includes("\n") || legacySig.startsWith("untrusted comment"))) {
+        legacySig = Buffer.from(legacySig, "utf8").toString("base64");
+      }
+
       const legacyManifest = {
         version,
         notes: `Gaurav Personal Notes update v${version}`,
         pub_date: (binFile as any).updated_at || (binFile as any).created_at || new Date().toISOString(),
         platforms: {
           "windows-x86_64": {
-            signature: signatureString,
+            signature: legacySig,
             url: legacyImmutableUrl,
           },
         },
@@ -193,13 +198,18 @@ export async function GET(req: NextRequest) {
     const immutableDownloadUrl = `${origin}/api/v1/releases/gpn/download/${version}`;
     const permanentVanityUrl = `${origin}/raw/gpn-app`;
 
+    let manifestSignature = (activeRelease.signature_text || "").trim();
+    if (manifestSignature && (manifestSignature.includes("\n") || manifestSignature.startsWith("untrusted comment"))) {
+      manifestSignature = Buffer.from(manifestSignature, "utf8").toString("base64");
+    }
+
     const manifest = {
       version,
       notes: activeRelease.release_notes || `Gaurav Personal Notes update v${version}`,
       pub_date: activeRelease.published_at || activeRelease.created_at || new Date().toISOString(),
       platforms: {
         "windows-x86_64": {
-          signature: activeRelease.signature_text || "",
+          signature: manifestSignature,
           url: immutableDownloadUrl, // Immutable version-specific download URL (Requirement 8)
         },
       },
