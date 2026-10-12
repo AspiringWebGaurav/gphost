@@ -70,14 +70,17 @@ export async function createApiKey(
     permissions,
   };
 
-  let res = await adminClient
+  const primaryRes = await adminClient
     .from("user_api_keys")
     .insert(insertPayload)
     .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
     .single();
 
+  let resData = primaryRes.data as ApiKeyItem | null;
+  let resError = primaryRes.error;
+
   // Graceful fallback if database column 'permissions' hasn't been added by migration yet
-  if (res.error && (res.error.code === "42703" || res.error.message?.includes("permissions"))) {
+  if (resError && (resError.code === "42703" || resError.message?.includes("permissions"))) {
     const fallbackPayload = {
       user_id: userId,
       name: name.trim() || "Default API Key",
@@ -85,20 +88,20 @@ export async function createApiKey(
       key_hash: keyHash,
       is_active: true,
     };
-    res = await adminClient
+    const fallbackRes = await adminClient
       .from("user_api_keys")
       .insert(fallbackPayload)
       .select("id, name, key_prefix, created_at, last_used_at, is_active")
       .single();
+    resData = fallbackRes.data as ApiKeyItem | null;
+    resError = fallbackRes.error;
   }
 
-  const { data, error } = res;
-
-  if (error || !data) {
-    throw new Error(error?.message || "Failed to create API key");
+  if (resError || !resData) {
+    throw new Error(resError?.message || "Failed to create API key");
   }
 
-  const item = data as ApiKeyItem;
+  const item = resData;
   if (!item.permissions) {
     item.permissions = permissions;
   }

@@ -17,29 +17,39 @@ export async function GET() {
     const { user } = await requireApprovedUser();
     const adminClient = createAdminClient();
 
-    let res = await adminClient
+    const primaryRes = await adminClient
       .from("user_api_keys")
       .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
+    let rawData = primaryRes.data as Array<Record<string, any>> | null;
+    let queryError = primaryRes.error;
+
     // Schema fallback if 'permissions' column not yet applied in DB
-    if (res.error && (res.error.code === "42703" || res.error.message?.includes("permissions"))) {
-      res = await adminClient
+    if (queryError && (queryError.code === "42703" || queryError.message?.includes("permissions"))) {
+      const fallbackRes = await adminClient
         .from("user_api_keys")
         .select("id, name, key_prefix, created_at, last_used_at, is_active")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("created_at", { ascending: false });
+      rawData = fallbackRes.data as Array<Record<string, any>> | null;
+      queryError = fallbackRes.error;
     }
 
-    if (res.error) {
+    if (queryError) {
       return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 });
     }
 
-    const keys = ((res.data || []) as ApiKeyItem[]).map((k) => ({
-      ...k,
+    const keys: ApiKeyItem[] = (rawData || []).map((k) => ({
+      id: k.id,
+      name: k.name,
+      key_prefix: k.key_prefix,
+      created_at: k.created_at,
+      last_used_at: k.last_used_at,
+      is_active: k.is_active,
       permissions: Array.isArray(k.permissions) && k.permissions.length > 0 ? k.permissions : ["*"],
     }));
 

@@ -139,27 +139,41 @@ export async function POST(req: NextRequest) {
       updatePayload.sha256 = clientSha256.toLowerCase().trim();
     }
 
-    let updateRes = await adminClient
+    const primaryRes = await adminClient
       .from("files")
       .update(updatePayload)
       .eq("id", fileId)
       .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at, sha256")
       .single();
 
-    if (updateRes.error && (updateRes.error.code === "42703" || updateRes.error.message?.includes("sha256"))) {
+    let updateResData = primaryRes.data as {
+      id: string;
+      sanitized_name: string;
+      byte_size: number;
+      mime_type: string;
+      status: string;
+      expires_at: string | null;
+      created_at: string;
+      sha256?: string | null;
+    } | null;
+    let updateResError = primaryRes.error;
+
+    if (updateResError && (updateResError.code === "42703" || updateResError.message?.includes("sha256"))) {
       delete updatePayload.sha256;
-      updateRes = await adminClient
+      const fallbackRes = await adminClient
         .from("files")
         .update(updatePayload)
         .eq("id", fileId)
         .select("id, sanitized_name, byte_size, mime_type, status, expires_at, created_at")
         .single();
+      updateResData = fallbackRes.data;
+      updateResError = fallbackRes.error;
     }
 
-    const updatedFile = updateRes.data;
+    const updatedFile = updateResData;
 
-    if (updateRes.error || !updatedFile) {
-      console.error("Failed to update file status to ACTIVE:", updateRes.error);
+    if (updateResError || !updatedFile) {
+      console.error("Failed to update file status to ACTIVE:", updateResError);
       return NextResponse.json(
         { error: "Failed to mark file as active" },
         { status: 500 }

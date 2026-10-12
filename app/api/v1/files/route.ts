@@ -67,10 +67,13 @@ export async function GET(req: NextRequest) {
 
     query = query.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
 
-    let res = await query;
+    const primaryRes = await query;
+    let data = primaryRes.data as Array<Record<string, any>> | null;
+    let count = primaryRes.count;
+    let queryError = primaryRes.error;
 
     // Schema fallback if sha256 or is_release_locked column not yet applied in DB
-    if (res.error && (res.error.code === "42703" || res.error.message?.includes("sha256") || res.error.message?.includes("is_release_locked"))) {
+    if (queryError && (queryError.code === "42703" || queryError.message?.includes("sha256") || queryError.message?.includes("is_release_locked"))) {
       let fallbackQuery = adminClient
         .from("files")
         .select(
@@ -89,11 +92,14 @@ export async function GET(req: NextRequest) {
       if (searchQuery) {
         fallbackQuery = fallbackQuery.or(`sanitized_name.ilike.%${searchQuery}%,filename.ilike.%${searchQuery}%`);
       }
-      res = await fallbackQuery.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
+      const fallbackRes = await fallbackQuery.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
+      data = fallbackRes.data as Array<Record<string, any>> | null;
+      count = fallbackRes.count;
+      queryError = fallbackRes.error;
     }
 
-    if (res.error) {
-      console.error("[v1 Files API] Query error:", res.error);
+    if (queryError) {
+      console.error("[v1 Files API] Query error:", queryError);
       return NextResponse.json({ error: "Failed to retrieve files" }, { status: 500 });
     }
 
@@ -120,7 +126,7 @@ export async function GET(req: NextRequest) {
       share_links?: DbShareLink | DbShareLink[] | null;
     }
 
-    const rawFiles = (res.data || []) as unknown as DbFileRecord[];
+    const rawFiles = (data || []) as unknown as DbFileRecord[];
 
     const files = rawFiles.map((f) => {
       const shareList: DbShareLink[] = Array.isArray(f.share_links)
@@ -155,7 +161,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const totalCount = res.count || 0;
+    const totalCount = count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
     const maxFiles = await getUserMaxFiles(userId);
 
