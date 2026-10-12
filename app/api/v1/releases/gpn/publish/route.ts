@@ -302,33 +302,36 @@ export async function POST(req: NextRequest) {
       // Graceful fallback if is_release_locked column not yet migrated
     }
 
-    // 11. Point Permanent Vanity Slug 'gpn-app' to New Binary (Backward Compatibility)
-    const { data: existingShare } = await adminClient
-      .from("share_links")
-      .select("id")
-      .eq("slug", "gpn-app")
-      .maybeSingle();
+    // 11. Point Permanent Vanity Slug 'gpn-app' ONLY for Base v0.0.0 Installer Seeding
+    // OTA updates (v0.0.1+) must never touch or re-point the isolated base installer!
+    if (cleanVersion === "0.0.0") {
+      const { data: existingShare } = await adminClient
+        .from("share_links")
+        .select("id")
+        .eq("slug", "gpn-app")
+        .maybeSingle();
 
-    if (existingShare) {
-      await adminClient
-        .from("share_links")
-        .update({
-          file_id: binFile.id,
-          is_active: true,
-          expires_at: null,
-        })
-        .eq("id", existingShare.id);
-    } else {
-      const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
-      await adminClient
-        .from("share_links")
-        .insert({
-          file_id: binFile.id,
-          slug: "gpn-app",
-          token_hash: tokenHash,
-          is_active: true,
-          expires_at: null,
-        });
+      if (existingShare) {
+        await adminClient
+          .from("share_links")
+          .update({
+            file_id: binFile.id,
+            is_active: true,
+            expires_at: null,
+          })
+          .eq("id", existingShare.id);
+      } else {
+        const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+        await adminClient
+          .from("share_links")
+          .insert({
+            file_id: binFile.id,
+            slug: "gpn-app",
+            token_hash: tokenHash,
+            is_active: true,
+            expires_at: null,
+          });
+      }
     }
 
     // Also update signature vanity 'gpn-app-sig' if signature file is present
@@ -378,44 +381,56 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 13. Retention Policy: Retain at least 3 complete releases
-    try {
-      const { data: allReleases } = await adminClient
-        .from("app_releases")
-        .select("id, version, is_active, is_locked, binary_r2_key, signature_file_id, published_at")
-        .eq("app_id", APP_ID)
-        .order("published_at", { ascending: false });
+    // 13. Strict 2-File Rule: Enforce Isolated Base 0.0.0 + Single Active OTA Update
+    // Whenever an OTA release is published, any previous superseded OTA binary is purged immediately.
+    // The Base v0.0.0 installer is 100% isolated and never deleted or touched.
+    if (cleanVersion !== "0.0.0") {
+      try {
+        const { data: allGpnReleases } = await adminClient
+          .from("app_releases")
+          .select("id, version, binary_file_id, binary_r2_key")
+          .eq("app_id", APP_ID);
 
-      if (allReleases && allReleases.length > 3) {
-        // Protect:
-        // - Top 3 releases (index 0, 1, 2)
-        // - Currently active release
-        // - Immediate rollback target (index 1)
-        // - Any release flagged is_locked = true
-        const protectedIds = new Set<string>();
-        allReleases.slice(0, 3).forEach((r) => protectedIds.add(r.id));
-        allReleases.filter((r) => r.is_active || r.is_locked).forEach((r) => protectedIds.add(r.id));
+        const obsoleteReleases = (allGpnReleases || []).filter(
+          (r) => r.version !== "0.0.0" && r.binary_file_id !== targetBinaryFileId
+        );
 
-        const pruneCandidates = allReleases.filter((r) => !protectedIds.has(r.id));
-
-        for (const candidate of pruneCandidates) {
-          // Check if candidate's R2 key is shared by any protected release
-          const keyShared = allReleases.some(
-            (r) => protectedIds.has(r.id) && r.binary_r2_key === candidate.binary_r2_key
-          );
-          if (!keyShared && candidate.binary_r2_key) {
-            await deleteR2Object(candidate.binary_r2_key);
+        for (const obs of obsoleteReleases) {
+          if (obs.binary_r2_key) {
+            try {
+              await deleteR2Object(obs.binary_r2_key);
+            } catch {}
           }
-
-          // Mark release pruned or delete record
+          if (obs.binary_file_id) {
+            await adminClient
+              .from("share_links")
+              .delete()
+              .eq("file_id", obs.binary_file_id)
+              .neq("slug", "gpn-app");
+            await adminClient
+              .from("files")
+              .delete()
+              .eq("id", obs.binary_file_id);
+          }
           await adminClient
             .from("app_releases")
             .delete()
-            .eq("id", candidate.id);
+            .eq("id", obs.id);
         }
+
+        // Recalculate and update profile storage usage
+        const { data: userFiles } = await adminClient
+          .from("files")
+          .select("byte_size")
+          .eq("user_id", auth.userId);
+        const newTotal = (userFiles || []).reduce((acc, f) => acc + (f.byte_size || 0), 0);
+        await adminClient
+          .from("profiles")
+          .update({ storage_used_bytes: newTotal, updated_at: new Date().toISOString() })
+          .eq("id", auth.userId);
+      } catch (pruneErr) {
+        console.warn("Non-fatal: Strict 2-file auto-prune encountered an issue:", pruneErr);
       }
-    } catch (pruneErr) {
-      console.warn("Non-fatal: Retention pruning encountered an issue:", pruneErr);
     }
 
     return NextResponse.json(

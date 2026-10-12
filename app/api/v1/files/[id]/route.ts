@@ -293,6 +293,24 @@ export async function DELETE(
       });
     }
 
+    // Absolute Isolation Guard: Base v0.0.0 Installer cannot be deleted under any circumstances
+    const { data: baseShare } = await adminClient
+      .from("share_links")
+      .select("id")
+      .eq("file_id", fileId)
+      .eq("slug", "gpn-app")
+      .maybeSingle();
+
+    if (baseShare) {
+      return NextResponse.json(
+        {
+          error: "Forbidden: Base v0.0.0 installer is permanently isolated for website downloads and cannot be deleted.",
+          code: "BASE_INSTALLER_PROTECTED",
+        },
+        { status: 403 }
+      );
+    }
+
     // Accidental Deletion Protection for Active Production Releases
     if (file.is_release_locked && !isForce) {
       return NextResponse.json(
