@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
       notes,
       publicKey,
       isLocked = false,
+      allowOverwrite = false,
+      force = false,
     } = body;
 
     if (!version || typeof version !== "string") {
@@ -209,7 +211,7 @@ export async function POST(req: NextRequest) {
       ? crypto.createHash("sha256").update(binBuffer).digest("hex")
       : "";
 
-    // 7. Immutability Check: Prevent overwriting published releases
+    // 7. Immutability Check: Prevent overwriting published releases unless force/allowOverwrite is set
     const { data: existingRelease } = await adminClient
       .from("app_releases")
       .select("id, is_published, version")
@@ -217,10 +219,12 @@ export async function POST(req: NextRequest) {
       .eq("version", cleanVersion)
       .maybeSingle();
 
-    if (existingRelease && existingRelease.is_published) {
+    const canOverwrite = Boolean(allowOverwrite || force);
+
+    if (existingRelease && existingRelease.is_published && !canOverwrite) {
       return NextResponse.json(
         {
-          error: `Release v${cleanVersion} is already published and immutable. Increment the version number for new updates.`,
+          error: `Release v${cleanVersion} is already published. Pass allowOverwrite: true (or force: true) to refresh binaries for this version.`,
         },
         { status: 409 }
       );
@@ -228,7 +232,25 @@ export async function POST(req: NextRequest) {
 
     // 8. Create or Update Release Record
     let releaseId = existingRelease?.id;
-    if (!releaseId) {
+    if (releaseId) {
+      const { error: updateErr } = await adminClient
+        .from("app_releases")
+        .update({
+          binary_file_id: binFile.id,
+          binary_r2_key: binFile.r2_key,
+          binary_sha256: calculatedSha256 || "",
+          binary_byte_size: binFile.byte_size,
+          signature_text: signatureText,
+          signature_file_id: resolvedSigFileId,
+          release_notes: notes || `GPN update v${cleanVersion}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", releaseId);
+
+      if (updateErr) {
+        throw new Error(updateErr.message || "Failed to update release record");
+      }
+    } else {
       const { data: newRelease, error: insertErr } = await adminClient
         .from("app_releases")
         .insert({
