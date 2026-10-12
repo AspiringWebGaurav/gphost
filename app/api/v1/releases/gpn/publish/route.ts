@@ -78,8 +78,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!binaryFileId || typeof binaryFileId !== "string") {
-      return NextResponse.json({ error: "Missing 'binaryFileId'" }, { status: 400 });
+    const targetBinaryFileId = (binaryFileId || body.fileId || "").trim();
+    if (!targetBinaryFileId || typeof targetBinaryFileId !== "string") {
+      return NextResponse.json({ error: "Missing 'binaryFileId' (or 'fileId')" }, { status: 400 });
     }
 
     const adminClient = createAdminClient();
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     const { data: binFile, error: binErr } = await adminClient
       .from("files")
       .select("id, user_id, sanitized_name, filename, byte_size, sha256, r2_key, is_release_locked")
-      .eq("id", binaryFileId)
+      .eq("id", targetBinaryFileId)
       .maybeSingle();
 
     if (binErr || !binFile) {

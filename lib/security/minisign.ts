@@ -41,8 +41,18 @@ export function parseMinisignPublicKey(pubKeyStr: string): MinisignPublicKey {
     throw new Error("Minisign public key is required");
   }
 
-  const lines = pubKeyStr
-    .trim()
+  let keyText = pubKeyStr.trim();
+  // Support base64-wrapped minisign public key files (format used by Tauri CLI in .pub / tauri.conf.json)
+  if (!keyText.includes("\n") && !keyText.includes("untrusted comment:") && keyText.length > 60) {
+    try {
+      const decodedUtf8 = Buffer.from(keyText, "base64").toString("utf8");
+      if (decodedUtf8.includes("untrusted comment:") || decodedUtf8.startsWith("RW")) {
+        keyText = decodedUtf8;
+      }
+    } catch {}
+  }
+
+  const lines = keyText
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
