@@ -51,10 +51,36 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "@base-ui/react",
+      "clsx",
+      "tailwind-merge",
+    ],
+  },
   async headers() {
     return [
       {
         source: "/:path*\\.(ico|png|jpg|jpeg|svg|webp|woff|woff2|ttf|eot|css|js)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/raw/(gpn-app|gpn-app-sig)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        source: "/api/v1/releases/gpn/download/:version*",
         headers: [
           {
             key: "Cache-Control",

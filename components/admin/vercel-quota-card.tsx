@@ -45,117 +45,117 @@ export const DEFAULT_VERCEL_QUOTAS: VercelQuotasData = {
   billingPeriod: "Last 30 days (Monthly Rolling Window)",
   planName: "Vercel Hobby (Free Quota Tier)",
   overallHealth: "healthy",
-  zeroDumbBurnScore: 98.4,
+  zeroDumbBurnScore: 98.2,
   metrics: [
-    {
-      id: "active-cpu",
-      name: "Fluid Active CPU",
-      usedFormatted: "7m 26s",
-      limitFormatted: "4h",
-      pct: 3.1,
-      unit: "time",
-      status: "healthy",
-      description: "Direct CPU execution time for serverless routes. Safe under 4h monthly cap.",
-      iconName: "cpu",
-    },
     {
       id: "functions-storage",
       name: "Functions Storage",
-      usedFormatted: "276.54 MB",
+      usedFormatted: "946.53 MB",
       limitFormatted: "10 GB",
-      pct: 2.76,
+      pct: 9.5,
       unit: "bytes",
       status: "healthy",
-      description: "Compressed serverless function bundle deployment storage.",
+      description: "Server function storage across active deployments. Safe under 10 GB free cap.",
       iconName: "storage",
+    },
+    {
+      id: "active-cpu",
+      name: "Fluid Active CPU",
+      usedFormatted: "13m 34s",
+      limitFormatted: "4h",
+      pct: 5.6,
+      unit: "time",
+      status: "healthy",
+      description: "Direct CPU execution time for server routes. Safe under 4h monthly cap.",
+      iconName: "cpu",
+    },
+    {
+      id: "deployment-storage",
+      name: "Deployment Storage",
+      usedFormatted: "174.1 MB",
+      limitFormatted: "10 GB",
+      pct: 1.7,
+      unit: "bytes",
+      status: "healthy",
+      description: "Deployment build artifacts, cache, and static assets storage. Safe under 10 GB free cap.",
+      iconName: "storage",
+    },
+    {
+      id: "fast-origin-transfer",
+      name: "Fast Origin Transfer",
+      usedFormatted: "154.01 MB",
+      limitFormatted: "10 GB",
+      pct: 1.5,
+      unit: "bytes",
+      status: "healthy",
+      description: "Data transfer between server functions and edge CDN. Safe under 10 GB free cap.",
+      iconName: "bandwidth",
     },
     {
       id: "cdn-requests",
       name: "CDN Requests",
-      usedFormatted: "6.4K",
+      usedFormatted: "11K",
       limitFormatted: "1M",
-      pct: 0.64,
+      pct: 1.1,
       unit: "count",
       status: "healthy",
-      description: "Total edge CDN hits across assets, static routes, and images.",
+      description: "Total edge CDN hits across assets, static routes, and images. Safe under 1M free cap.",
       iconName: "requests",
     },
     {
       id: "function-invocations",
       name: "Function Invocations",
-      usedFormatted: "5.7K",
+      usedFormatted: "10K",
       limitFormatted: "1M",
-      pct: 0.57,
+      pct: 1.0,
       unit: "count",
       status: "healthy",
-      description: "Serverless function invocations. Edge CDN caching active to eliminate dumb burns.",
+      description: "Server function executions. Safe under 1M free cap.",
       iconName: "functions",
-    },
-    {
-      id: "fast-origin-transfer",
-      name: "Fast Origin Transfer",
-      usedFormatted: "46.44 MB",
-      limitFormatted: "10 GB",
-      pct: 0.46,
-      unit: "bytes",
-      status: "healthy",
-      description: "Data transfer between Vercel serverless compute and edge CDN.",
-      iconName: "bandwidth",
-    },
-    {
-      id: "deployment-storage",
-      name: "Deployment Storage",
-      usedFormatted: "42.24 MB",
-      limitFormatted: "10 GB",
-      pct: 0.42,
-      unit: "bytes",
-      status: "healthy",
-      description: "Deployment artifacts, build cache, and static assets storage.",
-      iconName: "storage",
     },
     {
       id: "fluid-memory",
       name: "Fluid Provisioned Memory",
-      usedFormatted: "1.2 GB-Hrs",
+      usedFormatted: "2.3 GB-Hrs",
       limitFormatted: "360 GB-Hrs",
-      pct: 0.33,
+      pct: 0.6,
       unit: "memory",
       status: "healthy",
-      description: "Memory allocated across active function runtimes.",
+      description: "Memory allocated across active function runtimes. Safe under 360 GB-Hrs free cap.",
       iconName: "memory",
     },
     {
       id: "isr-reads",
       name: "ISR Reads",
-      usedFormatted: "1.3K",
+      usedFormatted: "3K",
       limitFormatted: "1M",
-      pct: 0.13,
+      pct: 0.3,
       unit: "count",
       status: "healthy",
-      description: "Incremental Static Regeneration reads from Vercel edge cache.",
+      description: "Incremental Static Regeneration reads from Vercel edge cache. Safe under 1M free cap.",
       iconName: "isr",
-    },
-    {
-      id: "cdn-cpu-duration",
-      name: "CDN Request CPU Duration",
-      usedFormatted: "3s",
-      limitFormatted: "1h",
-      pct: 0.08,
-      unit: "time",
-      status: "healthy",
-      description: "Routing, header transformation, and edge proxy compute time.",
-      iconName: "cdnCpu",
     },
     {
       id: "fast-data-transfer",
       name: "Fast Data Transfer",
-      usedFormatted: "79.07 MB",
+      usedFormatted: "184.7 MB",
       limitFormatted: "100 GB",
-      pct: 0.08,
+      pct: 0.2,
       unit: "bytes",
       status: "healthy",
-      description: "Edge-to-client bandwidth. Massive 100 GB allowance (R2 direct preserves this).",
+      description: "Edge-to-client bandwidth. Generous 100 GB allowance (R2 direct preserves this).",
       iconName: "bandwidth",
+    },
+    {
+      id: "cdn-cpu-duration",
+      name: "CDN Request CPU Duration",
+      usedFormatted: "5s",
+      limitFormatted: "1h",
+      pct: 0.1,
+      unit: "time",
+      status: "healthy",
+      description: "Routing, header transformation, and edge proxy compute time. Safe under 1h free cap.",
+      iconName: "cdnCpu",
     },
   ],
 };
@@ -229,7 +229,7 @@ export function VercelQuotaCard({
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Synced with Vercel usage telemetry. High-efficiency zero-burn architecture active.
+              Synced with Vercel usage stats. High-efficiency setup active.
             </p>
           </div>
         </div>
@@ -269,13 +269,13 @@ export function VercelQuotaCard({
           </div>
           <div>
             <div className="text-xs font-semibold text-foreground flex items-center gap-2">
-              <span>Zero-Dumb-Burn Score:</span>
+              <span>Free Plan Health:</span>
               <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                {quotas.zeroDumbBurnScore}% Optimized
+                {quotas.zeroDumbBurnScore}% Healthy
               </span>
             </div>
             <p className="text-[11.5px] text-muted-foreground leading-snug mt-0.5">
-              Heavy payloads (R2 file transfers, AES encryption, ZIP compression) bypass Vercel serverless functions entirely.
+              Heavy file transfers and client-side processing bypass server functions directly to Cloudflare R2.
             </p>
           </div>
         </div>
@@ -285,7 +285,7 @@ export function VercelQuotaCard({
           onClick={() => setShowArchitectureDetails((prev) => !prev)}
           className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline self-start md:self-auto cursor-pointer"
         >
-          {showArchitectureDetails ? "Hide Architecture Protections" : "View Quota Protections →"}
+          {showArchitectureDetails ? "Hide Protections" : "View Protections →"}
         </button>
       </div>
 
@@ -294,66 +294,66 @@ export function VercelQuotaCard({
         <div className="p-4 rounded-xl bg-muted/30 border border-border/80 space-y-3 animate-in fade-in duration-150">
           <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>Active Safeguards Against Hobby Plan Overages</span>
+            <span>Active Protections for Free Plan</span>
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs text-muted-foreground">
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <Database className="w-3.5 h-3.5 text-blue-500" />
-                <span>Zero-Bandwidth R2 Presign</span>
+                <span>Direct Storage Transfers</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                Uploads &amp; downloads stream directly between browser and Cloudflare R2 edge. 0 MB Vercel Serverless Bandwidth consumed.
+                Uploads and downloads stream directly between your browser and Cloudflare R2. Zero Vercel bandwidth consumed.
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-cyan-500" />
-                <span>Global Edge CDN Caching</span>
+                <span>Global Edge Caching</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                OG preview images, landing page ISR, icons, and legal routes are cached at Vercel Edge for 24h to 1 year. Eliminates redundant serverless function invocations.
+                Public pages, preview cards, icons, and base releases are cached at the edge. Eliminates extra server runs.
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-purple-500" />
-                <span>Client-Side AES-256-GCM</span>
+                <span>Client-Side Encryption</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                Zero-knowledge encryption runs in Web Crypto API inside user browser. 0 MB Vercel Serverless Memory consumed.
+                Zero-knowledge encryption runs directly in your browser. Zero server memory consumed.
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <Archive className="w-3.5 h-3.5 text-amber-500" />
-                <span>In-Browser Client-Zip</span>
+                <span>In-Browser Zip Creation</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                Multi-file batch archives are generated in-memory in client browser without serverless function timeout risk.
+                Multi-file zip archives are bundled directly in your browser without server function timeouts.
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-teal-500" />
-                <span>Supabase Native SQL Cron</span>
+                <span>Database Scheduled Sweeps</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                Storage lifecycle reclamation and TTL expiration sweeps execute inside PostgreSQL engine. 0 Vercel Crons needed.
+                Storage lifecycle cleanups execute directly inside PostgreSQL. Zero Vercel Cron jobs needed.
               </p>
             </div>
 
             <div className="p-2.5 rounded-lg bg-card border border-border/70 space-y-1">
               <strong className="text-foreground flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                <span>100% Free Plan Compliance</span>
+                <span>Free Plan Safe</span>
               </strong>
               <p className="text-[11px] leading-relaxed">
-                All metrics are mathematically bounded to stay comfortably within the free tier thresholds indefinitely.
+                All metrics remain well within free tier limits even with heavy daily activity.
               </p>
             </div>
           </div>

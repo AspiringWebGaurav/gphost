@@ -43,7 +43,14 @@ export async function proxy(request: NextRequest) {
     pathname === "/manifest.webmanifest" ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/apple-icon") ||
-    pathname.startsWith("/opengraph-image")
+    pathname.startsWith("/opengraph-image") ||
+    pathname === "/terms" ||
+    pathname === "/privacy" ||
+    pathname === "/acceptable-use" ||
+    pathname === "/acceptance-of-use" ||
+    pathname === "/how-it-works" ||
+    pathname === "/developers" ||
+    pathname === "/docs"
   ) {
     return NextResponse.next();
   }
@@ -401,6 +408,6 @@ export const config = {
      * - static assets: favicon.ico, robots.txt, sitemap.xml, manifest.webmanifest, icon, apple-icon, opengraph-image
      * - media and font files (svg, png, jpg, jpeg, gif, webp, woff, woff2, ico)
      */
-    "/((?!_next|api|raw|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon|apple-icon|opengraph-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico)$).*)",
+    "/((?!_next|api|raw|terms|privacy|acceptable-use|acceptance-of-use|how-it-works|developers|docs|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon|apple-icon|opengraph-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ico)$).*)",
   ],
 };

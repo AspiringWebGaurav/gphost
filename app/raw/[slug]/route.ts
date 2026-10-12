@@ -441,6 +441,10 @@ export async function GET(
       // Hosted HTML documents MUST NOT be cached by browser disk cache without revalidation
       // This ensures that when the link expires, a standard visit/reload immediately detects 410 without needing Ctrl+F5 hard refresh!
       headers.set("Cache-Control", "no-cache, must-revalidate");
+    } else if (slug === "gpn-app" || slug === "gpn-app-sig") {
+      // Base v0.0.0 installer is permanently immutable (Rule 3).
+      // Edge CDN caching eliminates Fast Origin Transfer and serverless function cold starts on downloads.
+      headers.set("Cache-Control", "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400");
     } else if (isBinaryRelease) {
       // Software release binaries (.exe, .msi, .sig, etc.) must immediately reflect owner replacements without edge CDN stale delays
       headers.set("Cache-Control", "public, no-cache, must-revalidate");
