@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { publicShareRatelimit } from "@/lib/redis/ratelimit";
 import { formatPublicShareMetadata, PublicShareMetadata } from "@/lib/storage/share";
 import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { scheduleOpportunisticLifecycleSweep, purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
 import { redis } from "@/lib/redis/client";
@@ -247,10 +248,10 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+    const user = { id: userId, email: profile.email };
 
     const { slug } = await params;
     if (!slug || typeof slug !== "string") {
@@ -352,10 +353,10 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+    const user = { id: userId, email: profile.email };
 
     const { slug } = await params;
     const body = await req.json();

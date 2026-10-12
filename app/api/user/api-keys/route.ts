@@ -7,6 +7,7 @@ import {
   rotateApiKey,
   revokeAllApiKeys,
   ApiKeyItem,
+  API_PERMISSIONS,
 } from "@/lib/auth/api-keys";
 
 export const dynamic = "force-dynamic";
@@ -16,18 +17,36 @@ export async function GET() {
     const { user } = await requireApprovedUser();
     const adminClient = createAdminClient();
 
-    const { data: keys, error } = await adminClient
+    let res = await adminClient
       .from("user_api_keys")
-      .select("id, name, key_prefix, created_at, last_used_at, is_active")
+      .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
-    if (error) {
+    // Schema fallback if 'permissions' column not yet applied in DB
+    if (res.error && (res.error.code === "42703" || res.error.message?.includes("permissions"))) {
+      res = await adminClient
+        .from("user_api_keys")
+        .select("id, name, key_prefix, created_at, last_used_at, is_active")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+    }
+
+    if (res.error) {
       return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 });
     }
 
-    return NextResponse.json({ keys: (keys as ApiKeyItem[]) || [] });
+    const keys = ((res.data || []) as ApiKeyItem[]).map((k) => ({
+      ...k,
+      permissions: Array.isArray(k.permissions) && k.permissions.length > 0 ? k.permissions : ["*"],
+    }));
+
+    return NextResponse.json({
+      keys,
+      availablePermissions: API_PERMISSIONS,
+    });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
     if (errorMsg === "UNAUTHENTICATED") {
@@ -56,9 +75,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Action 2: Standard Key Generation
+    // Action 2: Standard Key Generation with Optional Scoped Permissions
     const name = typeof body.name === "string" ? body.name.trim() : "CLI Key";
-    const { keyItem, rawKey } = await createApiKey(user.id, name);
+    const requestedPermissions: string[] = Array.isArray(body.permissions) && body.permissions.length > 0
+      ? body.permissions
+      : ["*"];
+
+    const { keyItem, rawKey } = await createApiKey(user.id, name, requestedPermissions);
 
     return NextResponse.json({
       success: true,

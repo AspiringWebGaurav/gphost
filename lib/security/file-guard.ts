@@ -3,15 +3,19 @@ import crypto from "crypto";
 /**
  * High-Security File Guard for GPHosting.
  * Defends against:
- * 1. Malicious executable binaries (Windows PE/EXE/DLL, Linux ELF, macOS Mach-O).
+ * 1. Malicious executable binaries on public/unauthenticated endpoints (Windows PE/EXE/DLL, Linux ELF, macOS Mach-O).
  * 2. Server-side webshells (.php, .phtml, .asp, .aspx, .jsp, .cgi).
  * 3. Script injection (.bat, .cmd, .vbs, .ps1, .sh).
  * 4. Stored Cross-Site Scripting (XSS) via SVG or HTML vectors.
  * 5. Double-extension masquerade attacks (e.g. invoice.pdf.exe).
  * 6. Cryptographic payload tampering (SHA-256 verification).
+ *
+ * NOTE: For authorized API-key owners & software release pipelines (e.g. Gaurav Personal Notes / Tauri),
+ * passing options.allowBinaries = true explicitly permits legitimate application release artifacts:
+ * .exe, .msi, .zip, .sig, .dmg, .pkg, .deb, .rpm, .appimage, .tar.gz, .bin, .json.
  */
 
-// Extensions strictly prohibited from direct upload
+// Extensions strictly prohibited from public / unprivileged upload
 const BLOCKED_EXTENSIONS = new Set([
   // Windows executables & libraries
   ".exe",
@@ -70,7 +74,50 @@ const BLOCKED_EXTENSIONS = new Set([
   ".hta",
 ]);
 
-// Binary magic byte signatures to detect spoofed file types
+// Server-side execution vectors that are NEVER permitted under any circumstances
+const STRICT_WEBSHELL_EXTENSIONS = new Set([
+  ".php",
+  ".php3",
+  ".php4",
+  ".php5",
+  ".phtml",
+  ".phps",
+  ".shtml",
+  ".asp",
+  ".aspx",
+  ".cer",
+  ".asa",
+  ".asax",
+  ".jsp",
+  ".jspx",
+  ".jsw",
+  ".jsv",
+  ".jspf",
+  ".cgi",
+  ".pl",
+]);
+
+// Legitimate application release binary extensions permitted when allowBinaries = true
+const PERMITTED_RELEASE_EXTENSIONS = new Set([
+  ".exe",
+  ".msi",
+  ".zip",
+  ".sig",
+  ".dmg",
+  ".pkg",
+  ".deb",
+  ".rpm",
+  ".appimage",
+  ".bin",
+  ".tar.gz",
+  ".tgz",
+  ".gz",
+  ".7z",
+  ".tar",
+  ".json",
+]);
+
+// Binary magic byte signatures to detect file types
 const MAGIC_SIGNATURES = {
   // Windows Portable Executable (PE / MZ)
   WINDOWS_PE: [0x4d, 0x5a],
@@ -96,6 +143,14 @@ function matchesMagicBytes(buffer: Buffer, magic: number[]): boolean {
   return true;
 }
 
+export interface UploadSecurityOptions {
+  /**
+   * When true (authorized developer API keys or owner desktop release uploads),
+   * permits legitimate application release formats: .exe, .msi, .zip, .sig, .dmg, .pkg, .deb, .rpm, .appimage, etc.
+   */
+  allowBinaries?: boolean;
+}
+
 export interface SecurityCheckResult {
   safe: boolean;
   reason?: string;
@@ -108,9 +163,11 @@ export interface SecurityCheckResult {
 export function validateUploadSecurity(
   filename: string,
   buffer?: Buffer,
-  declaredMime?: string
+  declaredMime?: string,
+  options?: UploadSecurityOptions
 ): SecurityCheckResult {
   const cleanName = (filename || "").toLowerCase().trim();
+  const allowBinaries = Boolean(options?.allowBinaries);
 
   // 1. Prohibit empty or hidden names
   if (!cleanName || cleanName === "." || cleanName.startsWith("..")) {
@@ -125,23 +182,38 @@ export function validateUploadSecurity(
   const lastDot = cleanName.lastIndexOf(".");
   const ext = lastDot >= 0 ? cleanName.slice(lastDot) : "";
 
-  if (ext && BLOCKED_EXTENSIONS.has(ext)) {
+  // Multi-part extension check (e.g. .tar.gz)
+  const isTarGz = cleanName.endsWith(".tar.gz");
+
+  // Always block server-side webshells (PHP, ASP, JSP, CGI) under all circumstances
+  if (ext && STRICT_WEBSHELL_EXTENSIONS.has(ext)) {
     return {
       safe: false,
-      reason: `Blocked dangerous file type (${ext}). Executable binaries, system scripts, and webshells are prohibited to prevent malware distribution.`,
+      reason: `Blocked dangerous server execution script (${ext}). Webshells and server-side scripts are strictly prohibited.`,
       normalizedMime: "application/octet-stream",
     };
   }
 
+  // Check if extension is blocked for standard uploads
+  if (ext && BLOCKED_EXTENSIONS.has(ext)) {
+    if (!allowBinaries || !PERMITTED_RELEASE_EXTENSIONS.has(ext)) {
+      return {
+        safe: false,
+        reason: `Blocked executable file type (${ext}). To upload software release binaries (.exe, .msi, .sig), use an authorized API key with files:upload permission.`,
+        normalizedMime: "application/octet-stream",
+      };
+    }
+  }
+
   // 3. Double-extension attack prevention (e.g. invoice.pdf.exe or safe.jpg.php)
   const parts = cleanName.split(".");
-  if (parts.length > 2) {
-    for (let i = 1; i < parts.length; i++) {
+  if (parts.length > 2 && !isTarGz) {
+    for (let i = 1; i < parts.length - 1; i++) {
       const subExt = `.${parts[i]}`;
-      if (BLOCKED_EXTENSIONS.has(subExt)) {
+      if (STRICT_WEBSHELL_EXTENSIONS.has(subExt)) {
         return {
           safe: false,
-          reason: `Dangerous disguised extension detected (${subExt}). Double-extension masquerading is blocked for security.`,
+          reason: `Dangerous disguised script extension detected (${subExt}). Double-extension masquerading is blocked for security.`,
           normalizedMime: "application/octet-stream",
         };
       }
@@ -150,50 +222,51 @@ export function validateUploadSecurity(
 
   // 4. Binary Inspection (if buffer is present in direct upload)
   if (buffer && buffer.length > 0) {
-    // Check for Windows Executable
-    if (matchesMagicBytes(buffer, MAGIC_SIGNATURES.WINDOWS_PE)) {
-      return {
-        safe: false,
-        reason: "Executable Windows binary (PE/EXE/DLL) detected in payload. Upload rejected.",
-        normalizedMime: "application/octet-stream",
-      };
+    // If allowBinaries is NOT enabled, block OS native executables
+    if (!allowBinaries) {
+      if (matchesMagicBytes(buffer, MAGIC_SIGNATURES.WINDOWS_PE)) {
+        return {
+          safe: false,
+          reason: "Executable Windows binary (PE/EXE/DLL) detected in payload. Upload rejected on standard channel.",
+          normalizedMime: "application/octet-stream",
+        };
+      }
+
+      if (matchesMagicBytes(buffer, MAGIC_SIGNATURES.LINUX_ELF)) {
+        return {
+          safe: false,
+          reason: "Executable Linux binary (ELF) detected in payload. Upload rejected on standard channel.",
+          normalizedMime: "application/octet-stream",
+        };
+      }
+
+      if (
+        matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_32) ||
+        matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_64) ||
+        matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_FAT) ||
+        matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_REVERSE_64)
+      ) {
+        return {
+          safe: false,
+          reason: "Executable macOS binary (Mach-O) detected in payload. Upload rejected on standard channel.",
+          normalizedMime: "application/octet-stream",
+        };
+      }
+
+      // Check for Shebang shell scripts (#!)
+      const firstChunk = buffer.subarray(0, Math.min(buffer.length, 1024)).toString("utf8");
+      if (/^#!\s*\/(bin|usr)\//i.test(firstChunk)) {
+        return {
+          safe: false,
+          reason: "Executable shell script header (shebang) detected in payload. Upload rejected.",
+          normalizedMime: "application/octet-stream",
+        };
+      }
     }
 
-    // Check for Linux Executable
-    if (matchesMagicBytes(buffer, MAGIC_SIGNATURES.LINUX_ELF)) {
-      return {
-        safe: false,
-        reason: "Executable Linux binary (ELF) detected in payload. Upload rejected.",
-        normalizedMime: "application/octet-stream",
-      };
-    }
-
-    // Check for macOS Executable
-    if (
-      matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_32) ||
-      matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_64) ||
-      matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_FAT) ||
-      matchesMagicBytes(buffer, MAGIC_SIGNATURES.MACHO_REVERSE_64)
-    ) {
-      return {
-        safe: false,
-        reason: "Executable macOS binary (Mach-O) detected in payload. Upload rejected.",
-        normalizedMime: "application/octet-stream",
-      };
-    }
-
-    // Check for Shebang shell scripts (#!)
-    const firstChunk = buffer.subarray(0, Math.min(buffer.length, 1024)).toString("utf8");
-    if (/^#!\s*\/(bin|usr)\//i.test(firstChunk)) {
-      return {
-        safe: false,
-        reason: "Executable shell script header (shebang) detected in payload. Upload rejected.",
-        normalizedMime: "application/octet-stream",
-      };
-    }
-
-    // Check for PHP or Webshell tags
-    if (/(<\?php|<\?=|language\s*=\s*["']php["'])/i.test(firstChunk)) {
+    // Server-side script tag check (ALWAYS enforced, even for binary releases)
+    const inspectChunk = buffer.subarray(0, Math.min(buffer.length, 2048)).toString("utf8");
+    if (/(<\?php|<\?=|language\s*=\s*["']php["'])/i.test(inspectChunk)) {
       return {
         safe: false,
         reason: "Server-side script tag (PHP webshell) detected in file content. Upload rejected.",
@@ -231,8 +304,17 @@ export function validateUploadSecurity(
   // 5. Authoritative MIME Normalization
   let normalizedMime = (declaredMime || "application/octet-stream").toLowerCase().trim();
 
-  // Enforce correct MIME based on verified extensions
-  if (ext === ".png") normalizedMime = "image/png";
+  // Authoritative software release MIME types
+  if (ext === ".exe") normalizedMime = "application/vnd.microsoft.portable-executable";
+  else if (ext === ".msi") normalizedMime = "application/x-msi";
+  else if (ext === ".sig") normalizedMime = "application/pgp-signature";
+  else if (ext === ".dmg") normalizedMime = "application/x-apple-diskimage";
+  else if (ext === ".pkg") normalizedMime = "application/octet-stream";
+  else if (ext === ".deb") normalizedMime = "application/vnd.debian.binary-package";
+  else if (ext === ".rpm") normalizedMime = "application/x-rpm";
+  else if (ext === ".appimage") normalizedMime = "application/x-executable";
+  else if (isTarGz || ext === ".tgz") normalizedMime = "application/gzip";
+  else if (ext === ".png") normalizedMime = "image/png";
   else if (ext === ".jpg" || ext === ".jpeg") normalizedMime = "image/jpeg";
   else if (ext === ".gif") normalizedMime = "image/gif";
   else if (ext === ".webp") normalizedMime = "image/webp";
@@ -241,6 +323,7 @@ export function validateUploadSecurity(
   else if (ext === ".json") normalizedMime = "application/json";
   else if (ext === ".txt") normalizedMime = "text/plain; charset=utf-8";
   else if (ext === ".zip") normalizedMime = "application/zip";
+  else if (ext === ".7z") normalizedMime = "application/x-7z-compressed";
   else if (ext === ".mp4") normalizedMime = "video/mp4";
   else if (ext === ".mp3") normalizedMime = "audio/mpeg";
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { validateApiKey } from "@/lib/auth/api-keys";
+import { validateApiKey, hasPermission } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getR2Client, R2_BUCKET_NAME, generateR2ObjectKey, createPresignedPutUrl } from "@/lib/storage/r2";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
@@ -13,6 +13,8 @@ import {
   verifyContentIntegrity,
   getSecurityHeaders,
 } from "@/lib/security/file-guard";
+import { RESERVED_SLUGS } from "@/lib/share/constants";
+import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ const DIRECT_UPLOAD_MAX_BYTES = 4.5 * 1024 * 1024;
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative API Key Extraction & Verification
-    const authHeader = req.headers.get("authorization") || "";
+    const authHeader = req.headers.get("authorization") || req.headers.get("x-api-key") || "";
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
     if (!token) {
@@ -46,7 +48,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userId } = auth;
+    const { userId, profile, permissions } = auth;
+
+    // Verify permission: files:upload
+    if (!hasPermission(permissions, "files:upload")) {
+      return NextResponse.json(
+        {
+          error: "Forbidden: API key lacks 'files:upload' permission",
+          grantedPermissions: permissions,
+        },
+        { status: 403, headers: getSecurityHeaders() }
+      );
+    }
 
     // 2. Anti-DDoS & Flood Protection: Rate Limit per API Key / User
     const { success: rateLimitOk } = await cliUploadRatelimit.limit(`cli:${userId}`);
@@ -91,9 +104,10 @@ export async function POST(req: NextRequest) {
 
     const contentType = req.headers.get("content-type") || "";
 
-    // DYNAMIC DETECTED ORIGIN
+    // Dynamic detected origin
     const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
-    const origin = forwardedHost ? `https://${forwardedHost}` : (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc");
+    const forwardedProto = req.headers.get("x-forwarded-proto") || (forwardedHost?.startsWith("localhost") ? "http" : "https");
+    const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc");
 
     // =========================================================================
     // MODE A: Direct Multipart Form Upload (Files <= 4.5 MB)
@@ -115,7 +129,7 @@ export async function POST(req: NextRequest) {
       if (file.size > DIRECT_UPLOAD_MAX_BYTES) {
         return NextResponse.json(
           {
-            error: "File exceeds direct CLI limit of 4.5MB.",
+            error: "File exceeds direct upload payload limit of 4.5MB.",
             hint: "For files larger than 4.5MB, POST a JSON payload: {\"filename\": \"...\", \"byteSize\": ...} to receive a direct Cloudflare R2 presigned upload URL.",
           },
           { status: 413, headers: getSecurityHeaders() }
@@ -124,8 +138,10 @@ export async function POST(req: NextRequest) {
 
       const buffer = Buffer.from(await file.arrayBuffer());
 
-      // 3. Rigorous File Security Guard: Prevent malware, webshells, double-extension tricks, and XSS
-      const securityCheck = validateUploadSecurity(file.name || "cli-upload.bin", buffer, file.type);
+      // 3. Security Guard: Authenticated owner API keys allow application release binaries (.exe, .msi, .zip, .sig)
+      const securityCheck = validateUploadSecurity(file.name || "cli-upload.bin", buffer, file.type, {
+        allowBinaries: true,
+      });
       if (!securityCheck.safe) {
         return NextResponse.json(
           {
@@ -140,14 +156,15 @@ export async function POST(req: NextRequest) {
       const clientProvidedHash =
         req.headers.get("x-content-sha256") ||
         req.headers.get("x-sha256") ||
-        req.headers.get("digest");
+        req.headers.get("digest") ||
+        (formData.get("sha256") as string | null);
 
       const integrity = verifyContentIntegrity(buffer, clientProvidedHash);
       if (integrity.mismatch) {
         return NextResponse.json(
           {
             error: "Integrity Verification Failed: Potential Tampering Detected",
-            message: "The SHA-256 hash of the uploaded payload does not match the provided X-Content-SHA256 header. The file may have been altered, intercepted, or corrupted in transit.",
+            message: "The SHA-256 hash of the uploaded payload does not match the provided checksum header.",
             expectedSha256: clientProvidedHash,
             receivedSha256: integrity.sha256,
           },
@@ -156,9 +173,51 @@ export async function POST(req: NextRequest) {
       }
 
       const rawExpiryPreset = (formData.get("expiryPreset") || formData.get("expiry")) as string | null;
-      const expiryPreset = (rawExpiryPreset && EXPIRY_PRESET_VALUES.includes(rawExpiryPreset as typeof EXPIRY_PRESET_VALUES[number]))
-        ? (rawExpiryPreset as typeof EXPIRY_PRESET_VALUES[number])
-        : "30d";
+      const isPermanentReq = formData.get("isPermanent") === "true" || rawExpiryPreset === "never";
+      const canCreatePermanent = profile.role === "admin" || profile.can_create_permanent;
+
+      let expiryPreset: typeof EXPIRY_PRESET_VALUES[number] = "30d";
+      if (isPermanentReq && canCreatePermanent) {
+        expiryPreset = "never";
+      } else if (rawExpiryPreset && EXPIRY_PRESET_VALUES.includes(rawExpiryPreset as typeof EXPIRY_PRESET_VALUES[number])) {
+        expiryPreset = rawExpiryPreset as typeof EXPIRY_PRESET_VALUES[number];
+      }
+
+      // Desired vanity custom slug if requested (e.g. gpn-app)
+      const customSlugInput = ((formData.get("slug") || formData.get("customSlug")) as string | null)?.trim().toLowerCase();
+      let targetSlug = customSlugInput || "";
+
+      if (targetSlug) {
+        if (!/^[a-z0-9_-]{3,48}$/.test(targetSlug)) {
+          return NextResponse.json(
+            { error: "Invalid slug format. Must be 3-48 alphanumeric characters, dashes, or underscores." },
+            { status: 400, headers: getSecurityHeaders() }
+          );
+        }
+        if (RESERVED_SLUGS.has(targetSlug)) {
+          return NextResponse.json(
+            { error: `Slug '${targetSlug}' is reserved by the system.` },
+            { status: 400, headers: getSecurityHeaders() }
+          );
+        }
+
+        // Check if slug is already taken
+        const { data: existingShare } = await adminClient
+          .from("share_links")
+          .select("id, file:files(user_id, status)")
+          .eq("slug", targetSlug)
+          .maybeSingle();
+
+        if (existingShare) {
+          const fileObj = Array.isArray(existingShare.file) ? existingShare.file[0] : existingShare.file;
+          if (fileObj && fileObj.user_id !== userId && fileObj.status === "ACTIVE") {
+            return NextResponse.json(
+              { error: `Slug '${targetSlug}' is already taken by another account.` },
+              { status: 409, headers: getSecurityHeaders() }
+            );
+          }
+        }
+      }
 
       // Reserve user quota
       const { data: quotaReserved, error: quotaErr } = await adminClient.rpc("reserve_user_quota", {
@@ -194,10 +253,9 @@ export async function POST(req: NextRequest) {
 
       const expiresAt = calculateExpiryDate(expiryPreset);
 
-      // Insert file record
-      const { data: fileRecord, error: fileInsertErr } = await adminClient
-        .from("files")
-        .insert({
+      // Insert file record with schema fallback for sha256
+      const insertRecord = async () => {
+        const payload: Record<string, unknown> = {
           user_id: userId,
           filename: file.name || sanitizedName,
           sanitized_name: sanitizedName,
@@ -207,9 +265,28 @@ export async function POST(req: NextRequest) {
           status: "ACTIVE",
           expiry_preset: expiryPreset,
           expires_at: expiresAt ? expiresAt.toISOString() : null,
-        })
-        .select("id, sanitized_name, byte_size, mime_type, expires_at, created_at")
-        .single();
+          sha256: integrity.sha256,
+        };
+
+        let res = await adminClient
+          .from("files")
+          .insert(payload)
+          .select("id, sanitized_name, byte_size, mime_type, expires_at, created_at")
+          .single();
+
+        if (res.error && (res.error.code === "42703" || res.error.message?.includes("sha256"))) {
+          delete payload.sha256;
+          res = await adminClient
+            .from("files")
+            .insert(payload)
+            .select("id, sanitized_name, byte_size, mime_type, expires_at, created_at")
+            .single();
+        }
+
+        return res;
+      };
+
+      const { data: fileRecord, error: fileInsertErr } = await insertRecord();
 
       if (fileInsertErr || !fileRecord) {
         return NextResponse.json({ error: "Failed to create file record" }, { status: 500, headers: getSecurityHeaders() });
@@ -222,9 +299,15 @@ export async function POST(req: NextRequest) {
         p_actual_bytes: file.size,
       });
 
-      // Automatically generate public share link & direct raw CDN link
-      const slug = crypto.randomBytes(9).toString("base64url").slice(0, 12);
+      // Share Link & Slug Assignment
+      const slug = targetSlug || crypto.randomBytes(9).toString("base64url").slice(0, 12);
       const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
+
+      // Clean up previous share link if replacing slug
+      if (targetSlug) {
+        await adminClient.from("share_links").delete().eq("slug", targetSlug);
+        await purgeShareLinkRedisData(targetSlug);
+      }
 
       await adminClient.from("share_links").insert({
         file_id: fileRecord.id,
@@ -233,6 +316,9 @@ export async function POST(req: NextRequest) {
         is_active: true,
         expires_at: expiresAt ? expiresAt.toISOString() : null,
       });
+
+      const rawUrl = `${origin}/raw/${slug}`;
+      const downloadUrl = `${origin}/f/${slug}`;
 
       return NextResponse.json(
         {
@@ -243,8 +329,11 @@ export async function POST(req: NextRequest) {
           mimeType: fileRecord.mime_type,
           sha256: integrity.sha256,
           integrityStatus: "verified_authentic",
-          downloadUrl: `${origin}/f/${slug}`,
-          rawUrl: `${origin}/raw/${slug}`,
+          slug,
+          downloadUrl,
+          rawUrl,
+          permanentRawUrl: rawUrl,
+          isPermanent: expiryPreset === "never",
           expiresAt: fileRecord.expires_at,
         },
         {
@@ -258,10 +347,12 @@ export async function POST(req: NextRequest) {
     // MODE B: Direct-to-R2 Presigned Upload Negotiation (Files > 4.5 MB)
     // =========================================================================
     const body = await req.json().catch(() => ({}));
-    const rawFilename = body.filename || "file.bin";
+    const rawFilename = body.filename || "release-file.bin";
 
     // Validate security before generating presigned URL
-    const securityCheck = validateUploadSecurity(rawFilename, undefined, body.mimeType);
+    const securityCheck = validateUploadSecurity(rawFilename, undefined, body.mimeType, {
+      allowBinaries: true,
+    });
     if (!securityCheck.safe) {
       return NextResponse.json(
         {
@@ -276,23 +367,47 @@ export async function POST(req: NextRequest) {
     const byteSize = parseInt(String(body.byteSize || body.size), 10);
     const mimeType = securityCheck.normalizedMime;
     const rawExpiryPreset = body.expiryPreset || body.expiry;
-    const expiryPreset = (rawExpiryPreset && EXPIRY_PRESET_VALUES.includes(rawExpiryPreset))
-      ? rawExpiryPreset
-      : "30d";
+    const isPermanentReq = body.isPermanent === true || rawExpiryPreset === "never";
+    const canCreatePermanent = profile.role === "admin" || profile.can_create_permanent;
+
+    let expiryPreset: typeof EXPIRY_PRESET_VALUES[number] = "30d";
+    if (isPermanentReq && canCreatePermanent) {
+      expiryPreset = "never";
+    } else if (rawExpiryPreset && EXPIRY_PRESET_VALUES.includes(rawExpiryPreset)) {
+      expiryPreset = rawExpiryPreset;
+    }
 
     if (!byteSize || isNaN(byteSize) || byteSize <= 0) {
       return NextResponse.json(
         {
           error: "Invalid request payload",
           expected: {
-            filename: "example.zip",
+            filename: "gpn-setup.exe",
             byteSize: 10485760,
-            mimeType: "application/zip",
-            expiryPreset: "30d",
+            mimeType: "application/vnd.microsoft.portable-executable",
+            expiryPreset: "never",
+            slug: "gpn-app",
           },
         },
         { status: 400, headers: getSecurityHeaders() }
       );
+    }
+
+    // Target slug validation if provided
+    const targetSlug = (body.slug || body.customSlug || "")?.trim().toLowerCase();
+    if (targetSlug) {
+      if (!/^[a-z0-9_-]{3,48}$/.test(targetSlug)) {
+        return NextResponse.json(
+          { error: "Invalid slug format. Must be 3-48 alphanumeric characters, dashes, or underscores." },
+          { status: 400, headers: getSecurityHeaders() }
+        );
+      }
+      if (RESERVED_SLUGS.has(targetSlug)) {
+        return NextResponse.json(
+          { error: `Slug '${targetSlug}' is reserved by the system.` },
+          { status: 400, headers: getSecurityHeaders() }
+        );
+      }
     }
 
     // Reserve user quota
@@ -313,9 +428,8 @@ export async function POST(req: NextRequest) {
     const expiresAt = calculateExpiryDate(expiryPreset);
 
     // Create file record in UPLOADING state
-    const { data: fileRecord, error: fileInsertErr } = await adminClient
-      .from("files")
-      .insert({
+    const insertUploadingRecord = async () => {
+      const payload: Record<string, unknown> = {
         user_id: userId,
         filename: filename,
         sanitized_name: filename,
@@ -325,15 +439,38 @@ export async function POST(req: NextRequest) {
         status: "UPLOADING",
         expiry_preset: expiryPreset,
         expires_at: expiresAt ? expiresAt.toISOString() : null,
-      })
-      .select("id")
-      .single();
+      };
+
+      if (body.sha256) {
+        payload.sha256 = String(body.sha256).trim().toLowerCase();
+      }
+
+      let res = await adminClient
+        .from("files")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (res.error && (res.error.code === "42703" || res.error.message?.includes("sha256"))) {
+        delete payload.sha256;
+        res = await adminClient
+          .from("files")
+          .insert(payload)
+          .select("id")
+          .single();
+      }
+
+      return res;
+    };
+
+    const { data: fileRecord, error: fileInsertErr } = await insertUploadingRecord();
 
     if (fileInsertErr || !fileRecord) {
       return NextResponse.json({ error: "Failed to initialize upload record" }, { status: 500, headers: getSecurityHeaders() });
     }
 
     const curlExample = `curl -X PUT -T "${filename}" -H "Content-Type: ${mimeType}" "${presignedPutUrl}"`;
+    const completeUrl = `${origin}/api/v1/complete-upload`;
 
     return NextResponse.json(
       {
@@ -343,10 +480,11 @@ export async function POST(req: NextRequest) {
         uploadUrl: presignedPutUrl,
         presignedPutUrl,
         curlExample,
-        completeUrl: `${origin}/api/files/complete-upload`,
+        targetSlug: targetSlug || undefined,
+        completeUrl,
         instructions: [
           `1. Stream file directly to Cloudflare R2: ${curlExample}`,
-          `2. Complete the upload: curl -X POST "${origin}/api/files/complete-upload" -H "Content-Type: application/json" -d '{"fileId": "${fileRecord.id}"}'`,
+          `2. Complete the upload: curl -X POST "${completeUrl}" -H "Authorization: Bearer ${token.slice(0, 14)}..." -H "Content-Type: application/json" -d '{"fileId": "${fileRecord.id}"${targetSlug ? `, "slug": "${targetSlug}"` : ""}}'`,
         ],
       },
       {
@@ -355,7 +493,7 @@ export async function POST(req: NextRequest) {
       }
     );
   } catch (err: unknown) {
-    console.error("CLI upload error:", err);
+    console.error("API upload error:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500, headers: getSecurityHeaders() });
   }
 }

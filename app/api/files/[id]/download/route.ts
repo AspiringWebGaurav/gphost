@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPresignedGetUrl } from "@/lib/storage/r2";
 
@@ -15,7 +15,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:read");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+    const user = { id: userId, email: profile.email };
     const { id: fileId } = await params;
 
     const parseId = idSchema.safeParse(fileId);

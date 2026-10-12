@@ -27,6 +27,7 @@ import {
   Shield,
   ChevronRight,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -73,6 +74,7 @@ const DOC_GROUPS: DocGroup[] = [
       { id: "api-overview", title: "What is the API Key?", badge: "Analogy", icon: Key },
       { id: "create-api-key", title: "Creating & Masking Keys", icon: Key },
       { id: "terminal-curl", title: "1-Line Terminal Upload", badge: "cURL", icon: Terminal },
+      { id: "binary-releases", title: "Automated Software Releases", badge: "CI/CD", icon: RefreshCw },
       { id: "windows-guide", title: "Windows (CMD & PowerShell)", icon: Laptop },
       { id: "python-upload", title: "Python in 5 Lines", badge: "Code", icon: Code2 },
       { id: "key-safety", title: "Revoking & Key Safety", icon: ShieldCheck },
@@ -220,11 +222,22 @@ export function DocsView() {
 
   const curlCode = `curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -F "file=@photo.jpg" \\
-  https://gphost.app/api/v1/upload`;
+  https://gphost.eu.cc/api/v1/upload`;
+
+  const replaceCode = `# Replace an existing release binary atomically while keeping permanent URL intact
+curl -X POST https://gphost.eu.cc/api/v1/replace \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -F "target=gpn-app" \\
+  -F "file=@gpn-setup-1.0.2.exe"
+
+# For large releases (> 4.5MB), use presigned negotiation:
+# Step 1: POST https://gphost.eu.cc/api/v1/replace with {"target": "gpn-app", "filename": "gpn-setup-1.0.2.exe", "byteSize": 52428800}
+# Step 2: PUT file to the returned uploadUrl
+# Step 3: POST https://gphost.eu.cc/api/v1/replace with {"action": "complete", "stageToken": "<STAGE_TOKEN>"}`;
 
   const powershellCode = `curl.exe -H "Authorization: Bearer gp_live_YOUR_KEY" \`
   -F "file=@homework.pdf" \`
-  https://gphost.app/api/v1/upload`;
+  https://gphost.eu.cc/api/v1/upload`;
 
   const pythonCode = `import requests
 
@@ -819,6 +832,52 @@ print("Link to share:", data["file"]["url"])`;
               </div>
               <pre className="p-4 bg-background font-mono text-xs sm:text-sm text-foreground overflow-x-auto leading-relaxed select-all">
                 {curlCode}
+              </pre>
+            </div>
+          </section>
+
+          {/* ======================================================================= */}
+          {/* SECTION 10B: Automated Software Releases */}
+          {/* ======================================================================= */}
+          <section id="binary-releases" className="space-y-4 pt-4 border-t border-border">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-sm">
+                11
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground">
+                Automated Software Releases &amp; Binary Replacement
+              </h2>
+            </div>
+
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Distributing desktop application installers (like <strong className="text-foreground">Gaurav Personal Notes</strong> built with Tauri or Electron)?
+              GPHost allows you to replace an underlying binary atomically without changing its permanent raw URL:
+            </p>
+
+            <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground space-y-2">
+              <strong className="text-foreground font-semibold">Permanent Stable URL Example:</strong>
+              <div className="font-mono text-xs text-purple-600 dark:text-purple-400 bg-background/80 p-2.5 rounded-lg border border-border">
+                https://gphost.eu.cc/raw/gpn-app
+              </div>
+              <p>
+                When you deploy a new release, <code className="font-mono">POST /api/v1/replace</code> points the permanent slug to the new binary instantly.
+                Previous versions are archived for rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
+              <div className="px-4 py-2 bg-muted/40 border-b border-border flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground">Replacement API</span>
+                <button
+                  onClick={() => copyCode(replaceCode, "replace")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground bg-background border border-border transition cursor-pointer"
+                >
+                  {copiedSnippet === "replace" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSnippet === "replace" ? "Copied!" : "Copy Command"}</span>
+                </button>
+              </div>
+              <pre className="p-4 bg-background font-mono text-xs text-foreground overflow-x-auto leading-relaxed select-all">
+                {replaceCode}
               </pre>
             </div>
           </section>

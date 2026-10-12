@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shareCreateRatelimit } from "@/lib/redis/ratelimit";
 import { generatePasswordSalt, hashSharePassword } from "@/lib/security/password";
@@ -60,7 +60,10 @@ function generateSecureSlug(): string {
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative server authentication & approval check
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+    const user = { id: userId, email: profile.email };
 
     // 2. Ephemeral rate limiting
     const { success: rateLimitOk } = await shareCreateRatelimit.limit(user.id);

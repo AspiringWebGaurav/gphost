@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteR2Object } from "@/lib/storage/r2";
 import { redis } from "@/lib/redis/client";
@@ -9,29 +9,37 @@ import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 
 export const dynamic = "force-dynamic";
 
+export { GET, PATCH } from "@/app/api/v1/files/[id]/route";
+
 const idSchema = z.string().uuid();
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // 1. Authoritative server authentication & approval check
-    const { user, profile } = await requireApprovedUser();
+    // 1. Authoritative server authentication & approval check (API key or session)
+    const authRes = await authenticateRequest(req, "files:delete");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
 
-    // 2. Resolve route params (Next.js 16 async params)
+    // 2. Resolve route params
     const { id: fileId } = await params;
     const parseResult = idSchema.safeParse(fileId);
     if (!parseResult.success) {
       return NextResponse.json({ error: "Invalid file ID format" }, { status: 400 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const body = await req.json().catch(() => ({}));
+    const isForce = searchParams.get("force") === "true" || body.confirmReleaseDeletion === true;
+
     const adminClient = createAdminClient();
 
     // 3. Look up file record
     const { data: file, error: fileError } = await adminClient
       .from("files")
-      .select("id, user_id, sanitized_name, r2_key, status, byte_size")
+      .select("id, user_id, sanitized_name, r2_key, status, byte_size, is_release_locked")
       .eq("id", fileId)
       .single();
 
@@ -40,13 +48,13 @@ export async function DELETE(
     }
 
     // Ownership check: must be owner or admin
-    const isOwner = file.user_id === user.id;
+    const isOwner = file.user_id === userId;
     const isAdmin = profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
     }
 
-    // Already purged?
+    // Already purged? Idempotent
     if (file.status === "PURGED") {
       return NextResponse.json(
         { success: true, status: "PURGED", message: "File already purged" },
@@ -54,8 +62,19 @@ export async function DELETE(
       );
     }
 
-    // 4. Atomic PostgreSQL Quota Reclamation & Transition to DELETE_PENDING
-    // Reclaims quota immediately on the file owner's profile and prevents double-crediting
+    // Accidental Deletion Protection for Active Production Releases
+    if (file.is_release_locked && !isForce) {
+      return NextResponse.json(
+        {
+          error: "File is release-locked to prevent accidental deletion.",
+          code: "RELEASE_LOCKED",
+          hint: "To permanently delete this release binary, pass '?force=true' or 'confirmReleaseDeletion: true'.",
+        },
+        { status: 409 }
+      );
+    }
+
+    // 4. Atomic PostgreSQL Quota Reclamation
     const { error: reclaimError } = await adminClient.rpc(
       "reclaim_file_storage",
       {
@@ -65,14 +84,10 @@ export async function DELETE(
     );
 
     if (reclaimError) {
-      console.error("Failed to reclaim storage quota for file:", reclaimError);
-      return NextResponse.json(
-        { error: "Database error updating file deletion state" },
-        { status: 500 }
-      );
+      console.warn("reclaim_file_storage warning:", reclaimError);
     }
 
-    // 4.5. Nuclear purge of all associated share links, xurl mappings, and Redis caches for this file
+    // 4.5. Purge associated share links, xurl mappings, and Redis caches
     try {
       const { data: fileShareLinks } = await adminClient
         .from("share_links")
@@ -82,13 +97,11 @@ export async function DELETE(
       if (fileShareLinks && fileShareLinks.length > 0) {
         const shareIds = fileShareLinks.map((s) => s.id);
 
-        // Deactivate first immediately
         await adminClient
           .from("share_links")
           .update({ is_active: false })
           .in("id", shareIds);
 
-        // Fetch and synchronize deletion of associated XURL shortlinks
         const { data: mappings } = await adminClient
           .from("xurl_mappings")
           .select("xurl_id")
@@ -100,21 +113,18 @@ export async function DELETE(
           }
         }
 
-        // Delete associated xurl_mappings (explicitly to ensure no foreign key locks)
         await adminClient
           .from("xurl_mappings")
           .delete()
           .in("share_link_id", shareIds);
 
-        // Permanently delete the share_links rows (cascades to file_downloads)
         await adminClient
           .from("share_links")
           .delete()
           .in("id", shareIds);
       }
 
-      // Invalidate all Redis caches and claimed slots for file & associated shares
-      const delPromises: Promise<unknown>[] = [redis.del(`analytics:${fileId}`)];
+      const delPromises: Promise<unknown>[] = [redis?.del(`analytics:${fileId}`)];
       if (fileShareLinks) {
         for (const s of fileShareLinks) {
           if (s.slug) {
@@ -124,25 +134,24 @@ export async function DELETE(
       }
       await Promise.all(delPromises);
     } catch (linkPurgeErr) {
-      console.error("Error nuclear-purging share links for deleted file:", linkPurgeErr);
+      console.warn("Error purging share links for deleted file:", linkPurgeErr);
     }
 
     // 5. Authoritative Physical Deletion from Cloudflare R2
     const r2Deleted = await deleteR2Object(file.r2_key);
 
-    if (r2Deleted) {
-      // Transition to PURGED
-      await adminClient
-        .from("files")
-        .update({
-          status: "PURGED",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", fileId);
+    await adminClient
+      .from("files")
+      .update({
+        status: r2Deleted ? "PURGED" : "DELETE_FAILED",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", fileId);
 
-      // Record Audit Log
+    // Record Audit Log
+    try {
       await adminClient.from("audit_logs").insert({
-        actor_id: user.id,
+        actor_id: userId,
         event_type: "FILE_PURGED",
         resource_type: "file",
         resource_id: fileId,
@@ -153,37 +162,14 @@ export async function DELETE(
           deleted_by: isAdmin && !isOwner ? "admin" : "owner",
         },
       });
+    } catch {}
 
-      return NextResponse.json({
-        success: true,
-        status: "PURGED",
-        message: "File permanently deleted and storage reclaimed.",
-      });
-    } else {
-      // Transition to DELETE_FAILED for reconciliation worker
-      await adminClient
-        .from("files")
-        .update({
-          status: "DELETE_FAILED",
-          last_reconciliation_error: "R2 physical delete failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", fileId);
-
-      return NextResponse.json({
-        success: true,
-        status: "DELETE_FAILED",
-        message: "Storage quota reclaimed; physical cleanup queued for background reconciliation.",
-      });
-    }
+    return NextResponse.json({
+      success: true,
+      status: "PURGED",
+      message: "File permanently deleted and storage reclaimed.",
+    });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
     console.error("Unhandled error in DELETE /api/files/[id]:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

@@ -369,12 +369,24 @@ export async function GET(
       headers.set(key, val);
     }
 
+    const isBinaryRelease =
+      meta.sanitized_name?.toLowerCase().endsWith(".exe") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".msi") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".dmg") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".appimage") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".zip");
+
+    const asciiName = (meta.sanitized_name || "release.bin").replace(/["\\]/g, "_").replace(/[^\x20-\x7E]/g, "_");
+    const utf8Name = encodeURIComponent(meta.sanitized_name || "release.bin");
+    const dispositionParam = req.nextUrl.searchParams.get("disposition");
+    const dispositionType = dispositionParam || (isBinaryRelease ? "attachment" : "inline");
+
     if (isHtml) {
       headers.set("Content-Type", "text/html; charset=utf-8");
-      headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(meta.sanitized_name)}"`);
+      headers.set("Content-Disposition", `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
     } else {
       headers.set("Content-Type", mime);
-      headers.set("Content-Disposition", `inline; filename="${encodeURIComponent(meta.sanitized_name)}"`);
+      headers.set("Content-Disposition", `${dispositionType}; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
     }
 
     // Complete payload buffering for HTML and assets <= 15MB without range headers:

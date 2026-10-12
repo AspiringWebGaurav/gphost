@@ -17,6 +17,7 @@ import {
   Zap,
   Layers,
   Cpu,
+  RefreshCw,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -391,26 +392,51 @@ export default function HowItWorksPage() {
           </section>
 
           {/* ========================================================================= */}
-          {/* SECTION 4: Developer & Terminal Access */}
+          {/* SECTION 4: Developer & Automated Release Pipeline */}
           {/* ========================================================================= */}
           <section className="space-y-4 p-6 rounded-2xl bg-card border border-border">
             <div className="flex items-center gap-2 font-bold text-foreground text-base">
               <Terminal className="w-5 h-5 text-purple-500" />
-              <span>Developer API &amp; 2-Step Key Generation</span>
+              <span>Developer API &amp; Automated Desktop Release Pipeline</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Upload directly from your terminal, CI/CD scripts, or custom applications. Create an API key in your Dashboard Settings with our secure 2-step confirmation workflow:
+              Programmatically distribute software updates (such as Gaurav Personal Notes / Tauri), upload directly from CI/CD scripts, or manage release artifacts without touching the web dashboard.
             </p>
 
-            <div className="p-3.5 rounded-xl bg-muted/60 border border-border font-mono text-[11px] sm:text-xs overflow-x-auto text-foreground">
-              <code>
-                curl -X POST https://gphost.eu.cc/api/v1/upload \<br />
-                &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_your_key_here&quot; \<br />
-                &nbsp;&nbsp;-F &quot;file=@my-project.zip&quot;
-              </code>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="p-3.5 rounded-xl bg-muted/60 border border-border space-y-2">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-blue-500" />
+                  1. Upload New Binary
+                </span>
+                <div className="font-mono text-[10.5px] text-foreground leading-relaxed overflow-x-auto">
+                  curl -X POST https://gphost.eu.cc/api/v1/upload \<br />
+                  &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;file=@gpn-setup-1.0.0.exe&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;slug=gpn-app&quot; -F &quot;isPermanent=true&quot;
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-muted/60 border border-border space-y-2">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-500" />
+                  2. Atomic Zero-Downtime Replacement
+                </span>
+                <div className="font-mono text-[10.5px] text-foreground leading-relaxed overflow-x-auto">
+                  curl -X POST https://gphost.eu.cc/api/v1/replace \<br />
+                  &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;target=gpn-app&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;file=@gpn-setup-1.0.1.exe&quot;
+                </div>
+              </div>
             </div>
+
+            <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground leading-relaxed">
+              <strong className="text-foreground">Permanent Distribution URL:</strong> Releases served at <code className="text-purple-600 dark:text-purple-400 font-semibold font-mono">https://gphost.eu.cc/raw/gpn-app</code> preserve the exact URL across updates. Previous binaries are archived with instant rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
+            </div>
+
             <p className="text-[11px] text-muted-foreground">
-              You instantly get back your direct download link and raw CDN asset link in clean JSON. Looking for code examples in Python, Windows CMD, and PowerShell? Check our <Link href="/docs" className="text-purple-600 dark:text-purple-400 font-semibold underline underline-offset-2">Interactive API Docs</Link>.
+              Supports <code>.exe</code>, <code>.msi</code>, <code>.zip</code>, <code>.sig</code>, <code>.dmg</code>, <code>.AppImage</code>, and <code>.tar.gz</code> formats. Check our <Link href="/docs" className="text-purple-600 dark:text-purple-400 font-semibold underline underline-offset-2">Interactive API Documentation</Link> for detailed schemas.
             </p>
           </section>
 
