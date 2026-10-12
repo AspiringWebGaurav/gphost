@@ -246,7 +246,7 @@ export async function DELETE(
   try {
     const authRes = await authenticateRequest(req, "files:delete");
     if ("errorResponse" in authRes) return authRes.errorResponse;
-    const { userId } = authRes.auth;
+    const { userId, profile } = authRes.auth;
 
     const { id: fileId } = await params;
     const parseId = idSchema.safeParse(fileId);
@@ -255,21 +255,33 @@ export async function DELETE(
     }
 
     const { searchParams } = new URL(req.url);
-    const body = await req.json().catch(() => ({}));
-    const isForce = searchParams.get("force") === "true" || body.confirmReleaseDeletion === true;
+    let isForce = searchParams.get("force") === "true";
+    try {
+      if (req.headers.get("content-type")?.includes("application/json")) {
+        const body = await req.json();
+        if (body?.confirmReleaseDeletion === true) isForce = true;
+      }
+    } catch {
+      // Empty body is valid for DELETE
+    }
 
     const adminClient = createAdminClient();
 
-    // Verify ownership
+    // Verify ownership or admin permission
     const { data: file, error: fileErr } = await adminClient
       .from("files")
       .select("*")
       .eq("id", fileId)
-      .eq("user_id", userId)
       .single();
 
     if (fileErr || !file) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+
+    const isOwner = file.user_id === userId;
+    const isAdmin = profile?.role === "admin";
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
     }
 
     // Idempotent: already purged
@@ -295,12 +307,28 @@ export async function DELETE(
 
     // 1. Quota Reclamation
     const { error: reclaimError } = await adminClient.rpc("reclaim_file_storage", {
-      p_user_id: userId,
+      p_user_id: file.user_id,
       p_file_id: fileId,
     });
 
     if (reclaimError) {
       console.warn("reclaim_file_storage error:", reclaimError);
+      try {
+        const { data: prof } = await adminClient
+          .from("profiles")
+          .select("storage_used_bytes")
+          .eq("id", file.user_id)
+          .single();
+        if (prof && file.byte_size) {
+          await adminClient
+            .from("profiles")
+            .update({
+              storage_used_bytes: Math.max(0, (prof.storage_used_bytes || 0) - file.byte_size),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", file.user_id);
+        }
+      } catch {}
     }
 
     // 2. Share links & shortlinks cleanup
@@ -313,18 +341,21 @@ export async function DELETE(
       if (fileShareLinks && fileShareLinks.length > 0) {
         const shareIds = fileShareLinks.map((s) => s.id);
 
-        const { data: mappings } = await adminClient
-          .from("xurl_mappings")
-          .select("xurl_id")
-          .in("share_link_id", shareIds);
+        try {
+          const { data: mappings } = await adminClient
+            .from("xurl_mappings")
+            .select("xurl_id")
+            .in("share_link_id", shareIds);
 
-        if (mappings) {
-          for (const m of mappings) {
-            if (m.xurl_id) void deleteXurlLink(m.xurl_id);
+          if (mappings) {
+            for (const m of mappings) {
+              if (m.xurl_id) void deleteXurlLink(m.xurl_id);
+            }
           }
-        }
 
-        await adminClient.from("xurl_mappings").delete().in("share_link_id", shareIds);
+          await adminClient.from("xurl_mappings").delete().in("share_link_id", shareIds);
+        } catch {}
+
         await adminClient.from("share_links").delete().in("id", shareIds);
 
         for (const s of fileShareLinks) {
@@ -334,14 +365,20 @@ export async function DELETE(
         }
       }
 
-      await redis?.del(`analytics:${fileId}`);
-      await redis?.del(`raw:meta:${fileId}`);
+      if (redis) {
+        await Promise.allSettled([
+          redis.del(`analytics:${fileId}`),
+          redis.del(`raw:meta:${fileId}`),
+          redis.del(`file_api_accessed:${fileId}`),
+          redis.srem(`api_managed_files:${file.user_id}`, fileId),
+        ]);
+      }
     } catch (linkPurgeErr) {
       console.warn("Share link cleanup warning:", linkPurgeErr);
     }
 
     // 3. Physical R2 Deletion of active object AND historical version objects
-    const r2Deleted = await deleteR2Object(file.r2_key);
+    const r2Deleted = file.r2_key ? await deleteR2Object(file.r2_key) : true;
 
     let versionsReclaimedBytes = 0;
     try {
@@ -362,6 +399,14 @@ export async function DELETE(
     } catch (verErr) {
       console.warn("Historical versions cleanup warning:", verErr);
     }
+
+    // Clean up any app_releases references if this file was part of an app release
+    try {
+      await adminClient
+        .from("app_releases")
+        .delete()
+        .or(`binary_file_id.eq.${fileId},signature_file_id.eq.${fileId}`);
+    } catch {}
 
     if (versionsReclaimedBytes > 0) {
       try {

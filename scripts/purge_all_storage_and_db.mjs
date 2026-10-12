@@ -93,15 +93,15 @@ async function purgeRedis() {
 async function purgeSupabase() {
   console.log("\n--- 3. PURGING SUPABASE POSTGRESQL & AUTH ---");
 
-  // Step A: Delete dependent tables
+  // Step A: Delete dependent tables (preserving user_api_keys so CLI / API pushing remains active)
   const tables = [
     "cron_cleanup_claims",
     "file_events",
-    "user_api_keys",
     "api_keys",
     "file_downloads",
     "xurl_mappings",
     "share_links",
+    "app_releases",
     "files",
     "onboarding_pins",
     "access_requests",
@@ -133,8 +133,12 @@ async function purgeSupabase() {
     console.error("  Error reading auth users:", aErr.message);
   }
 
-  // Authoritative sole admin email
-  const adminEmails = new Set([adminEmail || "gauravpatil5737@gmail.com"]);
+  // Authoritative admin emails
+  const adminEmails = new Set([
+    "gauravpatil5737@gmail.com",
+    "gauravpatil1994kop@gmail.com",
+    ...(adminEmail ? [adminEmail] : []),
+  ]);
   const bannedEmails = new Set(["gauravpatil9262@gmail.com"]);
 
   console.log("  Authoritative Sole Admin Account identified for preservation & full access:");

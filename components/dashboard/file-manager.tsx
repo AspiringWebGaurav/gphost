@@ -248,6 +248,7 @@ export function FileManager({
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleOpenZipViewer = async (file: SafeFileItem) => {
     setOpeningZipId(file.id);
@@ -636,23 +637,35 @@ export function FileManager({
   const handleDeleteConfirm = async () => {
     if (!selectedFileForDelete) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
-      const res = await fetch(`/api/files/${selectedFileForDelete.id}`, {
+      const res = await authFetch(`/api/files/${selectedFileForDelete.id}`, {
         method: "DELETE",
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         const deletedId = selectedFileForDelete.id;
         const deletedSize = selectedFileForDelete.byte_size;
         setSelectedFileForDelete(null);
+        setDeleteError(null);
         fetchFiles(page, searchQuery, category, sortBy, sortOrder);
         storageEvents.emit("file:lifecycle", {
           fileId: deletedId,
           size: deletedSize,
           action: "deleted",
         });
+      } else {
+        console.error("Failed to delete file:", data);
+        setDeleteError(data.error || "Failed to delete file.");
+        if (res.status === 404 || data.status === "PURGED") {
+          setSelectedFileForDelete(null);
+          setDeleteError(null);
+          fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+        }
       }
     } catch (err) {
       console.error("Failed to delete file:", err);
+      setDeleteError("Network error occurred while deleting file.");
     } finally {
       setIsDeleting(false);
     }
@@ -3434,12 +3447,17 @@ export function FileManager({
       {/* DELETE CONFIRMATION MODAL */}
       <ConfirmationModal
         isOpen={Boolean(selectedFileForDelete)}
-        onClose={() => !isDeleting && setSelectedFileForDelete(null)}
+        onClose={() => {
+          if (!isDeleting) {
+            setSelectedFileForDelete(null);
+            setDeleteError(null);
+          }
+        }}
         onConfirm={handleDeleteConfirm}
         isLoading={isDeleting}
         title="Delete File?"
         description={
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <p>
               Are you sure you want to delete{" "}
               <strong className="text-foreground">{selectedFileForDelete?.sanitized_name}</strong>?
@@ -3447,6 +3465,11 @@ export function FileManager({
             <p className="text-[11px] text-muted-foreground">
               Your storage quota will be instantly restored and all share links for this file will stop working permanently.
             </p>
+            {deleteError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-medium animate-in fade-in">
+                {deleteError}
+              </div>
+            )}
           </div>
         }
         confirmText="Yes, Delete File"

@@ -104,8 +104,17 @@ export function parseMinisignSignature(sigStr: string): MinisignSignatureRecord 
     throw new Error("Minisign signature text is required");
   }
 
-  const lines = sigStr
-    .trim()
+  let cleanSig = sigStr.trim();
+  if (!cleanSig.includes("\n") && (cleanSig.startsWith("dW50cnVzdGVk") || /^[A-Za-z0-9+/=]+$/.test(cleanSig))) {
+    try {
+      const decoded = Buffer.from(cleanSig, "base64").toString("utf8");
+      if (decoded.includes("untrusted comment:") || decoded.includes("\n")) {
+        cleanSig = decoded.trim();
+      }
+    } catch {}
+  }
+
+  const lines = cleanSig
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
@@ -204,9 +213,16 @@ export function verifyMinisignSignature(
       type: "spki",
     });
 
-    // 3. Authoritatively verify Ed25519 signature over binary bytes
+    // 3. Authoritatively verify Ed25519 signature over binary bytes (supporting raw and Blake2b-512 prehash)
     const dataBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
-    const binaryValid = crypto.verify(null, dataBuffer, importedPubKey, sig.rawSignature);
+    let binaryValid = crypto.verify(null, dataBuffer, importedPubKey, sig.rawSignature);
+
+    if (!binaryValid) {
+      try {
+        const blakeDigest = crypto.createHash("blake2b512").update(dataBuffer).digest();
+        binaryValid = crypto.verify(null, blakeDigest, importedPubKey, sig.rawSignature);
+      } catch {}
+    }
 
     if (!binaryValid) {
       return {
@@ -218,7 +234,8 @@ export function verifyMinisignSignature(
 
     // 4. If trusted comment and global signature exist, verify global signature
     if (sig.trustedComment && sig.globalSignature) {
-      const globalData = Buffer.concat([sig.rawSignature, Buffer.from(sig.trustedComment, "utf8")]);
+      const commentText = sig.trustedComment.replace(/^trusted comment:\s*/, "");
+      const globalData = Buffer.concat([sig.rawSignature, Buffer.from(commentText, "utf8")]);
       const globalValid = crypto.verify(null, globalData, importedPubKey, sig.globalSignature);
       if (!globalValid) {
         return {

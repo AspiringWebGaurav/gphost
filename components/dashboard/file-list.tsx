@@ -139,6 +139,7 @@ export function FileList({
 
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
   const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [deleteFileError, setDeleteFileError] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [selectedFileForLinks, setSelectedFileForLinks] = useState<FileItem | null>(null);
 
@@ -397,15 +398,24 @@ export function FileList({
   const handleDeleteConfirm = async () => {
     if (!fileToDelete) return;
     setIsDeletingFile(true);
+    setDeleteFileError(null);
     try {
-      const res = await fetch(`/api/files/${fileToDelete.id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/files/${fileToDelete.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "Failed to delete file");
+        setDeleteFileError(data.error || "Failed to delete file");
+        if (res.status === 404 || data.status === "PURGED") {
+          const deletedId = fileToDelete.id;
+          setFileToDelete(null);
+          setDeleteFileError(null);
+          setDeletedIds((prev) => new Set(prev).add(deletedId));
+          if (onFileDeleted) onFileDeleted();
+        }
       } else {
         const deletedId = fileToDelete.id;
         const deletedSize = fileToDelete.byte_size;
         setFileToDelete(null);
+        setDeleteFileError(null);
         setDeletedIds((prev) => new Set(prev).add(deletedId));
         storageEvents.emit("file:lifecycle", {
           fileId: deletedId,
@@ -416,7 +426,7 @@ export function FileList({
       }
     } catch (err) {
       console.error("Error deleting file:", err);
-      alert("Network error deleting file");
+      setDeleteFileError("Network error deleting file");
     } finally {
       setIsDeletingFile(false);
     }
@@ -2200,12 +2210,17 @@ export function FileList({
       {/* Delete Confirmation Modal */}
       <ConfirmationModal
         isOpen={Boolean(fileToDelete)}
-        onClose={() => !isDeletingFile && setFileToDelete(null)}
+        onClose={() => {
+          if (!isDeletingFile) {
+            setFileToDelete(null);
+            setDeleteFileError(null);
+          }
+        }}
         onConfirm={handleDeleteConfirm}
         isLoading={isDeletingFile}
         title="Delete File?"
         description={
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <p>
               Are you sure you want to permanently delete{" "}
               <strong className="text-foreground">{fileToDelete?.sanitized_name}</strong>?
@@ -2213,6 +2228,11 @@ export function FileList({
             <p className="text-[11px] text-muted-foreground">
               Your storage quota will be instantly restored and all share links for this file will stop working permanently.
             </p>
+            {deleteFileError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-medium animate-in fade-in">
+                {deleteFileError}
+              </div>
+            )}
           </div>
         }
         confirmText="Yes, Delete File"
