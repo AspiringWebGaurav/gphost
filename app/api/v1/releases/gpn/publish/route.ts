@@ -7,6 +7,7 @@ import { getR2Client, R2_BUCKET_NAME, deleteR2Object } from "@/lib/storage/r2";
 import { HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyMinisignSignature, parseMinisignSignature } from "@/lib/security/minisign";
 import { redis } from "@/lib/redis/client";
+import { purgeStaleReleaseBinaries } from "@/lib/storage/releases-purge";
 
 export const dynamic = "force-dynamic";
 
@@ -381,60 +382,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 13. Strict 2-File Rule: Enforce Isolated Base 0.0.0 + Single Active OTA Update
-    // Whenever an OTA release is published, any previous superseded OTA binary is purged immediately.
-    // The Base v0.0.0 installer is 100% isolated and never deleted or touched.
+    // 13. Strict 2-File Rule: Multi-Layer Automated Purge of Stale Binaries
+    // Whenever an OTA release is published, any superseded binary is purged across 3 layers:
+    // Layer 1: DB & Metadata sweep
+    // Layer 2: Cloudflare R2 direct physical bucket reconciliation
+    let purgeSummary = null;
     if (cleanVersion !== "0.0.0") {
       try {
-        // Query ALL files belonging to user that match GPN installer patterns
-        const { data: allGpnFiles } = await adminClient
-          .from("files")
-          .select("id, sanitized_name, filename, r2_key, share_links(slug)")
-          .eq("user_id", auth.userId)
-          .or("sanitized_name.ilike.%Gaurav Personal Notes%,filename.ilike.%Gaurav Personal Notes%,sanitized_name.ilike.%gpn%,filename.ilike.%gpn%");
-
-        for (const file of allGpnFiles || []) {
-          // Never delete the current target binary
-          if (file.id === targetBinaryFileId) continue;
-
-          // Never delete the base 0.0.0 installer (anchored to vanity slug 'gpn-app')
-          const shareList = Array.isArray(file.share_links) ? file.share_links : file.share_links ? [file.share_links] : [];
-          const isBaseInstaller = shareList.some((s: any) => s.slug === "gpn-app") || (file.sanitized_name || "").includes("0.0.0");
-          if (isBaseInstaller) continue;
-
-          // This is an obsolete/superseded OTA binary: purge it from R2 and DB!
-          if (file.r2_key) {
-            try {
-              await deleteR2Object(file.r2_key);
-            } catch (r2Err) {
-              console.warn(`[Auto-Prune] Failed to delete R2 key ${file.r2_key}:`, r2Err);
-            }
-          }
-
-          await adminClient.from("share_links").delete().eq("file_id", file.id).neq("slug", "gpn-app");
-          await adminClient.from("app_releases").delete().eq("binary_file_id", file.id);
-          await adminClient.from("files").delete().eq("id", file.id);
-          console.log(`[Auto-Prune] Successfully purged superseded GPN binary ${file.sanitized_name} (${file.id})`);
-        }
-
-        // Also clean up any lingering app_releases rows not matching 0.0.0 or targetBinaryFileId
-        await adminClient
-          .from("app_releases")
-          .delete()
-          .eq("app_id", APP_ID)
-          .neq("version", "0.0.0")
-          .neq("binary_file_id", targetBinaryFileId);
-
-        // Recalculate and update profile storage usage
-        const { data: userFiles } = await adminClient
-          .from("files")
-          .select("byte_size")
-          .eq("user_id", auth.userId);
-        const newTotal = (userFiles || []).reduce((acc, f) => acc + (f.byte_size || 0), 0);
-        await adminClient
-          .from("profiles")
-          .update({ storage_used_bytes: newTotal, updated_at: new Date().toISOString() })
-          .eq("id", auth.userId);
+        purgeSummary = await purgeStaleReleaseBinaries({
+          userId: auth.userId,
+          targetBinaryFileId,
+          appId: APP_ID,
+        });
+        console.log(`[Auto-Purge] Multi-layer purge completed for v${cleanVersion}:`, purgeSummary);
       } catch (pruneErr) {
         console.warn("Non-fatal: Strict 2-file auto-prune encountered an issue:", pruneErr);
       }
@@ -454,6 +414,7 @@ export async function POST(req: NextRequest) {
           download_url: `/api/v1/releases/gpn/download/${cleanVersion}`,
           permanent_alias: "/raw/gpn-app",
         },
+        purge: purgeSummary,
       },
       { status: 200 }
     );

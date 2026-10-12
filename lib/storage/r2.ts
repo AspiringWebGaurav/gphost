@@ -11,6 +11,7 @@ import {
   HeadObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
@@ -318,3 +319,23 @@ export async function getR2ObjectStream(key: string, range?: string) {
   return client.send(command);
 }
 
+/**
+ * Lists objects in Cloudflare R2 matching a specific prefix.
+ * Used for authoritative reconciliation and pruning of orphaned/stale objects.
+ */
+export async function listR2Objects(prefix?: string): Promise<{ key: string; size: number }[]> {
+  const client = getR2Client();
+  try {
+    const command = new ListObjectsV2Command({
+      Bucket: R2_BUCKET_NAME,
+      Prefix: prefix,
+    });
+    const res = await client.send(command);
+    return (res.Contents || [])
+      .filter((o) => !!o.Key)
+      .map((o) => ({ key: o.Key!, size: o.Size || 0 }));
+  } catch (err) {
+    console.error(`Failed to list R2 objects with prefix ${prefix}:`, err);
+    return [];
+  }
+}
