@@ -24,7 +24,22 @@ export interface UserProfile {
   updated_at: string;
 }
 
-export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "gauravpatil5737@gmail.com").trim().toLowerCase();
+export const AUTHORITATIVE_ADMIN_EMAILS = new Set(
+  [
+    "gauravpatil1994kop@gmail.com",
+    "gauravpatil5737@gmail.com",
+    ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(",") : []),
+  ]
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+export function isAuthoritativeAdmin(email?: string | null): boolean {
+  if (!email) return false;
+  return AUTHORITATIVE_ADMIN_EMAILS.has(email.trim().toLowerCase());
+}
+
+export const ADMIN_EMAIL = "gauravpatil1994kop@gmail.com";
 
 /**
  * Retrieves the currently authenticated Supabase Auth user.
@@ -126,15 +141,34 @@ export const getUserProfile = cache(async (userId: string): Promise<UserProfile 
     return null;
   }
 
-  const isAuthoritativeAdmin = Boolean(ADMIN_EMAIL && userEmail === ADMIN_EMAIL);
+  const isAuthoritativeAdminUser = isAuthoritativeAdmin(userEmail);
 
-  // Root Security Enforcement: ONLY ADMIN_EMAIL (gauravpatil5737@gmail.com) can EVER have admin role
-  if (!isAuthoritativeAdmin && (profile.role === "admin" || profile.can_create_permanent || profile.quota_bytes === -1)) {
+  if (isAuthoritativeAdminUser) {
+    if (profile.role !== "admin" || !profile.can_create_permanent || profile.quota_bytes !== -1 || profile.status !== "approved") {
+      profile.role = "admin";
+      profile.status = "approved";
+      profile.can_create_permanent = true;
+      profile.quota_bytes = -1;
+
+      // Self-healing database promotion for authoritative admin
+      adminClient
+        .from("profiles")
+        .update({
+          role: "admin",
+          status: "approved",
+          can_create_permanent: true,
+          quota_bytes: -1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId)
+        .then(() => {});
+    }
+  } else if (profile.role === "admin" || profile.can_create_permanent || profile.quota_bytes === -1) {
     profile.role = "user";
     profile.can_create_permanent = false;
     profile.quota_bytes = 5368709120;
 
-    // Self-healing database correction
+    // Self-healing database correction for unauthorized users
     adminClient
       .from("profiles")
       .update({
@@ -181,7 +215,7 @@ export const requireAdminUser = cache(async (): Promise<{ user: NonNullable<Awai
   const { user, profile } = await requireApprovedUser();
 
   const userEmail = (user.email || "").toLowerCase();
-  if (profile.role !== "admin" || userEmail !== ADMIN_EMAIL) {
+  if (profile.role !== "admin" || !isAuthoritativeAdmin(userEmail)) {
     throw new Error("FORBIDDEN_NOT_ADMIN");
   }
 
@@ -190,13 +224,13 @@ export const requireAdminUser = cache(async (): Promise<{ user: NonNullable<Awai
 
 /**
  * Authoritative Server Guard: Requires that the user is authenticated, approved, has admin role,
- * and matches the authoritative permanent owner email (ADMIN_EMAIL).
+ * and matches the authoritative permanent owner email.
  * Memoized per-request via React cache().
  */
 export const requireOwnerUser = cache(async (): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>; profile: UserProfile }> => {
   const { user, profile } = await requireAdminUser();
 
-  if (user.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+  if (!isAuthoritativeAdmin(user.email)) {
     throw new Error("FORBIDDEN_NOT_OWNER");
   }
 

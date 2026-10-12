@@ -46,6 +46,7 @@ import {
   Users,
   Flame,
   RotateCcw,
+  Package,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -162,6 +163,11 @@ export interface SafeFileItem {
   is_site?: boolean;
   xurl_short_url?: string | null;
   xurl_status?: string | null;
+  // Owner API Release & Bucket metadata
+  is_api_upload?: boolean;
+  folder?: string | null;
+  sha256?: string | null;
+  is_release_locked?: boolean;
 }
 
 interface FileManagerProps {
@@ -413,6 +419,18 @@ export function FileManager({
     navigator.clipboard.writeText(targetUrl);
     setCopiedLinkSlug(slug);
     setTimeout(() => setCopiedLinkSlug(null), 2000);
+  };
+
+  const [copiedCustomKey, setCopiedCustomKey] = useState<string | null>(null);
+  const handleCopyCustomUrl = (pathOrText: string, key: string, isFullUrl: boolean = false) => {
+    const textToCopy = isFullUrl
+      ? pathOrText
+      : typeof window !== "undefined"
+      ? `${window.location.origin}${pathOrText}`
+      : pathOrText;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedCustomKey(key);
+    setTimeout(() => setCopiedCustomKey(null), 2000);
   };
 
   // Share Links Modal State
@@ -729,8 +747,39 @@ export function FileManager({
     }
   };
 
+  const gpnCount = files.filter(
+    (f) =>
+      f.folder === "gpn" ||
+      f.sanitized_name?.toLowerCase().includes("gpn") ||
+      f.share_slug === "gpn-app" ||
+      f.share_slug === "gpn-app-sig" ||
+      f.is_release_locked
+  ).length;
+
+  const apiCount = files.filter(
+    (f) => f.is_api_upload || Boolean(f.sha256) || Boolean(f.is_release_locked)
+  ).length;
+
   const FOLDERS = [
-    { id: "all", name: "All Files", count: totalCount },
+    { id: "all", name: "All Files", count: totalCount, icon: Folder, color: "text-amber-500", bg: "bg-amber-500/10 border-amber-500/20" },
+    {
+      id: "gpn",
+      name: "📁 gpn (Releases)",
+      count: gpnCount,
+      icon: Package,
+      isSpecial: true,
+      color: "text-violet-600 dark:text-violet-400",
+      bg: "bg-violet-500/10 border-violet-500/30",
+    },
+    {
+      id: "api",
+      name: "⚡ API Uploads",
+      count: apiCount,
+      icon: Zap,
+      isSpecial: true,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-500/10 border-purple-500/30",
+    },
     {
       id: "websites",
       name: "GP-Sites",
@@ -741,11 +790,17 @@ export function FileManager({
           f.sanitized_name?.toLowerCase().endsWith(".htm") ||
           Boolean(f.is_site)
       ).length,
+      icon: Globe,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/20",
     },
     {
       id: "images",
       name: "Images",
       count: files.filter((f) => f.mime_type?.startsWith("image/")).length,
+      icon: ImageIcon,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-500/10 border-purple-500/20",
     },
     {
       id: "documents",
@@ -757,13 +812,17 @@ export function FileManager({
             f.mime_type?.includes("document")) &&
           f.mime_type !== "text/html"
       ).length,
+      icon: FileText,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/20",
     },
     {
       id: "media",
       name: "Media",
-      count: files.filter(
-        (f) => f.mime_type?.startsWith("video/") || f.mime_type?.startsWith("audio/")
-      ).length,
+      count: files.filter((f) => f.mime_type?.startsWith("video/") || f.mime_type?.startsWith("audio/")).length,
+      icon: Film,
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-500/10 border-sky-500/20",
     },
     {
       id: "archives",
@@ -774,6 +833,9 @@ export function FileManager({
           f.mime_type?.includes("tar") ||
           f.mime_type?.includes("compressed")
       ).length,
+      icon: Archive,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-500/10 border-amber-500/20",
     },
   ];
 
@@ -797,35 +859,40 @@ export function FileManager({
           )}
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-3 md:grid-cols-6 sm:overflow-visible">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-4 lg:grid-cols-8 sm:overflow-visible">
           {FOLDERS.map((f) => {
             const isSelected = category === f.id;
+            const FolderIcon = f.icon || Folder;
             return (
               <button
                 key={f.id}
                 onClick={() => setCategory(f.id)}
-                className={`shrink-0 p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left transition-all duration-150 flex items-center gap-2 sm:gap-2.5 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
+                className={`shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
                   isSelected
-                    ? "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
+                    ? f.id === "gpn"
+                      ? "bg-violet-500/15 border-violet-500/50 text-violet-600 dark:text-violet-300 shadow-2xs font-semibold ring-1 ring-violet-500/40"
+                      : f.id === "api"
+                      ? "bg-purple-500/15 border-purple-500/50 text-purple-600 dark:text-purple-300 shadow-2xs font-semibold ring-1 ring-purple-500/40"
+                      : "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
                     : "bg-card hover:bg-muted/40 border-border text-foreground hover:border-border/80 shadow-2xs"
                 }`}
               >
                 <div
-                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 border ${
                     isSelected
-                      ? "bg-blue-600 text-white shadow-xs"
-                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                      ? f.id === "gpn"
+                        ? "bg-violet-600 text-white border-violet-600 shadow-xs"
+                        : f.id === "api"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                        : "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : `${f.bg} ${f.color}`
                   }`}
                 >
-                  {isSelected ? (
-                    <FolderOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  ) : (
-                    <Folder className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current/20" />
-                  )}
+                  <FolderIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs sm:text-sm font-semibold truncate">{f.name}</div>
-                  <div className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                  <div className="text-xs font-semibold truncate">{f.name}</div>
+                  <div className="text-[10px] text-muted-foreground truncate">
                     {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
                   </div>
                 </div>
@@ -845,7 +912,13 @@ export function FileManager({
           </span>
           <span>/</span>
           <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize">
-            {category === "all" ? "All Files" : category}
+            {category === "all"
+              ? "All Files"
+              : category === "gpn"
+              ? "📁 gpn (Releases)"
+              : category === "api"
+              ? "⚡ API Uploads"
+              : category}
           </span>
         </div>
 
@@ -952,10 +1025,85 @@ export function FileManager({
         </div>
       </div>
 
+      {/* Dedicated Category Banners: gpn Release Bucket & API Uploads */}
+      {category === "gpn" && (
+        <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-950/40 via-purple-900/20 to-card p-4 sm:p-5 shadow-sm space-y-3 relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-violet-400 shrink-0">
+                <Package className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    gpn Binary Distribution Bucket
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/20 text-violet-400 border border-violet-500/30 flex items-center gap-1">
+                    <Zap className="w-3 h-3 text-amber-400" />
+                    API Continuous Delivery
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Automated release bucket for Gaurav Personal Notes (GPN) desktop binaries and cryptographic signatures.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:shrink-0">
+              <button
+                type="button"
+                onClick={() => handleCopyCustomUrl("/raw/gpn-app", "gpn-bin")}
+                className="px-2.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Copy permanent binary release URL (/raw/gpn-app)"
+              >
+                {copiedCustomKey === "gpn-bin" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>/raw/gpn-app</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyCustomUrl("/raw/gpn-app-sig", "gpn-sig")}
+                className="px-2.5 py-1.5 rounded-xl border border-violet-500/30 bg-background/60 hover:bg-background text-foreground font-medium text-xs transition flex items-center gap-1.5 cursor-pointer"
+                title="Copy permanent signature release URL (/raw/gpn-app-sig)"
+              >
+                {copiedCustomKey === "gpn-sig" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>/raw/gpn-app-sig</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {category === "api" && (
+        <div className="rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-950/40 via-violet-900/20 to-card p-4 sm:p-5 shadow-sm space-y-2 relative overflow-hidden">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+              <Zap className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-foreground">Owner API Managed Files</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  Automated Pipeline
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Files and binaries deployed programmatically via GPHost Owner API keys with cryptographic integrity protection.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 3. Section Title */}
       <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5 pt-1">
         <span className="font-semibold text-foreground">
-          {category === "all" ? "Suggested files" : `${category.charAt(0).toUpperCase() + category.slice(1)} files`}
+          {category === "all"
+            ? "Suggested files"
+            : category === "gpn"
+            ? "📁 gpn Binary Release Distribution"
+            : category === "api"
+            ? "⚡ Owner API Uploads"
+            : `${category.charAt(0).toUpperCase() + category.slice(1)} files`}
         </span>
         <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
       </div>
@@ -1012,7 +1160,11 @@ export function FileManager({
           <p className="text-sm font-medium text-foreground">No files found</p>
           <p className="text-xs mt-0.5">
             {category !== "all"
-              ? `No ${category} found in this category.`
+              ? category === "gpn"
+                ? "No gpn releases found in this bucket. Push binary updates via API key using /api/v1/upload or staged replacement."
+                : category === "api"
+                ? "No API uploads recorded yet. Upload files programmatically using your Owner API Key."
+                : `No ${category} found in this category.`
               : "Upload files or try another search."}
           </p>
           {category !== "all" && (
@@ -1059,9 +1211,40 @@ export function FileManager({
                       <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${fileType.bg} ${fileType.color}`}>
                         <FileTypeIcon className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-xs font-semibold text-foreground truncate" title={file.sanitized_name}>
-                        {file.sanitized_name}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-semibold text-foreground truncate max-w-[130px] sm:max-w-[160px]" title={file.sanitized_name}>
+                            {file.sanitized_name}
+                          </span>
+                          {file.is_api_upload && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                              title={file.sha256 ? `Uploaded via Owner API • SHA-256: ${file.sha256}` : "Uploaded via Owner API"}
+                            >
+                              <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                              <span>API</span>
+                            </span>
+                          )}
+                          {(file.folder === "gpn" || file.sanitized_name?.toLowerCase().includes("gpn")) && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-indigo-500/15 border border-indigo-500/30 text-indigo-600 dark:text-indigo-300 shadow-2xs shrink-0 select-none"
+                              title="gpn Release Bucket"
+                            >
+                              <Package className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
+                              <span>gpn</span>
+                            </span>
+                          )}
+                          {file.is_release_locked && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 shadow-2xs shrink-0 select-none"
+                              title="Release Locked: Protected against accidental deletion"
+                            >
+                              <Lock className="w-2.5 h-2.5 text-amber-500" />
+                              <span>Locked</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 border ${fileType.bg} ${fileType.color}`}>
                       {fileType.label}
@@ -1443,6 +1626,33 @@ export function FileManager({
                         <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
                           {file.sanitized_name}
                         </h3>
+                        {file.is_api_upload && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                            title={file.sha256 ? `Uploaded via Owner API • SHA-256: ${file.sha256}` : "Uploaded via Owner API"}
+                          >
+                            <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                            <span>API</span>
+                          </span>
+                        )}
+                        {(file.folder === "gpn" || file.sanitized_name?.toLowerCase().includes("gpn")) && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-indigo-500/15 border border-indigo-500/30 text-indigo-600 dark:text-indigo-300 shadow-2xs shrink-0 select-none"
+                            title="gpn Desktop Release Bucket"
+                          >
+                            <Package className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
+                            <span>gpn</span>
+                          </span>
+                        )}
+                        {file.is_release_locked && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 shadow-2xs shrink-0 select-none"
+                            title="Release Locked: Protected against accidental deletion"
+                          >
+                            <Lock className="w-2.5 h-2.5 text-amber-500" />
+                            <span>Locked</span>
+                          </span>
+                        )}
                         {file.share_slug && file.is_site && (
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -1698,6 +1908,57 @@ export function FileManager({
                   </span>
                 </div>
               </div>
+
+              {/* Owner API Pipeline & Release Card */}
+              {(selectedFileForDetails.is_api_upload ||
+                selectedFileForDetails.folder === "gpn" ||
+                selectedFileForDetails.sha256 ||
+                selectedFileForDetails.is_release_locked) && (
+                <div className="p-3 rounded-xl border border-violet-500/20 bg-violet-500/5 space-y-2 mt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+                      Owner API Release Pipeline
+                    </span>
+                    {selectedFileForDetails.is_release_locked && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" />
+                        Release Locked
+                      </span>
+                    )}
+                  </div>
+                  {selectedFileForDetails.folder && (
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <span>Bucket / Folder:</span>
+                      <span className="font-mono font-semibold text-foreground px-1.5 py-0.5 rounded bg-background border border-border">
+                        {selectedFileForDetails.folder}
+                      </span>
+                    </div>
+                  )}
+                  {selectedFileForDetails.sha256 && (
+                    <div className="space-y-1">
+                      <div className="text-muted-foreground text-[10px]">SHA-256 Checksum</div>
+                      <div className="flex items-center gap-1.5 bg-background p-1.5 rounded-lg border border-border">
+                        <span className="font-mono text-[10px] text-foreground truncate flex-1 select-all">
+                          {selectedFileForDetails.sha256}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCustomUrl(selectedFileForDetails.sha256!, "modal-sha256", true)}
+                          className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+                          title="Copy SHA-256 Checksum"
+                        >
+                          {copiedCustomKey === "modal-sha256" ? (
+                            <Check className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-border flex flex-wrap items-center justify-between gap-2">

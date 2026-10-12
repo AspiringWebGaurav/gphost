@@ -27,12 +27,15 @@ export default async function FilesPage() {
     profile.quota_bytes > 5368709120;
   const adminClient = createAdminClient();
 
-  // Initial Server-Side Query (Page 1, pageSize 20)
+  // Initial Server-Side Query (Page 1, pageSize 20) with schema fallback
   // STRICT PRIVACY: r2_key, r2_upload_id, r2_etag are strictly omitted from select
-  const { data: initialFilesRaw, count } = await adminClient
+  let initialFilesRaw: any[] | null = null;
+  let count: number | null = 0;
+
+  const primaryRes = await adminClient
     .from("files")
     .select(
-      `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+      `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked,
        share_links (
          id,
          slug,
@@ -49,6 +52,34 @@ export default async function FilesPage() {
     .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
     .order("created_at", { ascending: false })
     .range(0, 19);
+
+  if (primaryRes.error && (primaryRes.error.code === "42703" || primaryRes.error.message?.includes("column"))) {
+    const fallbackRes = await adminClient
+      .from("files")
+      .select(
+        `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+         share_links (
+           id,
+           slug,
+           is_active,
+           expires_at,
+           xurl_mappings (
+             xurl_short_url,
+             status
+           )
+         )`,
+        { count: "exact" }
+      )
+      .eq("user_id", user.id)
+      .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
+      .order("created_at", { ascending: false })
+      .range(0, 19);
+    initialFilesRaw = fallbackRes.data;
+    count = fallbackRes.count;
+  } else {
+    initialFilesRaw = primaryRes.data;
+    count = primaryRes.count;
+  }
 
   interface DbShareLink {
     id: string;
@@ -70,6 +101,8 @@ export default async function FilesPage() {
     expiry_preset?: string;
     expires_at: string | null;
     created_at: string;
+    sha256?: string | null;
+    is_release_locked?: boolean;
     share_links?: DbShareLink | DbShareLink[] | null;
   }
 
@@ -86,6 +119,19 @@ export default async function FilesPage() {
       : activeShare?.xurl_mappings;
     const xurlShortUrl = xurl?.status === "active" ? xurl.xurl_short_url : null;
     const xurlStatus = xurl?.status || null;
+
+    const isGpn =
+      f.sanitized_name?.toLowerCase().includes("gpn") ||
+      f.filename?.toLowerCase().includes("gpn") ||
+      shareSlug === "gpn-app" ||
+      shareSlug === "gpn-app-sig";
+    const isApiUpload = Boolean(
+      f.sha256 ||
+      f.is_release_locked ||
+      isGpn
+    );
+    const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
+
     return {
       id: f.id,
       filename: f.filename,
@@ -103,6 +149,10 @@ export default async function FilesPage() {
         f.sanitized_name?.toLowerCase().endsWith(".htm"),
       xurl_short_url: xurlShortUrl,
       xurl_status: xurlStatus,
+      is_api_upload: isApiUpload,
+      folder,
+      sha256: f.sha256 || null,
+      is_release_locked: Boolean(f.is_release_locked),
     };
   });
 

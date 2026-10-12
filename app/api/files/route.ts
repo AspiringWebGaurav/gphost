@@ -50,12 +50,8 @@ export async function GET(req: NextRequest) {
       // Ignore if outside after context
     }
 
-    // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
-    // Build PostgREST query strictly bound to the authenticated user (Tenant Isolation)
-    let query = adminClient
-      .from("files")
-      .select(
-        `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+    // PostgREST query helper strictly bound to the authenticated user (Tenant Isolation)
+    const selectWithRelease = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked,
          share_links (
            id,
            slug,
@@ -65,52 +61,69 @@ export async function GET(req: NextRequest) {
              xurl_short_url,
              status
            )
-         )`,
-        { count: "exact" }
-      )
-      .eq("user_id", user.id)
-      .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"]);
+         )`;
 
-    // Search filter
-    if (searchQuery) {
-      query = query.ilike("sanitized_name", `%${searchQuery}%`);
-    }
+    const selectStandard = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+         share_links (
+           id,
+           slug,
+           is_active,
+           expires_at,
+           xurl_mappings (
+             xurl_short_url,
+             status
+           )
+         )`;
 
-    // Category filter
-    if (category === "websites") {
-      query = query.or("mime_type.eq.text/html,filename.ilike.%.html,filename.ilike.%.htm");
-    } else if (category === "images") {
-      query = query.like("mime_type", "image/%");
-    } else if (category === "documents") {
-      query = query.in("mime_type", [
-        "text/html",
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/plain",
-        "text/csv",
-        "text/markdown",
-      ]);
-    } else if (category === "media") {
-      query = query.or("mime_type.like.video/%,mime_type.like.audio/%");
-    } else if (category === "archives") {
-      query = query.in("mime_type", [
-        "application/zip",
-        "application/x-tar",
-        "application/gzip",
-        "application/x-7z-compressed",
-        "application/vnd.rar",
-        "application/x-zip-compressed",
-      ]);
-    }
-
-    // Sorting & Pagination
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
-    query = query
-      .order(sortBy, { ascending: sortOrder === "asc" })
-      .range(from, to);
+    const buildQuery = (selectFields: string) => {
+      let q = adminClient
+        .from("files")
+        .select(selectFields, { count: "exact" })
+        .eq("user_id", user.id)
+        .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"]);
+
+      // Search filter
+      if (searchQuery) {
+        q = q.ilike("sanitized_name", `%${searchQuery}%`);
+      }
+
+      // Category filter
+      if (category === "gpn") {
+        q = q.or("sanitized_name.ilike.%gpn%,filename.ilike.%gpn%");
+      } else if (category === "api") {
+        q = q.or("sanitized_name.ilike.%gpn%,filename.ilike.%gpn%,filename.ilike.%.exe,filename.ilike.%.sig,filename.ilike.%.msi,filename.ilike.%.zip");
+      } else if (category === "websites") {
+        q = q.or("mime_type.eq.text/html,filename.ilike.%.html,filename.ilike.%.htm");
+      } else if (category === "images") {
+        q = q.like("mime_type", "image/%");
+      } else if (category === "documents") {
+        q = q.in("mime_type", [
+          "text/html",
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "text/plain",
+          "text/csv",
+          "text/markdown",
+        ]);
+      } else if (category === "media") {
+        q = q.or("mime_type.like.video/%,mime_type.like.audio/%");
+      } else if (category === "archives") {
+        q = q.in("mime_type", [
+          "application/zip",
+          "application/x-tar",
+          "application/gzip",
+          "application/x-7z-compressed",
+          "application/vnd.rar",
+          "application/x-zip-compressed",
+        ]);
+      }
+
+      return q.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
+    };
 
     // Check for cached user share stats in Redis (30-second TTL)
     let activeLinksCount = 0;
@@ -127,8 +140,8 @@ export async function GET(req: NextRequest) {
       }
     } catch {}
 
-    const [filesRes, shareLinksRes] = await Promise.all([
-      query,
+    let [filesRes, shareLinksRes] = await Promise.all([
+      buildQuery(selectWithRelease),
       hasCachedStats
         ? Promise.resolve({ data: null, error: null })
         : adminClient
@@ -141,6 +154,11 @@ export async function GET(req: NextRequest) {
             .eq("files.status", "ACTIVE")
             .eq("is_active", true),
     ]);
+
+    // Resilient schema fallback: if sha256 or is_release_locked is not yet migrated, fall back seamlessly
+    if (filesRes.error && (filesRes.error.code === "42703" || filesRes.error.message?.includes("column"))) {
+      filesRes = await buildQuery(selectStandard);
+    }
 
     if (filesRes.error) {
       console.error("[Files API] Query error:", filesRes.error);
@@ -202,6 +220,8 @@ export async function GET(req: NextRequest) {
       expiry_preset?: string;
       expires_at: string | null;
       created_at: string;
+      sha256?: string | null;
+      is_release_locked?: boolean;
       share_links?: DbShareLink | DbShareLink[] | null;
     }
 
@@ -222,6 +242,19 @@ export async function GET(req: NextRequest) {
         f.mime_type === "text/html" ||
         f.sanitized_name?.toLowerCase().endsWith(".html") ||
         f.sanitized_name?.toLowerCase().endsWith(".htm");
+
+      const isGpn =
+        f.sanitized_name?.toLowerCase().includes("gpn") ||
+        f.filename?.toLowerCase().includes("gpn") ||
+        shareSlug === "gpn-app" ||
+        shareSlug === "gpn-app-sig";
+      const isApiUpload = Boolean(
+        f.sha256 ||
+        f.is_release_locked ||
+        isGpn
+      );
+      const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
+
       return {
         id: f.id,
         filename: f.filename,
@@ -236,6 +269,10 @@ export async function GET(req: NextRequest) {
         is_site: isSite,
         xurl_short_url: xurlShortUrl,
         xurl_status: xurlStatus,
+        is_api_upload: isApiUpload,
+        folder,
+        sha256: f.sha256 || null,
+        is_release_locked: Boolean(f.is_release_locked),
       };
     });
     const totalCount = filesRes.count || 0;

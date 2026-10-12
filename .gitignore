@@ -150,3 +150,5 @@ supabase/apply_phase11_robust_claim_and_one_per_member.sql
 # --- Local Testing Artifacts ---
 temp-test/
 temp-test/*
+.vercel
+.env*
