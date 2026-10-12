@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, hasPermission } from "@/lib/auth/api-keys";
 import { isAuthoritativeAdmin } from "@/lib/auth/session";
@@ -89,12 +90,13 @@ export async function POST(req: NextRequest) {
     // 3. Verify Binary File Existence in DB
     const { data: binFile, error: binErr } = await adminClient
       .from("files")
-      .select("id, user_id, sanitized_name, filename, byte_size, sha256, r2_key, is_release_locked")
+      .select("id, user_id, sanitized_name, filename, byte_size, r2_key")
       .eq("id", targetBinaryFileId)
       .maybeSingle();
 
     if (binErr || !binFile) {
-      return NextResponse.json({ error: "Binary file record not found in database" }, { status: 404 });
+      console.error("[GPN Publish] Binary DB lookup failed:", targetBinaryFileId, binErr);
+      return NextResponse.json({ error: "Binary file record not found in database", details: binErr?.message }, { status: 404 });
     }
 
     // Tenant check: file must belong to caller or caller must be admin
@@ -174,6 +176,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Cryptographic Minisign Verification
+    let binBuffer: Buffer | null = null;
     const trustedPublicKey = (publicKey || process.env.GPN_MINISIGN_PUBLIC_KEY || "").trim();
     if (trustedPublicKey) {
       // Download binary bytes from R2 to authoritatively verify Ed25519 signature
@@ -187,7 +190,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Failed to read binary stream from storage" }, { status: 500 });
       }
       const binBytes = await (getRes.Body as any).transformToByteArray();
-      const binBuffer = Buffer.from(binBytes);
+      binBuffer = Buffer.from(binBytes);
 
       const verification = verifyMinisignSignature(trustedPublicKey, signatureText, binBuffer);
       if (!verification.valid) {
@@ -201,6 +204,10 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    const calculatedSha256 = binBuffer
+      ? crypto.createHash("sha256").update(binBuffer).digest("hex")
+      : "";
 
     // 7. Immutability Check: Prevent overwriting published releases
     const { data: existingRelease } = await adminClient
@@ -229,7 +236,7 @@ export async function POST(req: NextRequest) {
           version: cleanVersion,
           binary_file_id: binFile.id,
           binary_r2_key: binFile.r2_key,
-          binary_sha256: binFile.sha256 || "",
+          binary_sha256: calculatedSha256 || "",
           binary_byte_size: binFile.byte_size,
           signature_text: signatureText,
           signature_file_id: resolvedSigFileId,
@@ -274,10 +281,14 @@ export async function POST(req: NextRequest) {
     }
 
     // 10. Lock Binary in files table (prevents accidental deletion)
-    await adminClient
-      .from("files")
-      .update({ is_release_locked: true })
-      .eq("id", binFile.id);
+    try {
+      await adminClient
+        .from("files")
+        .update({ is_release_locked: true })
+        .eq("id", binFile.id);
+    } catch {
+      // Graceful fallback if is_release_locked column not yet migrated
+    }
 
     // 11. Point Permanent Vanity Slug 'gpn-app' to New Binary (Backward Compatibility)
     const { data: existingShare } = await adminClient
@@ -391,7 +402,7 @@ export async function POST(req: NextRequest) {
           version: cleanVersion,
           app_id: APP_ID,
           is_active: true,
-          sha256: binFile.sha256,
+          sha256: calculatedSha256 || null,
           byte_size: binFile.byte_size,
           download_url: `/api/v1/releases/gpn/download/${cleanVersion}`,
           permanent_alias: "/raw/gpn-app",

@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
           id, version, release_notes, signature_text, binary_sha256, binary_byte_size,
           published_at, created_at, binary_r2_key,
           binary_file:files!app_releases_binary_file_id_fkey (
-            id, sanitized_name, filename, byte_size, sha256
+            id, sanitized_name, filename, byte_size
           )
         `)
         .eq("app_id", "gpn")
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
         .select(`
           id, slug, is_active,
           file:files (
-            id, sanitized_name, filename, byte_size, sha256, updated_at, created_at, r2_key
+            id, sanitized_name, filename, byte_size, updated_at, created_at, r2_key
           )
         `)
         .eq("slug", "gpn-app")
@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
         file: {
           name: rawName,
           size: (binFile as any).byte_size,
-          sha256: (binFile as any).sha256 || null,
+          sha256: null,
           url: legacyImmutableUrl,
           permanent_alias: permanentDownloadUrl,
         },
