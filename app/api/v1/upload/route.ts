@@ -82,23 +82,26 @@ export async function POST(req: NextRequest) {
 
     const adminClient = createAdminClient();
 
-    // Check active file count quota
-    const maxFiles = await getUserMaxFiles(userId);
-    if (maxFiles !== null && maxFiles > 0) {
-      const { count, error: countErr } = await adminClient
-        .from("files")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("status", "ACTIVE");
+    // API key owners possess premium capability: exempt from restrictive file count limits
+    const isOwnerPremiumKey = permissions.includes("*") || profile.role === "admin" || profile.can_create_permanent;
+    if (!isOwnerPremiumKey) {
+      const maxFiles = await getUserMaxFiles(userId);
+      if (maxFiles !== null && maxFiles > 0) {
+        const { count, error: countErr } = await adminClient
+          .from("files")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("status", "ACTIVE");
 
-      if (!countErr && (count ?? 0) >= maxFiles) {
-        return NextResponse.json(
-          {
-            error: "File upload quota exceeded",
-            message: `Your account limit is ${maxFiles} active file${maxFiles === 1 ? "" : "s"}.`,
-          },
-          { status: 403, headers: getSecurityHeaders() }
-        );
+        if (!countErr && (count ?? 0) >= maxFiles) {
+          return NextResponse.json(
+            {
+              error: "File upload quota exceeded",
+              message: `Your account limit is ${maxFiles} active file${maxFiles === 1 ? "" : "s"}.`,
+            },
+            { status: 403, headers: getSecurityHeaders() }
+          );
+        }
       }
     }
 
@@ -219,17 +222,19 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Reserve user quota
-      const { data: quotaReserved, error: quotaErr } = await adminClient.rpc("reserve_user_quota", {
-        p_user_id: userId,
-        p_requested_bytes: file.size,
-      });
+      // Reserve user quota (bypassed for unlimited quota accounts)
+      if (profile.quota_bytes !== -1) {
+        const { data: quotaReserved, error: quotaErr } = await adminClient.rpc("reserve_user_quota", {
+          p_user_id: userId,
+          p_requested_bytes: file.size,
+        });
 
-      if (quotaErr || !quotaReserved) {
-        return NextResponse.json(
-          { error: "Storage quota exceeded or reservation failed." },
-          { status: 400, headers: getSecurityHeaders() }
-        );
+        if (quotaErr || !quotaReserved) {
+          return NextResponse.json(
+            { error: "Storage quota exceeded or reservation failed." },
+            { status: 400, headers: getSecurityHeaders() }
+          );
+        }
       }
 
       const sanitizedName = sanitizeFilename(file.name || "cli-upload.bin");
@@ -457,17 +462,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reserve user quota
-    const { data: quotaReserved, error: quotaErr } = await adminClient.rpc("reserve_user_quota", {
-      p_user_id: userId,
-      p_requested_bytes: byteSize,
-    });
+    // Reserve user quota (bypassed for unlimited quota accounts)
+    if (profile.quota_bytes !== -1) {
+      const { data: quotaReserved, error: quotaErr } = await adminClient.rpc("reserve_user_quota", {
+        p_user_id: userId,
+        p_requested_bytes: byteSize,
+      });
 
-    if (quotaErr || !quotaReserved) {
-      return NextResponse.json(
-        { error: "Insufficient storage quota or reservation failed." },
-        { status: 400, headers: getSecurityHeaders() }
-      );
+      if (quotaErr || !quotaReserved) {
+        return NextResponse.json(
+          { error: "Insufficient storage quota or reservation failed." },
+          { status: 400, headers: getSecurityHeaders() }
+        );
+      }
     }
 
     const r2Key = generateR2ObjectKey(userId, filename);

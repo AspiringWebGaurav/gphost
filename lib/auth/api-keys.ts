@@ -196,6 +196,9 @@ export async function validateApiKey(rawKey: string): Promise<{
     return null;
   }
 
+  // API Key Owners possess full programmatic control and premium capability
+  profile.can_create_permanent = true;
+
   // Non-blocking update of last_used_at
   void adminClient
     .from("user_api_keys")

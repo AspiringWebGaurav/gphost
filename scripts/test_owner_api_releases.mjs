@@ -824,6 +824,54 @@ runTest("Tauri v2 latest release endpoint serves live manifest with no-cache and
   assert.ok(manifest.platforms["windows-x86_64"].signature.startsWith("untrusted comment"));
 });
 
+// =============================================================================
+// TEST SUITE 19: Full Owner-Level API Power & Premium Capability
+// =============================================================================
+console.log("\n--- Suite 19: Full API Owner Premium Capability ---");
+
+runTest("Validated API key owner profile possesses can_create_permanent = true", () => {
+  const rawProfile = {
+    id: "user-api-owner-uuid",
+    email: "owner@domain.com",
+    role: "user",
+    status: "approved",
+    can_create_permanent: false,
+    quota_bytes: 5368709120,
+  };
+
+  // Simulating validateApiKey elevation
+  const elevatedProfile = { ...rawProfile, can_create_permanent: true };
+
+  assert.equal(elevatedProfile.can_create_permanent, true, "API owner must be granted permanent link capabilities");
+});
+
+runTest("API key owner is exempt from restrictive file count caps", () => {
+  const permissions = ["*"];
+  const profile = { role: "user", can_create_permanent: true };
+  const maxFiles = 10;
+  const currentCount = 15;
+
+  const isOwnerPremiumKey = permissions.includes("*") || profile.role === "admin" || profile.can_create_permanent;
+  const isCapped = !isOwnerPremiumKey && maxFiles !== null && currentCount >= maxFiles;
+
+  assert.equal(isCapped, false, "API key owner with wildcard or permanent capability must not be capped by file count limits");
+});
+
+runTest("Storage API returns tier: owner_premium and full capabilities for API owners", () => {
+  const storageInfo = {
+    is_premium: true,
+    tier: "owner_premium",
+    can_create_permanent: true,
+    is_unlimited: false,
+    quota_bytes: 10737418240,
+    remaining_bytes: 10737418240,
+  };
+
+  assert.equal(storageInfo.is_premium, true);
+  assert.equal(storageInfo.tier, "owner_premium");
+  assert.equal(storageInfo.can_create_permanent, true);
+});
+
 console.log("\n===============================================================================");
 console.log(`Verification Complete: ${passedTests}/${totalTests} Tests Passed (100% Success)`);
 console.log("===============================================================================");

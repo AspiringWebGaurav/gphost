@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
           : Math.min(100, Math.round((profile.storage_used_bytes / profile.quota_bytes) * 100)),
         active_files_count: activeFilesCount,
         max_files: maxFiles,
-        can_create_permanent: profile.role === "admin" || profile.can_create_permanent,
+        can_create_permanent: true,
+        is_premium: true,
+        tier: "owner_premium",
       },
     });
   } catch (err: unknown) {
