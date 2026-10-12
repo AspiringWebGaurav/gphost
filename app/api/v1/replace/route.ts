@@ -8,6 +8,7 @@ import {
   generateR2ObjectKey,
   createPresignedPutUrl,
   headR2Object,
+  deleteR2Object,
 } from "@/lib/storage/r2";
 import { sanitizeFilename } from "@/lib/storage/sanitizer";
 import {
@@ -120,6 +121,65 @@ async function archiveCurrentVersion(
   } catch (err) {
     console.warn("Could not archive version (table may not exist yet):", err);
     return 1;
+  }
+}
+
+/**
+ * Enforces retention of the latest 3 historical versions.
+ * If file.is_release_locked is true, historical releases are protected from pruning.
+ * Otherwise, versions beyond the latest 3 are safely deleted from R2,
+ * removed from file_versions, and their consumed storage quota is reclaimed.
+ */
+async function pruneExcessVersions(
+  adminClient: ReturnType<typeof createAdminClient>,
+  file: TargetFileRecord,
+  userId: string,
+  keepCount: number = 3
+): Promise<number> {
+  if (file.is_release_locked) {
+    return 0;
+  }
+
+  try {
+    const { data: allVersions } = await adminClient
+      .from("file_versions")
+      .select("id, version_number, r2_key, byte_size")
+      .eq("file_id", file.id)
+      .order("version_number", { ascending: false });
+
+    if (!allVersions || allVersions.length <= keepCount) {
+      return 0;
+    }
+
+    const excess = allVersions.slice(keepCount);
+    let reclaimedBytes = 0;
+
+    for (const v of excess) {
+      if (v.r2_key) {
+        await deleteR2Object(v.r2_key).catch(() => false);
+      }
+      await adminClient.from("file_versions").delete().eq("id", v.id);
+      reclaimedBytes += v.byte_size || 0;
+    }
+
+    if (reclaimedBytes > 0) {
+      const { data: profileRecord } = await adminClient
+        .from("profiles")
+        .select("storage_used_bytes")
+        .eq("id", userId)
+        .single();
+
+      const currentUsed = profileRecord?.storage_used_bytes || 0;
+      await adminClient
+        .from("profiles")
+        .update({ storage_used_bytes: Math.max(0, currentUsed - reclaimedBytes) })
+        .eq("id", userId);
+    }
+
+    return excess.length;
+  } catch (err) {
+    console.warn("Version retention pruning warning:", err);
+    return 0;
   }
 }
 
@@ -255,6 +315,7 @@ export async function POST(req: NextRequest) {
 
       // 2. Archive previous version in file_versions table for rollback
       const archivedVersion = await archiveCurrentVersion(adminClient, existingFile, userId);
+      await pruneExcessVersions(adminClient, existingFile, userId, 3);
 
       // 3. Atomic Pointer Switch in PostgreSQL
       const nowIso = new Date().toISOString();
@@ -416,8 +477,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Target file not found" }, { status: 404 });
       }
 
-      // Archive previous version
+      // Archive previous version and prune beyond latest 3 versions
       const archivedVersion = await archiveCurrentVersion(adminClient, existingFile as TargetFileRecord, userId);
+      await pruneExcessVersions(adminClient, existingFile as TargetFileRecord, userId, 3);
 
       // Atomic pointer switch
       const nowIso = new Date().toISOString();

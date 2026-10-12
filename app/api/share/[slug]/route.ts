@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { publicShareRatelimit } from "@/lib/redis/ratelimit";
 import { formatPublicShareMetadata, PublicShareMetadata } from "@/lib/storage/share";
-import { getAuthenticatedUser, getUserProfile } from "@/lib/auth/session";
 import { authenticateRequest } from "@/lib/auth/api-keys";
 import { scheduleOpportunisticLifecycleSweep, purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { getClientIp } from "@/lib/security/ip";
@@ -282,7 +281,6 @@ export async function DELETE(
     const file = Array.isArray(share.file) ? share.file[0] : share.file;
 
     // Check authorization: must be file owner or admin
-    const profile = await getUserProfile(user.id);
     const isAdmin = profile?.role === "admin";
     const isOwner = file && file.user_id === user.id;
 
@@ -401,7 +399,6 @@ export async function PATCH(
     }
 
     const file = Array.isArray(share.file) ? share.file[0] : share.file;
-    const profile = await getUserProfile(user.id);
     const isAdmin = profile?.role === "admin";
     const isOwner = file && file.user_id === user.id;
 

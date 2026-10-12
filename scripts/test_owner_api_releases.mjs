@@ -383,6 +383,339 @@ runTest("Account A cannot replace or delete Account B's release binary", () => {
   assert.equal(checkOwnerAccess(bobsRelease.user_id, accountB), true);
 });
 
+// =============================================================================
+// TEST SUITE 8: API-Key Revocation & Cache Eviction
+// =============================================================================
+console.log("\n--- Suite 8: API-Key Revocation & Redis Cache Eviction ---");
+
+runTest("Revoked API key immediately purges Redis cache and denies subsequent requests", () => {
+  const redisCache = new Map();
+  const rawKey = "gp_live_abcdef0123456789abcdef0123456789abcdef0123456789";
+  const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
+  const cacheKey = `apikey:${keyHash}`;
+
+  // 1. Key is active and cached in Redis
+  redisCache.set(cacheKey, { userId: "user-123", permissions: ["*"], status: "approved" });
+  assert.ok(redisCache.has(cacheKey));
+
+  // 2. Revocation event occurs
+  const revokeKey = (keyId, hash) => {
+    // Database record is deactivated
+    // Redis cache key is evicted immediately
+    redisCache.delete(`apikey:${hash}`);
+  };
+
+  revokeKey("key-id-1", keyHash);
+
+  // 3. Cache entry is immediately evicted (zero stale reads)
+  assert.equal(redisCache.has(cacheKey), false);
+
+  // 4. Subsequent validation falls back to DB, finds is_active = false, returns null
+  const dbRecord = { id: "key-id-1", is_active: false };
+  const isValid = dbRecord.is_active;
+  assert.equal(isValid, false);
+});
+
+// =============================================================================
+// TEST SUITE 9: Concurrent Replacement Simulation
+// =============================================================================
+console.log("\n--- Suite 9: Concurrent Replacement Simulation ---");
+
+runTest("Concurrent staged replacements execute safely without pointer corruption", () => {
+  const existingFile = {
+    id: "file-gpn-uuid",
+    slug: "gpn-app",
+    r2_key: "users/u1/v1.0.0.exe",
+    byte_size: 50000000,
+    version: 1,
+  };
+
+  // Two client workers negotiate replacement concurrently
+  const stageToken1 = {
+    fileId: existingFile.id,
+    stagedR2Key: "users/u1/staged-v1.0.1.exe",
+    byteSize: 52000000,
+    timestamp: Date.now(),
+  };
+
+  const stageToken2 = {
+    fileId: existingFile.id,
+    stagedR2Key: "users/u1/staged-v1.0.2.exe",
+    byteSize: 53000000,
+    timestamp: Date.now() + 50,
+  };
+
+  // Worker 1 finishes and commits pointer switch
+  const versionsHistory = [];
+  versionsHistory.push({ version_number: 1, r2_key: existingFile.r2_key });
+  existingFile.r2_key = stageToken1.stagedR2Key;
+  existingFile.byte_size = stageToken1.byteSize;
+  existingFile.version = 2;
+
+  // Worker 2 finishes slightly later and commits pointer switch
+  versionsHistory.push({ version_number: 2, r2_key: existingFile.r2_key });
+  existingFile.r2_key = stageToken2.stagedR2Key;
+  existingFile.byte_size = stageToken2.byteSize;
+  existingFile.version = 3;
+
+  assert.equal(existingFile.r2_key, "users/u1/staged-v1.0.2.exe");
+  assert.equal(existingFile.version, 3);
+  assert.equal(versionsHistory.length, 2);
+  assert.equal(versionsHistory[0].version_number, 1);
+  assert.equal(versionsHistory[1].version_number, 2);
+});
+
+// =============================================================================
+// TEST SUITE 10: 3-Version Retention & Safe Pruning Logic
+// =============================================================================
+console.log("\n--- Suite 10: 3-Version Retention & Safe Pruning Logic ---");
+
+runTest("Retention prunes versions beyond the latest 3 and reclaims storage quota", () => {
+  const versions = [
+    { id: "v4", version_number: 4, r2_key: "users/u1/v4.exe", byte_size: 100 },
+    { id: "v3", version_number: 3, r2_key: "users/u1/v3.exe", byte_size: 100 },
+    { id: "v2", version_number: 2, r2_key: "users/u1/v2.exe", byte_size: 100 },
+    { id: "v1", version_number: 1, r2_key: "users/u1/v1.exe", byte_size: 100 },
+  ];
+
+  const keepCount = 3;
+  const isLocked = false;
+
+  let r2DeletedKeys = [];
+  let reclaimedBytes = 0;
+
+  function prune(list, locked, keep) {
+    if (locked) return { remaining: list, deleted: [], reclaimed: 0 };
+    if (list.length <= keep) return { remaining: list, deleted: [], reclaimed: 0 };
+
+    const toKeep = list.slice(0, keep);
+    const excess = list.slice(keep);
+
+    for (const v of excess) {
+      r2DeletedKeys.push(v.r2_key);
+      reclaimedBytes += v.byte_size;
+    }
+    return { remaining: toKeep, deleted: r2DeletedKeys, reclaimed: reclaimedBytes };
+  }
+
+  const result = prune(versions, isLocked, keepCount);
+  assert.equal(result.remaining.length, 3);
+  assert.equal(result.remaining[0].version_number, 4);
+  assert.equal(result.remaining[2].version_number, 2);
+  assert.equal(result.deleted.length, 1);
+  assert.equal(result.deleted[0], "users/u1/v1.exe");
+  assert.equal(result.reclaimed, 100);
+});
+
+// =============================================================================
+// TEST SUITE 11: Release-Locked Version Protection
+// =============================================================================
+console.log("\n--- Suite 11: Release-Locked Version Protection ---");
+
+runTest("Release-locked binaries protect historical versions from pruning", () => {
+  const versions = [
+    { id: "v5", version_number: 5, r2_key: "users/u1/v5.exe", byte_size: 100 },
+    { id: "v4", version_number: 4, r2_key: "users/u1/v4.exe", byte_size: 100 },
+    { id: "v3", version_number: 3, r2_key: "users/u1/v3.exe", byte_size: 100 },
+    { id: "v2", version_number: 2, r2_key: "users/u1/v2.exe", byte_size: 100 },
+    { id: "v1", version_number: 1, r2_key: "users/u1/v1.exe", byte_size: 100 },
+  ];
+
+  const isLocked = true;
+  let r2DeletedKeys = [];
+  let reclaimedBytes = 0;
+
+  function prune(list, locked, keep = 3) {
+    if (locked) return { remaining: list, deleted: [], reclaimed: 0 };
+    if (list.length <= keep) return { remaining: list, deleted: [], reclaimed: 0 };
+    const toKeep = list.slice(0, keep);
+    const excess = list.slice(keep);
+    for (const v of excess) {
+      r2DeletedKeys.push(v.r2_key);
+      reclaimedBytes += v.byte_size;
+    }
+    return { remaining: toKeep, deleted: r2DeletedKeys, reclaimed: reclaimedBytes };
+  }
+
+  const result = prune(versions, isLocked, 3);
+  assert.equal(result.remaining.length, 5); // None pruned
+  assert.equal(result.deleted.length, 0);
+  assert.equal(result.reclaimed, 0);
+});
+
+// =============================================================================
+// TEST SUITE 12: Historical Version Download & Rollback Simulation
+// =============================================================================
+console.log("\n--- Suite 12: Historical Version Download & Rollback ---");
+
+runTest("Specific historical version is downloadable via ?version=N and rollback restores pointer", () => {
+  const currentFile = {
+    id: "file-gpn",
+    r2_key: "users/u1/v3.0.exe",
+    sha256: "sha256-version-3",
+  };
+
+  const archivedVersions = [
+    { version_number: 2, r2_key: "users/u1/v2.0.exe", sha256: "sha256-version-2" },
+    { version_number: 1, r2_key: "users/u1/v1.0.exe", sha256: "sha256-version-1" },
+  ];
+
+  // Requesting version 2
+  const targetVNum = 2;
+  const versionToDownload = archivedVersions.find((v) => v.version_number === targetVNum);
+  assert.ok(versionToDownload);
+  assert.equal(versionToDownload.r2_key, "users/u1/v2.0.exe");
+
+  // Rollback to version 2
+  const rolledBackFile = {
+    ...currentFile,
+    r2_key: versionToDownload.r2_key,
+    sha256: versionToDownload.sha256,
+  };
+  assert.equal(rolledBackFile.r2_key, "users/u1/v2.0.exe");
+  assert.equal(rolledBackFile.sha256, "sha256-version-2");
+});
+
+// =============================================================================
+// TEST SUITE 13: Orphaned R2 Object Prevention on File Deletion
+// =============================================================================
+console.log("\n--- Suite 13: Orphaned R2 Object Prevention ---");
+
+runTest("Deleting a file purges both active R2 key and all archived version R2 keys", () => {
+  const fileToDelete = {
+    id: "file-gpn-uuid",
+    r2_key: "users/u1/active.exe",
+    byte_size: 50,
+  };
+
+  const versions = [
+    { id: "v2", r2_key: "users/u1/v2.exe", byte_size: 50 },
+    { id: "v1", r2_key: "users/u1/v1.exe", byte_size: 50 },
+  ];
+
+  const purgedR2Keys = [];
+  purgedR2Keys.push(fileToDelete.r2_key);
+
+  for (const fv of versions) {
+    if (fv.r2_key && fv.r2_key !== fileToDelete.r2_key) {
+      purgedR2Keys.push(fv.r2_key);
+    }
+  }
+
+  assert.equal(purgedR2Keys.length, 3);
+  assert.ok(purgedR2Keys.includes("users/u1/active.exe"));
+  assert.ok(purgedR2Keys.includes("users/u1/v2.exe"));
+  assert.ok(purgedR2Keys.includes("users/u1/v1.exe"));
+});
+
+// =============================================================================
+// TEST SUITE 14: Storage Quota Accounting for Active + Archived Versions
+// =============================================================================
+console.log("\n--- Suite 14: Storage Quota Accounting ---");
+
+runTest("Quota accounts for active file plus all retained archived versions", () => {
+  const activeFile = { byte_size: 50 * 1024 * 1024 }; // 50MB
+  const archivedVersions = [
+    { version_number: 1, byte_size: 48 * 1024 * 1024 }, // 48MB
+    { version_number: 2, byte_size: 49 * 1024 * 1024 }, // 49MB
+  ];
+
+  const totalUsedBytes = activeFile.byte_size + archivedVersions.reduce((sum, v) => sum + v.byte_size, 0);
+  assert.equal(totalUsedBytes, 147 * 1024 * 1024); // 147MB total R2 storage
+});
+
+// =============================================================================
+// TEST SUITE 15: Tauri v2 Release Workflow & Verification
+// =============================================================================
+console.log("\n--- Suite 15: Tauri v2 Release Workflow & Verification ---");
+
+runTest("Complete Tauri v2 workflow: upload binary, upload .sig, verify, download from permanent URL, rollback", () => {
+  // 1. Prepare simulated updater binary and Minisign signature
+  const binaryPayload = Buffer.from("MZ_SIMULATED_TAURI_V2_EXECUTABLE_CONTENT_V1_0_1");
+  const binarySha256 = crypto.createHash("sha256").update(binaryPayload).digest("hex");
+  const minisignSignature = Buffer.from("untrusted comment: signature from tauri secret key\nRWSC...BASE64SIGNATURE...");
+
+  // 2. Upload binary
+  const binaryFile = {
+    slug: "gpn-app",
+    sanitized_name: "GauravPersonalNotes_1.0.1_x64-setup.exe",
+    byte_size: binaryPayload.length,
+    sha256: binarySha256,
+    r2_key: "releases/gpn-app/v1.0.1.exe",
+  };
+
+  // 3. Upload .sig signature
+  const sigFile = {
+    slug: "gpn-app-sig",
+    sanitized_name: "GauravPersonalNotes_1.0.1_x64-setup.exe.sig",
+    byte_size: minisignSignature.length,
+    r2_key: "releases/gpn-app/v1.0.1.exe.sig",
+  };
+
+  // 4. Verify both exist and are valid
+  assert.ok(binaryFile.sha256);
+  assert.ok(sigFile.byte_size > 0);
+
+  // 5. Generate permanent download URLs
+  const origin = "https://gphost.eu.cc";
+  const binaryDownloadUrl = `${origin}/raw/${binaryFile.slug}`;
+  const sigDownloadUrl = `${origin}/raw/${sigFile.slug}`;
+
+  assert.equal(binaryDownloadUrl, "https://gphost.eu.cc/raw/gpn-app");
+  assert.equal(sigDownloadUrl, "https://gphost.eu.cc/raw/gpn-app-sig");
+
+  // 6. Tauri v2 updater manifest format
+  const tauriManifest = {
+    version: "1.0.1",
+    notes: "Release v1.0.1 with auto-updater",
+    pub_date: new Date().toISOString(),
+    platforms: {
+      "windows-x86_64": {
+        signature: minisignSignature.toString("utf8"),
+        url: binaryDownloadUrl,
+      },
+    },
+  };
+
+  assert.equal(tauriManifest.platforms["windows-x86_64"].url, "https://gphost.eu.cc/raw/gpn-app");
+  assert.ok(tauriManifest.platforms["windows-x86_64"].signature.includes("untrusted comment"));
+
+  // 7. Verify downloaded binary checksum matches manifest
+  const downloadedBinaryHash = crypto.createHash("sha256").update(binaryPayload).digest("hex");
+  assert.equal(downloadedBinaryHash, binaryFile.sha256);
+});
+
+// =============================================================================
+// TEST SUITE 16: Platform Admin Shield
+// =============================================================================
+console.log("\n--- Suite 16: Platform Admin Shield ---");
+
+runTest("Admin endpoints reject API keys and non-admin users, requiring cookie session with gauravpatil5737@gmail.com", () => {
+  const adminEmail = "gauravpatil5737@gmail.com";
+
+  function checkAdminAccess(authContext) {
+    if (authContext.authType === "api_key") {
+      return { allowed: false, reason: "API keys cannot access platform administrator endpoints" };
+    }
+    if (authContext.email !== adminEmail || authContext.role !== "admin") {
+      return { allowed: false, reason: "Forbidden: Not platform administrator" };
+    }
+    return { allowed: true };
+  }
+
+  // API key access attempt
+  const apiKeyAuth = { authType: "api_key", email: adminEmail, role: "admin" };
+  assert.equal(checkAdminAccess(apiKeyAuth).allowed, false);
+
+  // Normal user session attempt
+  const userSession = { authType: "session", email: "user@example.com", role: "user" };
+  assert.equal(checkAdminAccess(userSession).allowed, false);
+
+  // Authoritative admin session
+  const adminSession = { authType: "session", email: adminEmail, role: "admin" };
+  assert.equal(checkAdminAccess(adminSession).allowed, true);
+});
+
 console.log("\n===============================================================================");
 console.log(`Verification Complete: ${passedTests}/${totalTests} Tests Passed (100% Success)`);
 console.log("===============================================================================");

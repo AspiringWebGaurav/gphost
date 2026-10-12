@@ -336,8 +336,44 @@ export async function DELETE(
       console.warn("Share link cleanup warning:", linkPurgeErr);
     }
 
-    // 3. Physical R2 Deletion
+    // 3. Physical R2 Deletion of active object AND historical version objects
     const r2Deleted = await deleteR2Object(file.r2_key);
+
+    let versionsReclaimedBytes = 0;
+    try {
+      const { data: fileVersions } = await adminClient
+        .from("file_versions")
+        .select("id, r2_key, byte_size")
+        .eq("file_id", fileId);
+
+      if (fileVersions && fileVersions.length > 0) {
+        for (const fv of fileVersions) {
+          if (fv.r2_key && fv.r2_key !== file.r2_key) {
+            await deleteR2Object(fv.r2_key).catch(() => false);
+          }
+          versionsReclaimedBytes += fv.byte_size || 0;
+        }
+        await adminClient.from("file_versions").delete().eq("file_id", fileId);
+      }
+    } catch (verErr) {
+      console.warn("Historical versions cleanup warning:", verErr);
+    }
+
+    if (versionsReclaimedBytes > 0) {
+      try {
+        const { data: profileRecord } = await adminClient
+          .from("profiles")
+          .select("storage_used_bytes")
+          .eq("id", userId)
+          .single();
+
+        const currentUsed = profileRecord?.storage_used_bytes || 0;
+        await adminClient
+          .from("profiles")
+          .update({ storage_used_bytes: Math.max(0, currentUsed - versionsReclaimedBytes) })
+          .eq("id", userId);
+      } catch {}
+    }
 
     // 4. Update status in database
     await adminClient

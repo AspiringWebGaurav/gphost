@@ -69,6 +69,48 @@ export async function GET(
       );
     }
 
+    // Check if a specific historical version is requested
+    const versionParam = req.nextUrl.searchParams.get("version");
+    if (versionParam) {
+      const vNum = parseInt(versionParam, 10);
+      if (!isNaN(vNum) && vNum > 0) {
+        const { data: vRecord } = await adminClient
+          .from("file_versions")
+          .select("id, version_number, r2_key, byte_size, metadata")
+          .eq("file_id", fileId)
+          .eq("version_number", vNum)
+          .maybeSingle();
+
+        if (vRecord) {
+          const vMeta = (vRecord.metadata || {}) as Record<string, unknown>;
+          const vFilename = (vMeta.filename as string) || file.sanitized_name;
+          const vMime = (vMeta.mime_type as string) || file.mime_type;
+          const downloadUrl = await createPresignedGetUrl(
+            vRecord.r2_key,
+            vFilename,
+            50,
+            vMime
+          );
+          const shouldRedirect = req.nextUrl.searchParams.get("redirect") === "true";
+          if (shouldRedirect) {
+            return NextResponse.redirect(downloadUrl, { status: 302 });
+          }
+          return NextResponse.json({
+            success: true,
+            version: vRecord.version_number,
+            downloadUrl,
+            filename: vFilename,
+            byte_size: vRecord.byte_size,
+          });
+        } else {
+          return NextResponse.json(
+            { error: `Version ${vNum} not found for this file` },
+            { status: 404 }
+          );
+        }
+      }
+    }
+
     // Generate short-lived presigned download URL directly from Cloudflare R2 (50-second TTL)
     const downloadUrl = await createPresignedGetUrl(
       file.r2_key,
