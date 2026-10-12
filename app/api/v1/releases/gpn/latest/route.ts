@@ -161,6 +161,7 @@ export async function GET(req: NextRequest) {
           },
         },
         file: {
+          id: (binFile as any).id,
           name: rawName,
           size: (binFile as any).byte_size,
           sha256: null,
@@ -203,6 +204,7 @@ export async function GET(req: NextRequest) {
         },
       },
       file: {
+        id: rawFile?.id || activeRelease.binary_file_id,
         name: fileName,
         size: activeRelease.binary_byte_size,
         sha256: activeRelease.binary_sha256,
