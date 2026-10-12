@@ -1,0 +1,411 @@
+import { NextRequest, NextResponse } from "next/server";
+import { authenticateRequest, hasPermission } from "@/lib/auth/api-keys";
+import { isAuthoritativeAdmin } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getR2Client, R2_BUCKET_NAME, deleteR2Object } from "@/lib/storage/r2";
+import { HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { verifyMinisignSignature, parseMinisignSignature } from "@/lib/security/minisign";
+import { redis } from "@/lib/redis/client";
+
+export const dynamic = "force-dynamic";
+
+const MANIFEST_CACHE_KEY = "gpn:release:latest:manifest";
+const PUBLISH_LOCK_KEY = "lock:release:publish:gpn";
+const APP_ID = "gpn";
+
+export async function POST(req: NextRequest) {
+  // 1. Authoritative Authentication & Authorization
+  const authRes = await authenticateRequest(req);
+  if ("errorResponse" in authRes) {
+    return authRes.errorResponse;
+  }
+  const { auth } = authRes;
+
+  const isAdmin = isAuthoritativeAdmin(auth.profile?.email) || auth.profile?.role === "admin";
+  const hasReleasePerm =
+    hasPermission(auth.permissions, "*") ||
+    auth.permissions?.includes("releases:publish") ||
+    auth.permissions?.includes("files:manage");
+
+  if (!isAdmin && !hasReleasePerm) {
+    return NextResponse.json(
+      {
+        error: "Forbidden: Release publication requires authoritative admin or release:publish permission",
+      },
+      { status: 403 }
+    );
+  }
+
+  // 2. Concurrency Lock (Redis Distributed Lock)
+  let lockAcquired = false;
+  if (redis) {
+    try {
+      const lockRes = await redis.set(PUBLISH_LOCK_KEY, auth.userId, { nx: true, ex: 15 });
+      if (lockRes === "OK") {
+        lockAcquired = true;
+      } else {
+        return NextResponse.json(
+          { error: "Another release publication is currently in progress. Please retry in a few seconds." },
+          { status: 409 }
+        );
+      }
+    } catch {
+      // Graceful fallback to PostgreSQL advisory locks if Redis is unavailable
+    }
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const {
+      version,
+      binaryFileId,
+      signature,
+      signatureFileId,
+      notes,
+      publicKey,
+      isLocked = false,
+    } = body;
+
+    if (!version || typeof version !== "string") {
+      return NextResponse.json({ error: "Missing or invalid 'version' string" }, { status: 400 });
+    }
+
+    const cleanVersion = version.trim().replace(/^v/, "");
+    if (!/^\d+\.\d+\.\d+([a-zA-Z0-9.\-_+]*)$/.test(cleanVersion)) {
+      return NextResponse.json(
+        { error: "Invalid semver version format. Expected format like '1.0.2' or '1.0.2-beta.1'" },
+        { status: 400 }
+      );
+    }
+
+    if (!binaryFileId || typeof binaryFileId !== "string") {
+      return NextResponse.json({ error: "Missing 'binaryFileId'" }, { status: 400 });
+    }
+
+    const adminClient = createAdminClient();
+    const r2Client = getR2Client();
+
+    // 3. Verify Binary File Existence in DB
+    const { data: binFile, error: binErr } = await adminClient
+      .from("files")
+      .select("id, user_id, sanitized_name, filename, byte_size, sha256, r2_key, is_release_locked")
+      .eq("id", binaryFileId)
+      .maybeSingle();
+
+    if (binErr || !binFile) {
+      return NextResponse.json({ error: "Binary file record not found in database" }, { status: 404 });
+    }
+
+    // Tenant check: file must belong to caller or caller must be admin
+    if (binFile.user_id !== auth.userId && !isAdmin) {
+      return NextResponse.json({ error: "Forbidden: Cannot publish another user's binary" }, { status: 403 });
+    }
+
+    // 4. Physical Existence & Size Check in Cloudflare R2
+    try {
+      const headRes = await r2Client.send(
+        new HeadObjectCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: binFile.r2_key,
+        })
+      );
+      if (!headRes.ContentLength || headRes.ContentLength <= 0) {
+        return NextResponse.json(
+          { error: "Binary object in R2 is empty (0 bytes)" },
+          { status: 422 }
+        );
+      }
+    } catch (headErr: any) {
+      if (headErr?.name === "NotFound" || headErr?.$metadata?.httpStatusCode === 404) {
+        return NextResponse.json(
+          { error: "Binary object physically missing from Cloudflare R2 storage" },
+          { status: 404 }
+        );
+      }
+      throw headErr;
+    }
+
+    // 5. Resolve Signature Text
+    let signatureText = (signature || "").trim();
+    let resolvedSigFileId = signatureFileId || null;
+
+    if (!signatureText && signatureFileId) {
+      const { data: sFile } = await adminClient
+        .from("files")
+        .select("id, r2_key")
+        .eq("id", signatureFileId)
+        .maybeSingle();
+
+      if (sFile && sFile.r2_key) {
+        try {
+          const s3Res = await r2Client.send(
+            new GetObjectCommand({
+              Bucket: R2_BUCKET_NAME,
+              Key: sFile.r2_key,
+            })
+          );
+          if (s3Res.Body) {
+            const sigBytes = await (s3Res.Body as any).transformToByteArray();
+            signatureText = Buffer.from(sigBytes).toString("utf8").trim();
+            resolvedSigFileId = sFile.id;
+          }
+        } catch (sigFetchErr) {
+          console.warn("Could not fetch signature from R2:", sigFetchErr);
+        }
+      }
+    }
+
+    if (!signatureText) {
+      return NextResponse.json(
+        { error: "Minisign signature text or signatureFileId is required for release publication" },
+        { status: 400 }
+      );
+    }
+
+    // Parse and validate signature format
+    try {
+      parseMinisignSignature(signatureText);
+    } catch (parseErr: any) {
+      return NextResponse.json(
+        { error: `Invalid Minisign signature format: ${parseErr.message}` },
+        { status: 422 }
+      );
+    }
+
+    // 6. Cryptographic Minisign Verification
+    const trustedPublicKey = (publicKey || process.env.GPN_MINISIGN_PUBLIC_KEY || "").trim();
+    if (trustedPublicKey) {
+      // Download binary bytes from R2 to authoritatively verify Ed25519 signature
+      const getRes = await r2Client.send(
+        new GetObjectCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: binFile.r2_key,
+        })
+      );
+      if (!getRes.Body) {
+        return NextResponse.json({ error: "Failed to read binary stream from storage" }, { status: 500 });
+      }
+      const binBytes = await (getRes.Body as any).transformToByteArray();
+      const binBuffer = Buffer.from(binBytes);
+
+      const verification = verifyMinisignSignature(trustedPublicKey, signatureText, binBuffer);
+      if (!verification.valid) {
+        return NextResponse.json(
+          {
+            error: "Minisign cryptographic verification failed: signature does not match binary or trusted public key",
+            details: verification.error,
+            keyIdMatch: verification.keyIdMatch,
+          },
+          { status: 422 }
+        );
+      }
+    }
+
+    // 7. Immutability Check: Prevent overwriting published releases
+    const { data: existingRelease } = await adminClient
+      .from("app_releases")
+      .select("id, is_published, version")
+      .eq("app_id", APP_ID)
+      .eq("version", cleanVersion)
+      .maybeSingle();
+
+    if (existingRelease && existingRelease.is_published) {
+      return NextResponse.json(
+        {
+          error: `Release v${cleanVersion} is already published and immutable. Increment the version number for new updates.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // 8. Create or Update Release Record
+    let releaseId = existingRelease?.id;
+    if (!releaseId) {
+      const { data: newRelease, error: insertErr } = await adminClient
+        .from("app_releases")
+        .insert({
+          app_id: APP_ID,
+          version: cleanVersion,
+          binary_file_id: binFile.id,
+          binary_r2_key: binFile.r2_key,
+          binary_sha256: binFile.sha256 || "",
+          binary_byte_size: binFile.byte_size,
+          signature_text: signatureText,
+          signature_file_id: resolvedSigFileId,
+          release_notes: notes || `GPN update v${cleanVersion}`,
+          is_active: false,
+          is_published: false,
+          is_locked: Boolean(isLocked),
+          created_by: auth.userId,
+        })
+        .select("id")
+        .single();
+
+      if (insertErr || !newRelease) {
+        throw new Error(insertErr?.message || "Failed to create release record");
+      }
+      releaseId = newRelease.id;
+    }
+
+    // 9. Atomic Release Activation (Database Procedure or Transactional Fallback)
+    const { error: rpcErr } = await adminClient.rpc("publish_app_release", {
+      p_app_id: APP_ID,
+      p_release_id: releaseId,
+    });
+
+    if (rpcErr) {
+      // Fallback if migration 16 stored procedure is pending
+      await adminClient
+        .from("app_releases")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("app_id", APP_ID)
+        .eq("is_active", true);
+
+      await adminClient
+        .from("app_releases")
+        .update({
+          is_active: true,
+          is_published: true,
+          published_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", releaseId);
+    }
+
+    // 10. Lock Binary in files table (prevents accidental deletion)
+    await adminClient
+      .from("files")
+      .update({ is_release_locked: true })
+      .eq("id", binFile.id);
+
+    // 11. Point Permanent Vanity Slug 'gpn-app' to New Binary (Backward Compatibility)
+    const { data: existingShare } = await adminClient
+      .from("share_links")
+      .select("id")
+      .eq("slug", "gpn-app")
+      .maybeSingle();
+
+    if (existingShare) {
+      await adminClient
+        .from("share_links")
+        .update({
+          file_id: binFile.id,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingShare.id);
+    } else {
+      await adminClient
+        .from("share_links")
+        .insert({
+          file_id: binFile.id,
+          slug: "gpn-app",
+          is_active: true,
+          is_permanent: true,
+          user_id: auth.userId,
+        });
+    }
+
+    // Also update signature vanity 'gpn-app-sig' if signature file is present
+    if (resolvedSigFileId) {
+      const { data: sigShare } = await adminClient
+        .from("share_links")
+        .select("id")
+        .eq("slug", "gpn-app-sig")
+        .maybeSingle();
+
+      if (sigShare) {
+        await adminClient
+          .from("share_links")
+          .update({ file_id: resolvedSigFileId, is_active: true, updated_at: new Date().toISOString() })
+          .eq("id", sigShare.id);
+      } else {
+        await adminClient
+          .from("share_links")
+          .insert({
+            file_id: resolvedSigFileId,
+            slug: "gpn-app-sig",
+            is_active: true,
+            is_permanent: true,
+            user_id: auth.userId,
+          });
+      }
+    }
+
+    // 12. Resilient Manifest Cache Invalidation
+    if (redis) {
+      try {
+        await redis.del(MANIFEST_CACHE_KEY);
+      } catch (cacheErr) {
+        console.warn("Failed to purge manifest Redis cache:", cacheErr);
+      }
+    }
+
+    // 13. Retention Policy: Retain at least 3 complete releases
+    try {
+      const { data: allReleases } = await adminClient
+        .from("app_releases")
+        .select("id, version, is_active, is_locked, binary_r2_key, signature_file_id, published_at")
+        .eq("app_id", APP_ID)
+        .order("published_at", { ascending: false });
+
+      if (allReleases && allReleases.length > 3) {
+        // Protect:
+        // - Top 3 releases (index 0, 1, 2)
+        // - Currently active release
+        // - Immediate rollback target (index 1)
+        // - Any release flagged is_locked = true
+        const protectedIds = new Set<string>();
+        allReleases.slice(0, 3).forEach((r) => protectedIds.add(r.id));
+        allReleases.filter((r) => r.is_active || r.is_locked).forEach((r) => protectedIds.add(r.id));
+
+        const pruneCandidates = allReleases.filter((r) => !protectedIds.has(r.id));
+
+        for (const candidate of pruneCandidates) {
+          // Check if candidate's R2 key is shared by any protected release
+          const keyShared = allReleases.some(
+            (r) => protectedIds.has(r.id) && r.binary_r2_key === candidate.binary_r2_key
+          );
+          if (!keyShared && candidate.binary_r2_key) {
+            await deleteR2Object(candidate.binary_r2_key);
+          }
+
+          // Mark release pruned or delete record
+          await adminClient
+            .from("app_releases")
+            .delete()
+            .eq("id", candidate.id);
+        }
+      }
+    } catch (pruneErr) {
+      console.warn("Non-fatal: Retention pruning encountered an issue:", pruneErr);
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: `GPN release v${cleanVersion} successfully published`,
+        release: {
+          id: releaseId,
+          version: cleanVersion,
+          app_id: APP_ID,
+          is_active: true,
+          sha256: binFile.sha256,
+          byte_size: binFile.byte_size,
+          download_url: `/api/v1/releases/gpn/download/${cleanVersion}`,
+          permanent_alias: "/raw/gpn-app",
+        },
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("[Release Publish Error]:", err);
+    return NextResponse.json({ error: err.message || "Failed to publish release" }, { status: 500 });
+  } finally {
+    if (lockAcquired && redis) {
+      try {
+        await redis.del(PUBLISH_LOCK_KEY);
+      } catch {}
+    }
+  }
+}

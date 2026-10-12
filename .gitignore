@@ -152,3 +152,14 @@ temp-test/
 temp-test/*
 .vercel
 .env*
+
+# --- Software Binaries & Installer Packages ---
+*.exe
+*.msi
+*.sig
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.appimage
+

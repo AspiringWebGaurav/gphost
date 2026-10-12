@@ -26,7 +26,6 @@ export interface UserProfile {
 
 export const AUTHORITATIVE_ADMIN_EMAILS = new Set(
   [
-    "gauravpatil1994kop@gmail.com",
     "gauravpatil5737@gmail.com",
     ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(",") : []),
   ]
@@ -39,7 +38,7 @@ export function isAuthoritativeAdmin(email?: string | null): boolean {
   return AUTHORITATIVE_ADMIN_EMAILS.has(email.trim().toLowerCase());
 }
 
-export const ADMIN_EMAIL = "gauravpatil1994kop@gmail.com";
+export const ADMIN_EMAIL = "gauravpatil5737@gmail.com";
 
 /**
  * Retrieves the currently authenticated Supabase Auth user.
