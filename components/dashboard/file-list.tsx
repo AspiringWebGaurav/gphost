@@ -67,6 +67,8 @@ export interface FileItem {
   is_site?: boolean;
   xurl_short_url?: string | null;
   xurl_status?: string | null;
+  is_api_upload?: boolean;
+  sha256?: string | null;
 }
 
 interface FileListProps {
@@ -615,7 +617,18 @@ export function FileList({
                     <span>•</span>
                     <span className="font-mono">{formatBytes(file.byte_size)}</span>
                     <span>•</span>
-                    <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
+                    <div className="inline-flex items-center gap-1.5 shrink-0">
+                      {file.is_api_upload && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                          title={file.sha256 ? `API Managed • SHA-256: ${file.sha256}` : "API Managed"}
+                        >
+                          <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                          <span>API</span>
+                        </span>
+                      )}
+                      <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
+                    </div>
                   </div>
                 </div>
               </div>

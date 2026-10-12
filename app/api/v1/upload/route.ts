@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { validateApiKey, hasPermission } from "@/lib/auth/api-keys";
+import { validateApiKey, hasPermission, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getR2Client, R2_BUCKET_NAME, generateR2ObjectKey, createPresignedPutUrl } from "@/lib/storage/r2";
+import { getR2Client, R2_BUCKET_NAME, generateR2ObjectKey, createPresignedPutUrl, deleteR2Object } from "@/lib/storage/r2";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { sanitizeFilename } from "@/lib/storage/sanitizer";
 import { getUserMaxFiles } from "@/lib/storage/user-limits";
@@ -303,11 +303,58 @@ export async function POST(req: NextRequest) {
       const slug = targetSlug || crypto.randomBytes(9).toString("base64url").slice(0, 12);
       const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
 
-      // Clean up previous share link if replacing slug
+      // Clean up previous file & share link if replacing slug (e.g. gpn-app releases)
       if (targetSlug) {
+        try {
+          const { data: oldShare } = await adminClient
+            .from("share_links")
+            .select("id, file_id, file:files(id, user_id, r2_key, byte_size)")
+            .eq("slug", targetSlug)
+            .maybeSingle();
+
+          if (oldShare && oldShare.file) {
+            const oldFile = (Array.isArray(oldShare.file) ? oldShare.file[0] : oldShare.file) as any;
+            if (oldFile && oldFile.user_id === userId) {
+              if (oldFile.r2_key && oldFile.r2_key !== r2Key) {
+                await deleteR2Object(oldFile.r2_key).catch(() => false);
+              }
+              const { data: oldVers } = await adminClient
+                .from("file_versions")
+                .select("id, r2_key")
+                .eq("file_id", oldFile.id);
+              if (oldVers && oldVers.length > 0) {
+                for (const ov of oldVers) {
+                  if (ov.r2_key && ov.r2_key !== r2Key) {
+                    await deleteR2Object(ov.r2_key).catch(() => false);
+                  }
+                }
+                await adminClient.from("file_versions").delete().eq("file_id", oldFile.id);
+              }
+              if (oldFile.byte_size) {
+                const { data: prof } = await adminClient
+                  .from("profiles")
+                  .select("storage_used_bytes")
+                  .eq("id", userId)
+                  .single();
+                if (prof) {
+                  await adminClient
+                    .from("profiles")
+                    .update({ storage_used_bytes: Math.max(0, (prof.storage_used_bytes || 0) - oldFile.byte_size) })
+                    .eq("id", userId);
+                }
+              }
+              await adminClient.from("files").delete().eq("id", oldFile.id);
+            }
+          }
+        } catch (slugCleanupErr) {
+          console.warn("Slug cleanup warning:", slugCleanupErr);
+        }
+
         await adminClient.from("share_links").delete().eq("slug", targetSlug);
         await purgeShareLinkRedisData(targetSlug);
       }
+
+      void markFileApiAccessed(userId, fileRecord.id);
 
       await adminClient.from("share_links").insert({
         file_id: fileRecord.id,
@@ -468,6 +515,8 @@ export async function POST(req: NextRequest) {
     if (fileInsertErr || !fileRecord) {
       return NextResponse.json({ error: "Failed to initialize upload record" }, { status: 500, headers: getSecurityHeaders() });
     }
+
+    void markFileApiAccessed(userId, fileRecord.id);
 
     const curlExample = `curl -X PUT -T "${filename}" -H "Content-Type: ${mimeType}" "${presignedPutUrl}"`;
     const completeUrl = `${origin}/api/v1/complete-upload`;

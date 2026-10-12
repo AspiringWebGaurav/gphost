@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { authenticateRequest } from "@/lib/auth/api-keys";
+import { authenticateRequest, getApiManagedFileIds } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 import { redis } from "@/lib/redis/client";
@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     const { userId: user_id, profile } = authRes.auth;
     const user = { id: user_id, email: profile.email };
     const adminClient = createAdminClient();
+    const apiManagedFileIds = await getApiManagedFileIds(user_id);
 
     // Trigger non-blocking, debounced background lifecycle sweep (Vercel Hobby / self-healing)
     scheduleOpportunisticLifecycleSweep();
@@ -251,7 +252,8 @@ export async function GET(req: NextRequest) {
       const isApiUpload = Boolean(
         f.sha256 ||
         f.is_release_locked ||
-        isGpn
+        isGpn ||
+        apiManagedFileIds.has(f.id)
       );
       const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
 

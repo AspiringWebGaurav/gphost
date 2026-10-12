@@ -1435,7 +1435,16 @@ export function FileManager({
                     <span className="font-mono font-medium text-foreground/80 shrink-0 whitespace-nowrap">
                       {formatBytes(file.byte_size)}
                     </span>
-                    <div className="min-w-0 shrink-0">
+                    <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+                      {file.is_api_upload && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                          title={file.sha256 ? `API Managed • SHA-256: ${file.sha256}` : "API Managed"}
+                        >
+                          <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                          <span>API</span>
+                        </span>
+                      )}
                       <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
                     </div>
                   </div>
@@ -1691,7 +1700,18 @@ export function FileManager({
                         <span>&bull;</span>
                         <span className="font-mono">{formatBytes(file.byte_size)}</span>
                         <span>&bull;</span>
-                        <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
+                        <div className="inline-flex items-center gap-1.5 shrink-0">
+                          {file.is_api_upload && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                              title={file.sha256 ? `API Managed • SHA-256: ${file.sha256}` : "API Managed"}
+                            >
+                              <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                              <span>API</span>
+                            </span>
+                          )}
+                          <ExpiryStatusBadge expiresAt={file.expires_at} status={file.status} size="xs" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1888,7 +1908,18 @@ export function FileManager({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-muted-foreground mb-0.5">Status</div>
-                  <ExpiryStatusBadge expiresAt={selectedFileForDetails.expires_at} status={selectedFileForDetails.status} />
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {selectedFileForDetails.is_api_upload && (
+                      <span
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
+                        title={selectedFileForDetails.sha256 ? `API Managed • SHA-256: ${selectedFileForDetails.sha256}` : "API Managed"}
+                      >
+                        <Zap className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400 fill-amber-500/20" />
+                        <span>API</span>
+                      </span>
+                    )}
+                    <ExpiryStatusBadge expiresAt={selectedFileForDetails.expires_at} status={selectedFileForDetails.status} />
+                  </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground mb-0.5">Uploaded On</div>

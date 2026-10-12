@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { authenticateRequest } from "@/lib/auth/api-keys";
+import { authenticateRequest, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { headR2Object, deleteR2Object } from "@/lib/storage/r2";
 import { sanitizeFilename } from "@/lib/storage/sanitizer";
@@ -51,6 +51,8 @@ export async function GET(
     if (fileErr || !file) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
+
+    void markFileApiAccessed(userId, fileId);
 
     // Query primary share link
     const { data: share } = await adminClient
@@ -220,6 +222,8 @@ export async function PATCH(
       console.error("[v1 Files PATCH] Error:", updateRes.error);
       return NextResponse.json({ error: "Failed to update file record" }, { status: 500 });
     }
+
+    void markFileApiAccessed(userId, fileId);
 
     return NextResponse.json({
       success: true,

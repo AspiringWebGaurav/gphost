@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getApiManagedFileIds } from "@/lib/auth/api-keys";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export default async function FilesPage() {
     profile.quota_bytes === -1 ||
     profile.quota_bytes > 5368709120;
   const adminClient = createAdminClient();
+  const apiManagedFileIds = await getApiManagedFileIds(user.id);
 
   // Initial Server-Side Query (Page 1, pageSize 20) with schema fallback
   // STRICT PRIVACY: r2_key, r2_upload_id, r2_etag are strictly omitted from select
@@ -128,7 +130,8 @@ export default async function FilesPage() {
     const isApiUpload = Boolean(
       f.sha256 ||
       f.is_release_locked ||
-      isGpn
+      isGpn ||
+      apiManagedFileIds.has(f.id)
     );
     const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
-import { authenticateRequest } from "@/lib/auth/api-keys";
+import { authenticateRequest, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { redis } from "@/lib/redis/client";
@@ -161,6 +161,8 @@ export async function POST(
         redis?.del(`raw:meta:${fileId}`),
       ]);
     } catch {}
+
+    void markFileApiAccessed(userId, fileId);
 
     // Audit log
     try {

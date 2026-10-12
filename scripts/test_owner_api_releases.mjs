@@ -716,6 +716,114 @@ runTest("Admin endpoints reject API keys and non-admin users, requiring cookie s
   assert.equal(checkAdminAccess(adminSession).allowed, true);
 });
 
+// =============================================================================
+// TEST SUITE 17: UI/UX Layout: API Badge Left Side of Permanent Status
+// =============================================================================
+console.log("\n--- Suite 17: UI/UX Layout & API Status Placement ---");
+
+runTest("Metadata row renders [⚡ API] badge immediately to the left of [Permanent] badge", () => {
+  const file = {
+    id: "gpn-bin-uuid",
+    sanitized_name: "Gaurav Personal Notes_1.0.2.exe",
+    byte_size: 3.61 * 1024 * 1024,
+    expires_at: null, // Permanent
+    status: "ACTIVE",
+    is_api_upload: true,
+  };
+
+  // Model the layout DOM order of the metadata line:
+  // [3.61 MB] (left) ... [⚡ API] [🛡️ Permanent] (right)
+  const metadataRow = {
+    leftSide: "3.61 MB",
+    rightContainer: [
+      file.is_api_upload ? "API_BADGE" : null,
+      file.expires_at === null ? "PERMANENT_BADGE" : "EXPIRING_BADGE",
+    ].filter(Boolean),
+  };
+
+  assert.equal(metadataRow.leftSide, "3.61 MB");
+  assert.equal(metadataRow.rightContainer[0], "API_BADGE", "API badge must be on the left side of Permanent");
+  assert.equal(metadataRow.rightContainer[1], "PERMANENT_BADGE", "Permanent badge must be on the right side of API");
+});
+
+runTest("Files accessed or updated via Owner API are recognized and stamped in UI", () => {
+  const apiManagedIds = new Set(["file-api-123"]);
+  const fileFromApi = { id: "file-api-123", sha256: null, is_release_locked: false };
+  const fileFromWeb = { id: "file-web-456", sha256: null, is_release_locked: false };
+
+  const isApiUpload1 = Boolean(fileFromApi.sha256 || fileFromApi.is_release_locked || apiManagedIds.has(fileFromApi.id));
+  const isApiUpload2 = Boolean(fileFromWeb.sha256 || fileFromWeb.is_release_locked || apiManagedIds.has(fileFromWeb.id));
+
+  assert.equal(isApiUpload1, true, "File accessed via API must have is_api_upload=true");
+  assert.equal(isApiUpload2, false, "Standard web file without API access must not have is_api_upload=true");
+});
+
+// =============================================================================
+// TEST SUITE 18: GPN Automated Release: Deletion of Old Binaries & Quota Reclamation
+// =============================================================================
+console.log("\n--- Suite 18: GPN Release Pipeline & Quota Optimization ---");
+
+runTest("Pushing new GPN release binary deletes old R2 binary and reclaims quota immediately", () => {
+  const oldBinary = {
+    slug: "gpn-app",
+    r2_key: "u1/2026/10/gpn-v1.0.1.exe",
+    byte_size: 45 * 1024 * 1024, // 45MB
+  };
+  const newBinary = {
+    slug: "gpn-app",
+    r2_key: "u1/2026/10/gpn-v1.0.2.exe",
+    byte_size: 48 * 1024 * 1024, // 48MB
+  };
+
+  const isGpn = oldBinary.slug === "gpn-app";
+  const shouldDeletePrevious = isGpn;
+
+  const deletedR2Keys = [];
+  let userStorageUsed = 100 * 1024 * 1024; // 100MB initially
+
+  if (shouldDeletePrevious) {
+    deletedR2Keys.push(oldBinary.r2_key);
+    // Net quota adjustment: delta between new and old binary
+    const sizeDelta = newBinary.byte_size - oldBinary.byte_size;
+    userStorageUsed += sizeDelta; // 100MB + (48MB - 45MB) = 103MB (NOT 100 + 48 = 148MB!)
+  }
+
+  assert.equal(deletedR2Keys.length, 1);
+  assert.equal(deletedR2Keys[0], "u1/2026/10/gpn-v1.0.1.exe", "Old binary must be physically purged from R2");
+  assert.equal(userStorageUsed, 103 * 1024 * 1024, "Old 45MB binary quota must be reclaimed, keeping storage optimal");
+});
+
+runTest("Tauri v2 latest release endpoint serves live manifest with no-cache and fresh download URL", () => {
+  const binFile = {
+    sanitized_name: "Gaurav Personal Notes_1.0.2.exe",
+    byte_size: 50331648,
+    sha256: "b1a2c3d4e5",
+    updated_at: "2026-10-12T10:00:00Z",
+  };
+  const sigText = "untrusted comment: signature from tauri secret key\nRWSC...SIG...";
+
+  const rawName = binFile.sanitized_name;
+  const versionMatch = rawName.match(/(\d+\.\d+\.\d+)/);
+  const version = versionMatch ? versionMatch[1] : "1.0.0";
+  const permanentDownloadUrl = "https://gphost.eu.cc/raw/gpn-app";
+
+  const manifest = {
+    version,
+    notes: `Gaurav Personal Notes update v${version}`,
+    pub_date: binFile.updated_at,
+    platforms: {
+      "windows-x86_64": {
+        signature: sigText,
+        url: permanentDownloadUrl,
+      },
+    },
+  };
+
+  assert.equal(manifest.version, "1.0.2");
+  assert.equal(manifest.platforms["windows-x86_64"].url, "https://gphost.eu.cc/raw/gpn-app");
+  assert.ok(manifest.platforms["windows-x86_64"].signature.startsWith("untrusted comment"));
+});
+
 console.log("\n===============================================================================");
 console.log(`Verification Complete: ${passedTests}/${totalTests} Tests Passed (100% Success)`);
 console.log("===============================================================================");

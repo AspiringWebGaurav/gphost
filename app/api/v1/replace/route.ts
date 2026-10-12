@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { authenticateRequest } from "@/lib/auth/api-keys";
+import { authenticateRequest, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getR2Client,
@@ -134,9 +134,10 @@ async function pruneExcessVersions(
   adminClient: ReturnType<typeof createAdminClient>,
   file: TargetFileRecord,
   userId: string,
-  keepCount: number = 3
+  keepCount: number = 3,
+  force: boolean = false
 ): Promise<number> {
-  if (file.is_release_locked) {
+  if (file.is_release_locked && !force && keepCount > 0) {
     return 0;
   }
 
@@ -313,9 +314,30 @@ export async function POST(req: NextRequest) {
         })
       );
 
-      // 2. Archive previous version in file_versions table for rollback
-      const archivedVersion = await archiveCurrentVersion(adminClient, existingFile, userId);
-      await pruneExcessVersions(adminClient, existingFile, userId, 3);
+      // 2. Old binary cleanup / archiving
+      const isGpn =
+        existingSlug === "gpn-app" ||
+        existingSlug === "gpn-app-sig" ||
+        existingFile.sanitized_name?.toLowerCase().includes("gpn") ||
+        existingFile.filename?.toLowerCase().includes("gpn");
+
+      const shouldDeletePrevious =
+        formData.get("delete_previous") === "true" ||
+        formData.get("deletePrevious") === "true" ||
+        req.headers.get("x-delete-previous") === "true" ||
+        isGpn;
+
+      let archivedVersion = 1;
+      if (shouldDeletePrevious) {
+        // Immediate physical deletion of old binary to keep free hobby quota 100% lean
+        if (existingFile.r2_key && existingFile.r2_key !== stagedR2Key) {
+          await deleteR2Object(existingFile.r2_key).catch(() => false);
+        }
+        await pruneExcessVersions(adminClient, existingFile, userId, 0, true);
+      } else {
+        archivedVersion = await archiveCurrentVersion(adminClient, existingFile, userId);
+        await pruneExcessVersions(adminClient, existingFile, userId, 3);
+      }
 
       // 3. Atomic Pointer Switch in PostgreSQL
       const nowIso = new Date().toISOString();
@@ -379,6 +401,8 @@ export async function POST(req: NextRequest) {
           redis?.del(`raw:meta:${existingFile.id}`),
         ]);
       } catch {}
+
+      void markFileApiAccessed(userId, existingFile.id);
 
       // 5. Non-blocking audit log
       try {
@@ -477,9 +501,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Target file not found" }, { status: 404 });
       }
 
-      // Archive previous version and prune beyond latest 3 versions
-      const archivedVersion = await archiveCurrentVersion(adminClient, existingFile as TargetFileRecord, userId);
-      await pruneExcessVersions(adminClient, existingFile as TargetFileRecord, userId, 3);
+      // Mode B Step 2: Old binary cleanup / archiving
+      const isGpn =
+        stagedPayload.slug === "gpn-app" ||
+        stagedPayload.slug === "gpn-app-sig" ||
+        existingFile.sanitized_name?.toLowerCase().includes("gpn") ||
+        existingFile.filename?.toLowerCase().includes("gpn");
+
+      const shouldDeletePrevious =
+        body.delete_previous === true ||
+        body.deletePrevious === true ||
+        req.headers.get("x-delete-previous") === "true" ||
+        isGpn;
+
+      let archivedVersion = 1;
+      if (shouldDeletePrevious) {
+        // Immediate physical deletion of old binary to keep free hobby quota 100% lean
+        if (existingFile.r2_key && existingFile.r2_key !== stagedPayload.stagedR2Key) {
+          await deleteR2Object(existingFile.r2_key).catch(() => false);
+        }
+        await pruneExcessVersions(adminClient, existingFile as TargetFileRecord, userId, 0, true);
+      } else {
+        archivedVersion = await archiveCurrentVersion(adminClient, existingFile as TargetFileRecord, userId);
+        await pruneExcessVersions(adminClient, existingFile as TargetFileRecord, userId, 3);
+      }
 
       // Atomic pointer switch
       const nowIso = new Date().toISOString();
@@ -546,6 +591,8 @@ export async function POST(req: NextRequest) {
           redis?.del(`raw:meta:${stagedPayload.fileId}`),
         ]);
       } catch {}
+
+      void markFileApiAccessed(userId, existingFile.id);
 
       // Non-blocking audit log
       try {

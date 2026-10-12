@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
-import { authenticateRequest } from "@/lib/auth/api-keys";
+import { authenticateRequest, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { headR2Object } from "@/lib/storage/r2";
+import { headR2Object, deleteR2Object } from "@/lib/storage/r2";
 import { RESERVED_SLUGS } from "@/lib/share/constants";
 import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 
@@ -186,6 +186,51 @@ export async function POST(req: NextRequest) {
 
     if (sanitizedSlug) {
       if (!RESERVED_SLUGS.has(sanitizedSlug)) {
+        try {
+          const { data: oldShare } = await adminClient
+            .from("share_links")
+            .select("id, file_id, file:files(id, user_id, r2_key, byte_size)")
+            .eq("slug", sanitizedSlug)
+            .maybeSingle();
+
+          if (oldShare && oldShare.file && oldShare.file_id !== fileId) {
+            const oldFile = (Array.isArray(oldShare.file) ? oldShare.file[0] : oldShare.file) as any;
+            if (oldFile && oldFile.user_id === userId) {
+              if (oldFile.r2_key && oldFile.r2_key !== file.r2_key) {
+                await deleteR2Object(oldFile.r2_key).catch(() => false);
+              }
+              const { data: oldVers } = await adminClient
+                .from("file_versions")
+                .select("id, r2_key")
+                .eq("file_id", oldFile.id);
+              if (oldVers && oldVers.length > 0) {
+                for (const ov of oldVers) {
+                  if (ov.r2_key && ov.r2_key !== file.r2_key) {
+                    await deleteR2Object(ov.r2_key).catch(() => false);
+                  }
+                }
+                await adminClient.from("file_versions").delete().eq("file_id", oldFile.id);
+              }
+              if (oldFile.byte_size) {
+                const { data: prof } = await adminClient
+                  .from("profiles")
+                  .select("storage_used_bytes")
+                  .eq("id", userId)
+                  .single();
+                if (prof) {
+                  await adminClient
+                    .from("profiles")
+                    .update({ storage_used_bytes: Math.max(0, (prof.storage_used_bytes || 0) - oldFile.byte_size) })
+                    .eq("id", userId);
+                }
+              }
+              await adminClient.from("files").delete().eq("id", oldFile.id);
+            }
+          }
+        } catch (slugErr) {
+          console.warn("Complete upload slug cleanup warning:", slugErr);
+        }
+
         // Delete any prior link with this slug owned by this file/user
         await adminClient.from("share_links").delete().eq("slug", sanitizedSlug);
         await purgeShareLinkRedisData(sanitizedSlug);
@@ -239,6 +284,8 @@ export async function POST(req: NextRequest) {
 
     const rawUrl = `${origin}/raw/${finalSlug}`;
     const downloadUrl = `${origin}/f/${finalSlug}`;
+
+    void markFileApiAccessed(userId, fileId);
 
     // 8. Insert Audit Log
     try {

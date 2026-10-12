@@ -423,3 +423,32 @@ export async function revokeAllApiKeys(userId: string): Promise<{ success: boole
 
   return { success: true, count: activeKeys.length };
 }
+
+/**
+ * Authoritatively records that a file was created, replaced, downloaded, or updated via Owner API keys or API endpoints.
+ */
+export async function markFileApiAccessed(userId: string, fileId: string): Promise<void> {
+  try {
+    if (redis && userId && fileId) {
+      await Promise.all([
+        redis.sadd(`api_managed_files:${userId}`, fileId),
+        redis.set(`file_api_accessed:${fileId}`, new Date().toISOString(), { ex: 86400 * 365 }),
+      ]);
+    }
+  } catch (err) {
+    console.warn("markFileApiAccessed error:", err);
+  }
+}
+
+/**
+ * Retrieves the set of file IDs accessed or managed via the Owner API for an owner account.
+ */
+export async function getApiManagedFileIds(userId: string): Promise<Set<string>> {
+  try {
+    if (!redis || !userId) return new Set();
+    const members = await redis.smembers(`api_managed_files:${userId}`);
+    return new Set(members || []);
+  } catch {
+    return new Set();
+  }
+}
