@@ -386,37 +386,44 @@ export async function POST(req: NextRequest) {
     // The Base v0.0.0 installer is 100% isolated and never deleted or touched.
     if (cleanVersion !== "0.0.0") {
       try {
-        const { data: allGpnReleases } = await adminClient
-          .from("app_releases")
-          .select("id, version, binary_file_id, binary_r2_key")
-          .eq("app_id", APP_ID);
+        // Query ALL files belonging to user that match GPN installer patterns
+        const { data: allGpnFiles } = await adminClient
+          .from("files")
+          .select("id, sanitized_name, filename, r2_key, share_links(slug)")
+          .eq("user_id", auth.userId)
+          .or("sanitized_name.ilike.%Gaurav Personal Notes%,filename.ilike.%Gaurav Personal Notes%,sanitized_name.ilike.%gpn%,filename.ilike.%gpn%");
 
-        const obsoleteReleases = (allGpnReleases || []).filter(
-          (r) => r.version !== "0.0.0" && r.binary_file_id !== targetBinaryFileId
-        );
+        for (const file of allGpnFiles || []) {
+          // Never delete the current target binary
+          if (file.id === targetBinaryFileId) continue;
 
-        for (const obs of obsoleteReleases) {
-          if (obs.binary_r2_key) {
+          // Never delete the base 0.0.0 installer (anchored to vanity slug 'gpn-app')
+          const shareList = Array.isArray(file.share_links) ? file.share_links : file.share_links ? [file.share_links] : [];
+          const isBaseInstaller = shareList.some((s: any) => s.slug === "gpn-app") || (file.sanitized_name || "").includes("0.0.0");
+          if (isBaseInstaller) continue;
+
+          // This is an obsolete/superseded OTA binary: purge it from R2 and DB!
+          if (file.r2_key) {
             try {
-              await deleteR2Object(obs.binary_r2_key);
-            } catch {}
+              await deleteR2Object(file.r2_key);
+            } catch (r2Err) {
+              console.warn(`[Auto-Prune] Failed to delete R2 key ${file.r2_key}:`, r2Err);
+            }
           }
-          if (obs.binary_file_id) {
-            await adminClient
-              .from("share_links")
-              .delete()
-              .eq("file_id", obs.binary_file_id)
-              .neq("slug", "gpn-app");
-            await adminClient
-              .from("files")
-              .delete()
-              .eq("id", obs.binary_file_id);
-          }
-          await adminClient
-            .from("app_releases")
-            .delete()
-            .eq("id", obs.id);
+
+          await adminClient.from("share_links").delete().eq("file_id", file.id).neq("slug", "gpn-app");
+          await adminClient.from("app_releases").delete().eq("binary_file_id", file.id);
+          await adminClient.from("files").delete().eq("id", file.id);
+          console.log(`[Auto-Prune] Successfully purged superseded GPN binary ${file.sanitized_name} (${file.id})`);
         }
+
+        // Also clean up any lingering app_releases rows not matching 0.0.0 or targetBinaryFileId
+        await adminClient
+          .from("app_releases")
+          .delete()
+          .eq("app_id", APP_ID)
+          .neq("version", "0.0.0")
+          .neq("binary_file_id", targetBinaryFileId);
 
         // Recalculate and update profile storage usage
         const { data: userFiles } = await adminClient

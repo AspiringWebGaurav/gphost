@@ -19,27 +19,54 @@ const r2 = new S3Client({
 });
 const bucketName = process.env.R2_BUCKET_NAME || "gphosting-files";
 
-const BASE_0_0_0_FILE_ID = "ba8b445b-5501-4a72-915a-772456b91282";
-const ACTIVE_0_0_1_FILE_ID = "8de69735-ac7f-494f-a48a-f6a2990bd8bf";
-
 console.log("=== GPHOST RELEASES CLEANUP: ENSURE EXACTLY 2 ISOLATED FILES ===");
-console.log(`Preserving Base 0.0.0 file: ${BASE_0_0_0_FILE_ID}`);
-console.log(`Preserving Active 0.0.1 file: ${ACTIVE_0_0_1_FILE_ID}`);
 
-// 1. Fetch all files
-const { data: allFiles, error: fErr } = await supabase.from("files").select("*");
+// 1. Fetch all releases for GPN to determine the active latest version
+const { data: gpnReleases, error: relErr } = await supabase
+  .from("app_releases")
+  .select("*")
+  .eq("app_id", "gpn")
+  .order("created_at", { ascending: false });
+
+if (relErr) {
+  console.error("Error fetching releases:", relErr);
+  process.exit(1);
+}
+
+// Find Base 0.0.0 release
+const baseRelease = (gpnReleases || []).find((r) => r.version === "0.0.0");
+// Find latest non-base release
+const latestActiveOta = (gpnReleases || []).find((r) => r.version !== "0.0.0");
+
+// 2. Fetch all files
+const { data: allFiles, error: fErr } = await supabase.from("files").select("*, share_links(slug)");
 if (fErr) {
   console.error("Error fetching files:", fErr);
   process.exit(1);
 }
 
-const filesToDelete = (allFiles || []).filter(
-  (f) => f.id !== BASE_0_0_0_FILE_ID && f.id !== ACTIVE_0_0_1_FILE_ID
-);
+// Identify Base 0.0.0 file
+const baseFile = (allFiles || []).find((f) => {
+  const shareList = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
+  return shareList.some((s) => s.slug === "gpn-app") || (f.sanitized_name || "").includes("0.0.0") || f.id === baseRelease?.binary_file_id;
+});
+
+// Identify Active OTA file
+const activeOtaFile = (allFiles || []).find((f) => {
+  if (baseFile && f.id === baseFile.id) return false;
+  return f.id === latestActiveOta?.binary_file_id || (latestActiveOta && (f.sanitized_name || "").includes(latestActiveOta.version));
+});
+
+console.log(`Preserving Base 0.0.0 file: ${baseFile ? baseFile.id + ' (' + baseFile.sanitized_name + ')' : 'None found'}`);
+console.log(`Preserving Active OTA file: ${activeOtaFile ? activeOtaFile.id + ' (' + activeOtaFile.sanitized_name + ')' : 'None found'}`);
+
+const preservedIds = new Set([baseFile?.id, activeOtaFile?.id].filter(Boolean));
+
+const filesToDelete = (allFiles || []).filter((f) => !preservedIds.has(f.id));
 
 console.log(`\nFound ${filesToDelete.length} obsolete files to delete:`);
 for (const f of filesToDelete) {
-  console.log(` - ${f.id} (${f.byte_size} bytes, R2: ${f.storage_key || f.r2_key})`);
+  console.log(` - ${f.id} (${f.byte_size} bytes, ${f.sanitized_name || f.filename}, R2: ${f.storage_key || f.r2_key})`);
 }
 
 // 2. Delete each obsolete file from R2 and Supabase
@@ -69,75 +96,42 @@ for (const f of filesToDelete) {
   }
 }
 
-// 3. Ensure share_link for slug 'gpn-app' strictly points to BASE_0_0_0_FILE_ID
-console.log("\nEnsuring vanity link '/raw/gpn-app' is strictly anchored to Base 0.0.0...");
-// Delete any other share link that stole 'gpn-app'
-await supabase.from("share_links").delete().eq("slug", "gpn-app");
+// 3. Ensure share_link for slug 'gpn-app' strictly points to Base 0.0.0
+if (baseFile) {
+  console.log("\nEnsuring vanity link '/raw/gpn-app' is strictly anchored to Base 0.0.0...");
+  await supabase.from("share_links").delete().eq("slug", "gpn-app");
 
-// Re-create the permanent share link for gpn-app pointing to Base 0.0.0
-const crypto = await import("crypto");
-const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+  const crypto = await import("crypto");
+  const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
 
-const { data: newLink, error: linkErr } = await supabase
-  .from("share_links")
-  .insert({
-    file_id: BASE_0_0_0_FILE_ID,
-    slug: "gpn-app",
-    token_hash: tokenHash,
-    is_active: true,
-    expires_at: null,
-  })
-  .select()
-  .single();
+  const { data: newLink, error: linkErr } = await supabase
+    .from("share_links")
+    .insert({
+      file_id: baseFile.id,
+      slug: "gpn-app",
+      token_hash: tokenHash,
+      is_active: true,
+      expires_at: null,
+    })
+    .select()
+    .single();
 
-if (linkErr) {
-  console.error("Error creating gpn-app share link:", linkErr.message);
-} else {
-  console.log("✓ Anchored 'gpn-app' slug permanently to Base 0.0.0:", newLink.id);
+  if (linkErr) {
+    console.error("Error creating gpn-app share link:", linkErr.message);
+  } else {
+    console.log("✓ Anchored 'gpn-app' slug permanently to Base 0.0.0:", newLink.id);
+  }
 }
 
-// Delete random single-use or test share links for the other files
-await supabase.from("share_links").delete().neq("slug", "gpn-app");
-
-// 4. Update app_releases table
-console.log("\nConfiguring app_releases:");
-// Ensure 0.0.0 record
-await supabase
-  .from("app_releases")
-  .upsert(
-    {
-      app_id: "gpn",
-      version: "0.0.0",
-      binary_file_id: BASE_0_0_0_FILE_ID,
-      binary_byte_size: 4477222,
-      binary_sha256: "0d796a30ce6883efd567e1316248040092c35b87ec125df53e2f121dbefc78e9",
-      is_active: false,
-      is_published: true,
-      release_notes: "v0.0.0: Base Release with Persistent Sidebar Update Badge",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "app_id,version" }
-  );
-console.log("✓ Configured v0.0.0 in app_releases (isolated base installer).");
-
-// Ensure 0.0.1 active record
-await supabase
-  .from("app_releases")
-  .upsert(
-    {
-      app_id: "gpn",
-      version: "0.0.1",
-      binary_file_id: ACTIVE_0_0_1_FILE_ID,
-      binary_byte_size: 4476820,
-      binary_sha256: "ce16faf65d49933c5c1e63f4dccd91789d2072f6184b4fb7216766d93353fdd2",
-      is_active: true,
-      is_published: true,
-      release_notes: "v0.0.1: Quick Capture & Direct In-Place OTA Release",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "app_id,version" }
-  );
-console.log("✓ Configured v0.0.1 in app_releases (active OTA update).");
+// 4. Update app_releases table to ensure only Base 0.0.0 and active OTA remain
+console.log("\nVerifying app_releases integrity...");
+if (latestActiveOta) {
+  await supabase
+    .from("app_releases")
+    .update({ is_active: true })
+    .eq("id", latestActiveOta.id);
+  console.log(`✓ Preserved active OTA release v${latestActiveOta.version}`);
+}
 
 // 5. Recalculate profile storage usage
 const { data: remainingFiles } = await supabase.from("files").select("byte_size");
@@ -151,8 +145,8 @@ await supabase
 console.log(`\n✓ Profile storage_used_bytes updated to exactly ${totalUsed} bytes (${(totalUsed / (1024 * 1024)).toFixed(2)} MB).`);
 
 // 6. Verify remaining files count
-const { data: finalFiles } = await supabase.from("files").select("id, byte_size, storage_key");
+const { data: finalFiles } = await supabase.from("files").select("id, sanitized_name, byte_size, r2_key");
 console.log(`\nFinal Files Count in Database: ${finalFiles?.length} (Expected: 2)`);
 for (const f of finalFiles || []) {
-  console.log(` - ID: ${f.id} (${(f.byte_size / (1024 * 1024)).toFixed(2)} MB)`);
+  console.log(` - ID: ${f.id} | ${f.sanitized_name} (${(f.byte_size / (1024 * 1024)).toFixed(2)} MB)`);
 }
