@@ -232,25 +232,15 @@ export async function POST(req: NextRequest) {
 
     // 8. Create or Update Release Record
     let releaseId = existingRelease?.id;
-    if (releaseId) {
-      const { error: updateErr } = await adminClient
+    if (existingRelease && canOverwrite) {
+      await adminClient
         .from("app_releases")
-        .update({
-          binary_file_id: binFile.id,
-          binary_r2_key: binFile.r2_key,
-          binary_sha256: calculatedSha256 || "",
-          binary_byte_size: binFile.byte_size,
-          signature_text: signatureText,
-          signature_file_id: resolvedSigFileId,
-          release_notes: notes || `GPN update v${cleanVersion}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", releaseId);
+        .delete()
+        .eq("id", existingRelease.id);
+      releaseId = null;
+    }
 
-      if (updateErr) {
-        throw new Error(updateErr.message || "Failed to update release record");
-      }
-    } else {
+    if (!releaseId) {
       const { data: newRelease, error: insertErr } = await adminClient
         .from("app_releases")
         .insert({
