@@ -127,44 +127,71 @@ flowchart TD
 
 ---
 
-## 💻 Developer API & Terminal Uploads
+## 💻 Developer API & Dynamic Storage Controls
 
-Authorized users can generate a scoped Developer API Key from the dashboard to upload files headlessly from any terminal, script, or CI pipeline:
+Authorized developers and automated pipelines can use scoped Developer API Keys (`gp_live_...`) to perform dynamic, unconstrained file storage operations directly in Cloudflare R2:
 
-### 1. Terminal Upload via `curl`
+### 1. Direct Upload with Dynamic Folder & Private Options
 
 ```bash
-# Upload a file via terminal
+# Upload into a dedicated folder (e.g., app updates) without generating public share links
 curl -X POST "https://gphost.eu.cc/api/v1/upload" \
   -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
-  -F "file=@presentation.pdf"
+  -F "file=@update0.0.1.gpn.bin" \
+  -F "folder=gpn-dynamic-update" \
+  -F "noShareLink=true" \
+  -F "overwrite=true"
 ```
 
-### 2. JSON Response Schema
+### 2. Direct Custom R2 Key Placement
 
-```json
-{
-  "success": true,
-  "file": {
-    "id": "c1f7a28e-8a42-4f91-b3b2-91e8432a1012",
-    "name": "presentation.pdf",
-    "size": 4194304,
-    "shareUrl": "https://gphost.eu.cc/f/k9x2m1q7",
-    "rawUrl": "https://gphost.eu.cc/raw/k9x2m1q7",
-    "expiresAt": "2026-10-28T12:00:00.000Z"
-  }
-}
+API key holders have full power over exact object placement within their storage bucket:
+
+```bash
+# Upload directly to an exact custom R2 key
+curl -X POST "https://gphost.eu.cc/api/v1/upload" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -F "file=@update0.0.1.gpn.bin" \
+  -F "customKey=gpn-dynamic-update/update0.0.1.gpn.bin" \
+  -F "noShareLink=true"
 ```
 
-### 3. Programmatic Node.js / TypeScript Example
+### 3. Server-Side File Move & Archival
+
+Move or archive existing files on the server instantly without re-uploading bytes:
+
+```bash
+# Move an existing binary to an archive folder (e.g. OLD/)
+curl -X PATCH "https://gphost.eu.cc/api/v1/files/FILE_UUID" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"moveFolder": "gpn-dynamic-update/OLD"}'
+```
+
+### 4. API Request & Upload Parameters
+
+| Parameter | Type | Mode | Description |
+| :--- | :--- | :--- | :--- |
+| `file` | `File` | Multipart | Binary payload (up to 4.5 MB direct; > 4.5 MB presigned) |
+| `folder` | `string` | Form / JSON | Target prefix/folder in R2 (e.g. `gpn-dynamic-update`, `backups`) |
+| `customKey` | `string` | Form / JSON | Explicit R2 object key (e.g. `gpn-dynamic-update/update0.0.1.gpn.bin`) |
+| `noShareLink` | `boolean` | Form / JSON | If `true`, skips generating public `/f/{slug}` links (private binaries) |
+| `overwrite` | `boolean` | Form / JSON | If `true`, replaces existing files with identical custom key |
+| `expiryPreset` | `string` | Form / JSON | Retention window: `1h`, `24h`, `7d`, `30d`, `90d`, or `never` |
+| `slug` | `string` | Form / JSON | Vanity custom download slug (e.g. `gpn-app`) |
+
+### 5. Programmatic Node.js / TypeScript Example
 
 ```typescript
 import { readFileSync } from "fs";
 
-async function uploadToGPHost(filePath: string, apiKey: string) {
+async function uploadBinaryRelease(filePath: string, version: string, apiKey: string) {
   const fileBlob = new Blob([readFileSync(filePath)]);
   const formData = new FormData();
-  formData.append("file", fileBlob, "deployment-bundle.tar.gz");
+  formData.append("file", fileBlob, `update${version}.gpn.bin`);
+  formData.append("folder", "gpn-dynamic-update");
+  formData.append("noShareLink", "true");
+  formData.append("overwrite", "true");
 
   const response = await fetch("https://gphost.eu.cc/api/v1/upload", {
     method: "POST",
@@ -176,9 +203,14 @@ async function uploadToGPHost(filePath: string, apiKey: string) {
 
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Upload failed");
-  return data.file;
+  return data; // { success: true, fileId, r2Key, isPrivate: true }
 }
 ```
+
+### 6. Persistent 30-Day Sessions (Zero Idle Logouts)
+- Web sessions are configured with a **30-day persistent sliding window** (`SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60`).
+- The 30-minute idle auto-logout has been completely removed from proxy and session middleware, matching GPN's robust persistent login architecture.
+
 
 ---
 

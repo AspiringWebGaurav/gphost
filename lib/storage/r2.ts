@@ -4,6 +4,7 @@ if (typeof window !== "undefined") {
 import {
   S3Client,
   PutObjectCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
@@ -48,12 +49,44 @@ export function getR2Client(): S3Client {
   return r2ClientInstance;
 }
 
+export interface GenerateKeyOptions {
+  folder?: string | null;
+  customKey?: string | null;
+}
+
 /**
- * Generates an unpredictable, owner-embedded R2 object key.
- * Format: u/{userId}/{YYYY}/{MM}/{uuid}{ext}
- * Never uses original filenames as object keys.
+ * Generates an R2 object key.
+ * 1. If customKey is specified by authorized API key: sanitizes and uses directly.
+ * 2. If folder is specified by authorized API key: places file in `{folder}/{filename}`.
+ * 3. Default fallback: owner-embedded random UUID `u/{userId}/{YYYY}/{MM}/{uuid}{ext}`.
  */
-export function generateR2ObjectKey(userId: string, filename: string): string {
+export function generateR2ObjectKey(
+  userId: string,
+  filename: string,
+  options?: GenerateKeyOptions
+): string {
+  // Option 1: Direct custom key
+  if (options?.customKey && typeof options.customKey === "string") {
+    const clean = options.customKey
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/\.\.+/g, "");
+    if (clean.length > 0) return clean;
+  }
+
+  // Option 2: Custom dynamic folder
+  if (options?.folder && typeof options.folder === "string") {
+    const cleanFolder = options.folder
+      .trim()
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\.\.+/g, "");
+    if (cleanFolder.length > 0) {
+      const sanitizedFile = filename.replace(/[^\w.-]/g, "_");
+      return `${cleanFolder}/${sanitizedFile}`;
+    }
+  }
+
+  // Option 3: Default random UUID path
   const date = new Date();
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -338,4 +371,34 @@ export async function listR2Objects(prefix?: string): Promise<{ key: string; siz
     console.error(`Failed to list R2 objects with prefix ${prefix}:`, err);
     return [];
   }
+}
+
+/**
+ * Copies an R2 object from sourceKey to destinationKey within the bucket.
+ */
+export async function copyR2Object(sourceKey: string, destinationKey: string): Promise<boolean> {
+  const client = getR2Client();
+  try {
+    const command = new CopyObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      CopySource: `${R2_BUCKET_NAME}/${sourceKey}`,
+      Key: destinationKey,
+    });
+    await client.send(command);
+    return true;
+  } catch (err) {
+    console.error(`Failed to copy R2 object from ${sourceKey} to ${destinationKey}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Moves an R2 object by copying to destinationKey and deleting sourceKey.
+ */
+export async function moveR2Object(sourceKey: string, destinationKey: string): Promise<boolean> {
+  if (sourceKey === destinationKey) return true;
+  const copied = await copyR2Object(sourceKey, destinationKey);
+  if (!copied) return false;
+  await deleteR2Object(sourceKey);
+  return true;
 }

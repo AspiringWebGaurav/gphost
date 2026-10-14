@@ -220,8 +220,24 @@ export function DocsView() {
     })).filter((g) => g.items.length > 0);
   }, [searchQuery]);
 
-  const curlCode = `curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  const curlCode = `# Standard upload:
+curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -F "file=@photo.jpg" \\
+  https://gphost.eu.cc/api/v1/upload
+
+# Dynamic folder, private (no public link), and overwrite:
+curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -F "file=@update.bin" \\
+  -F "folder=gpn-dynamic-update" \\
+  -F "noShareLink=true" \\
+  -F "overwrite=true" \\
+  https://gphost.eu.cc/api/v1/upload
+
+# Direct custom R2 key placement:
+curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -F "file=@update.bin" \\
+  -F "customKey=gpn-dynamic-update/update0.0.1.gpn.bin" \\
+  -F "noShareLink=true" \\
   https://gphost.eu.cc/api/v1/upload`;
 
   const replaceCode = `# Replace an existing release binary atomically while keeping permanent URL intact

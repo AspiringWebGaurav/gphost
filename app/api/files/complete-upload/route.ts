@@ -25,6 +25,8 @@ const completeUploadSchema = z.object({
     .regex(/^[a-zA-Z0-9_-]+$/)
     .optional(),
   sha256: z.string().trim().max(128).optional(),
+  noShareLink: z.boolean().optional(),
+  private: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { fileId, slug: requestedSlug, sha256: clientSha256 } = parseResult.data;
+    const noShareLink = parseResult.data.noShareLink === true || parseResult.data.private === true;
 
     // 3. PostgreSQL record lookup & tenant isolation validation
     const adminClient = createAdminClient();
@@ -180,100 +183,102 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Ensure a Share Link & Slug exists
+    // 7. Ensure a Share Link & Slug exists (unless noShareLink / private is set)
     const sanitizedSlug = requestedSlug?.toLowerCase().trim();
-    let finalSlug: string = "";
+    let finalSlug: string | null = null;
 
-    if (sanitizedSlug) {
-      if (!RESERVED_SLUGS.has(sanitizedSlug)) {
-        try {
-          const { data: oldShare } = await adminClient
-            .from("share_links")
-            .select("id, file_id, file:files(id, user_id, r2_key, byte_size)")
-            .eq("slug", sanitizedSlug)
-            .maybeSingle();
+    if (!noShareLink) {
+      if (sanitizedSlug) {
+        if (!RESERVED_SLUGS.has(sanitizedSlug)) {
+          try {
+            const { data: oldShare } = await adminClient
+              .from("share_links")
+              .select("id, file_id, file:files(id, user_id, r2_key, byte_size)")
+              .eq("slug", sanitizedSlug)
+              .maybeSingle();
 
-          if (oldShare && oldShare.file && oldShare.file_id !== fileId) {
-            const oldFile = (Array.isArray(oldShare.file) ? oldShare.file[0] : oldShare.file) as any;
-            if (oldFile && oldFile.user_id === userId) {
-              if (oldFile.r2_key && oldFile.r2_key !== file.r2_key) {
-                await deleteR2Object(oldFile.r2_key).catch(() => false);
-              }
-              const { data: oldVers } = await adminClient
-                .from("file_versions")
-                .select("id, r2_key")
-                .eq("file_id", oldFile.id);
-              if (oldVers && oldVers.length > 0) {
-                for (const ov of oldVers) {
-                  if (ov.r2_key && ov.r2_key !== file.r2_key) {
-                    await deleteR2Object(ov.r2_key).catch(() => false);
+            if (oldShare && oldShare.file && oldShare.file_id !== fileId) {
+              const oldFile = (Array.isArray(oldShare.file) ? oldShare.file[0] : oldShare.file) as any;
+              if (oldFile && oldFile.user_id === userId) {
+                if (oldFile.r2_key && oldFile.r2_key !== file.r2_key) {
+                  await deleteR2Object(oldFile.r2_key).catch(() => false);
+                }
+                const { data: oldVers } = await adminClient
+                  .from("file_versions")
+                  .select("id, r2_key")
+                  .eq("file_id", oldFile.id);
+                if (oldVers && oldVers.length > 0) {
+                  for (const ov of oldVers) {
+                    if (ov.r2_key && ov.r2_key !== file.r2_key) {
+                      await deleteR2Object(ov.r2_key).catch(() => false);
+                    }
+                  }
+                  await adminClient.from("file_versions").delete().eq("file_id", oldFile.id);
+                }
+                if (oldFile.byte_size) {
+                  const { data: prof } = await adminClient
+                    .from("profiles")
+                    .select("storage_used_bytes")
+                    .eq("id", userId)
+                    .single();
+                  if (prof) {
+                    await adminClient
+                      .from("profiles")
+                      .update({ storage_used_bytes: Math.max(0, (prof.storage_used_bytes || 0) - oldFile.byte_size) })
+                      .eq("id", userId);
                   }
                 }
-                await adminClient.from("file_versions").delete().eq("file_id", oldFile.id);
+                await adminClient.from("files").delete().eq("id", oldFile.id);
               }
-              if (oldFile.byte_size) {
-                const { data: prof } = await adminClient
-                  .from("profiles")
-                  .select("storage_used_bytes")
-                  .eq("id", userId)
-                  .single();
-                if (prof) {
-                  await adminClient
-                    .from("profiles")
-                    .update({ storage_used_bytes: Math.max(0, (prof.storage_used_bytes || 0) - oldFile.byte_size) })
-                    .eq("id", userId);
-                }
-              }
-              await adminClient.from("files").delete().eq("id", oldFile.id);
             }
+          } catch (slugErr) {
+            console.warn("Complete upload slug cleanup warning:", slugErr);
           }
-        } catch (slugErr) {
-          console.warn("Complete upload slug cleanup warning:", slugErr);
+
+          // Delete any prior link with this slug owned by this file/user
+          await adminClient.from("share_links").delete().eq("slug", sanitizedSlug);
+          await purgeShareLinkRedisData(sanitizedSlug);
+
+          const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
+          const { data: newShare } = await adminClient
+            .from("share_links")
+            .insert({
+              file_id: fileId,
+              slug: sanitizedSlug,
+              token_hash: tokenHash,
+              is_active: true,
+              expires_at: expiresAt ? expiresAt.toISOString() : null,
+            })
+            .select("slug")
+            .single();
+
+          finalSlug = newShare?.slug || sanitizedSlug;
         }
+      }
 
-        // Delete any prior link with this slug owned by this file/user
-        await adminClient.from("share_links").delete().eq("slug", sanitizedSlug);
-        await purgeShareLinkRedisData(sanitizedSlug);
-
-        const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
-        const { data: newShare } = await adminClient
+      if (!finalSlug) {
+        // Check if file already has an active share link
+        const { data: existingShare } = await adminClient
           .from("share_links")
-          .insert({
+          .select("slug")
+          .eq("file_id", fileId)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (existingShare?.slug) {
+          finalSlug = existingShare.slug;
+        } else {
+          const randomSlug = crypto.randomBytes(9).toString("base64url").slice(0, 12);
+          const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
+          await adminClient.from("share_links").insert({
             file_id: fileId,
-            slug: sanitizedSlug,
+            slug: randomSlug,
             token_hash: tokenHash,
             is_active: true,
             expires_at: expiresAt ? expiresAt.toISOString() : null,
-          })
-          .select("slug")
-          .single();
-
-        finalSlug = newShare?.slug || sanitizedSlug;
-      }
-    }
-
-    if (!finalSlug) {
-      // Check if file already has an active share link
-      const { data: existingShare } = await adminClient
-        .from("share_links")
-        .select("slug")
-        .eq("file_id", fileId)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (existingShare?.slug) {
-        finalSlug = existingShare.slug;
-      } else {
-        const randomSlug = crypto.randomBytes(9).toString("base64url").slice(0, 12);
-        const tokenHash = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
-        await adminClient.from("share_links").insert({
-          file_id: fileId,
-          slug: randomSlug,
-          token_hash: tokenHash,
-          is_active: true,
-          expires_at: expiresAt ? expiresAt.toISOString() : null,
-        });
-        finalSlug = randomSlug;
+          });
+          finalSlug = randomSlug;
+        }
       }
     }
 
@@ -282,8 +287,8 @@ export async function POST(req: NextRequest) {
     const forwardedProto = req.headers.get("x-forwarded-proto") || (forwardedHost?.startsWith("localhost") ? "http" : "https");
     const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : (process.env.NEXT_PUBLIC_APP_URL || "https://gphost.eu.cc");
 
-    const rawUrl = `${origin}/raw/${finalSlug}`;
-    const downloadUrl = `${origin}/f/${finalSlug}`;
+    const rawUrl = finalSlug ? `${origin}/raw/${finalSlug}` : null;
+    const downloadUrl = finalSlug ? `${origin}/f/${finalSlug}` : null;
 
     void markFileApiAccessed(userId, fileId);
 
@@ -327,6 +332,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       file: updatedFile,
+      r2Key: file.r2_key,
+      isPrivate: noShareLink,
       slug: finalSlug,
       rawUrl,
       downloadUrl,

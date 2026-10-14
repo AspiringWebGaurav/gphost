@@ -178,6 +178,10 @@ export async function POST(req: NextRequest) {
       const rawExpiryPreset = (formData.get("expiryPreset") || formData.get("expiry")) as string | null;
       const isPermanentReq = formData.get("isPermanent") === "true" || rawExpiryPreset === "never";
       const canCreatePermanent = profile.role === "admin" || profile.can_create_permanent;
+      const folder = ((formData.get("folder") || formData.get("directory")) as string | null)?.trim() || null;
+      const customKey = ((formData.get("customKey") || formData.get("key")) as string | null)?.trim() || null;
+      const noShareLink = formData.get("noShareLink") === "true" || formData.get("private") === "true";
+      const overwrite = formData.get("overwrite") === "true";
 
       let expiryPreset: typeof EXPIRY_PRESET_VALUES[number] = "30d";
       if (isPermanentReq && canCreatePermanent) {
@@ -190,7 +194,7 @@ export async function POST(req: NextRequest) {
       const customSlugInput = ((formData.get("slug") || formData.get("customSlug")) as string | null)?.trim().toLowerCase();
       let targetSlug = customSlugInput || "";
 
-      if (targetSlug) {
+      if (targetSlug && !noShareLink) {
         if (!/^[a-z0-9_-]{3,48}$/.test(targetSlug)) {
           return NextResponse.json(
             { error: "Invalid slug format. Must be 3-48 alphanumeric characters, dashes, or underscores." },
@@ -238,8 +242,23 @@ export async function POST(req: NextRequest) {
       }
 
       const sanitizedName = sanitizeFilename(file.name || "cli-upload.bin");
-      const r2Key = generateR2ObjectKey(userId, sanitizedName);
+      const r2Key = generateR2ObjectKey(userId, sanitizedName, { folder, customKey });
       const mimeType = securityCheck.normalizedMime;
+
+      // Handle overwrite for customKey
+      if (overwrite || customKey) {
+        const { data: existingSameKeyFile } = await adminClient
+          .from("files")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("r2_key", r2Key)
+          .maybeSingle();
+
+        if (existingSameKeyFile) {
+          await adminClient.from("share_links").delete().eq("file_id", existingSameKeyFile.id);
+          await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+        }
+      }
 
       // Stream directly to Cloudflare R2
       const r2Client = getR2Client();
@@ -361,16 +380,18 @@ export async function POST(req: NextRequest) {
 
       void markFileApiAccessed(userId, fileRecord.id);
 
-      await adminClient.from("share_links").insert({
-        file_id: fileRecord.id,
-        slug,
-        token_hash: tokenHash,
-        is_active: true,
-        expires_at: expiresAt ? expiresAt.toISOString() : null,
-      });
+      if (!noShareLink) {
+        await adminClient.from("share_links").insert({
+          file_id: fileRecord.id,
+          slug,
+          token_hash: tokenHash,
+          is_active: true,
+          expires_at: expiresAt ? expiresAt.toISOString() : null,
+        });
+      }
 
-      const rawUrl = `${origin}/raw/${slug}`;
-      const downloadUrl = `${origin}/f/${slug}`;
+      const rawUrl = noShareLink ? null : `${origin}/raw/${slug}`;
+      const downloadUrl = noShareLink ? null : `${origin}/f/${slug}`;
 
       return NextResponse.json(
         {
@@ -381,7 +402,9 @@ export async function POST(req: NextRequest) {
           mimeType: fileRecord.mime_type,
           sha256: integrity.sha256,
           integrityStatus: "verified_authentic",
-          slug,
+          slug: noShareLink ? null : slug,
+          r2Key,
+          isPrivate: noShareLink,
           downloadUrl,
           rawUrl,
           permanentRawUrl: rawUrl,
@@ -421,6 +444,10 @@ export async function POST(req: NextRequest) {
     const rawExpiryPreset = body.expiryPreset || body.expiry;
     const isPermanentReq = body.isPermanent === true || rawExpiryPreset === "never";
     const canCreatePermanent = profile.role === "admin" || profile.can_create_permanent;
+    const folder = ((body.folder || body.directory) as string | null)?.trim() || null;
+    const customKey = ((body.customKey || body.key) as string | null)?.trim() || null;
+    const noShareLink = body.noShareLink === true || body.private === true;
+    const overwrite = body.overwrite === true;
 
     let expiryPreset: typeof EXPIRY_PRESET_VALUES[number] = "30d";
     if (isPermanentReq && canCreatePermanent) {
@@ -447,7 +474,7 @@ export async function POST(req: NextRequest) {
 
     // Target slug validation if provided
     const targetSlug = (body.slug || body.customSlug || "")?.trim().toLowerCase();
-    if (targetSlug) {
+    if (targetSlug && !noShareLink) {
       if (!/^[a-z0-9_-]{3,48}$/.test(targetSlug)) {
         return NextResponse.json(
           { error: "Invalid slug format. Must be 3-48 alphanumeric characters, dashes, or underscores." },
@@ -477,7 +504,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const r2Key = generateR2ObjectKey(userId, filename);
+    const r2Key = generateR2ObjectKey(userId, filename, { folder, customKey });
+
+    // Handle overwrite for customKey
+    if (overwrite || customKey) {
+      const { data: existingSameKeyFile } = await adminClient
+        .from("files")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("r2_key", r2Key)
+        .maybeSingle();
+
+      if (existingSameKeyFile) {
+        await adminClient.from("share_links").delete().eq("file_id", existingSameKeyFile.id);
+        await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+      }
+    }
+
     const presignedPutUrl = await createPresignedPutUrl(r2Key, mimeType, 900);
     const expiresAt = calculateExpiryDate(expiryPreset);
 
@@ -533,6 +576,10 @@ export async function POST(req: NextRequest) {
         success: true,
         mode: "presigned",
         fileId: fileRecord.id,
+        r2Key,
+        folder: folder || undefined,
+        customKey: customKey || undefined,
+        isPrivate: noShareLink,
         uploadUrl: presignedPutUrl,
         presignedPutUrl,
         curlExample,
@@ -540,7 +587,7 @@ export async function POST(req: NextRequest) {
         completeUrl,
         instructions: [
           `1. Stream file directly to Cloudflare R2: ${curlExample}`,
-          `2. Complete the upload: curl -X POST "${completeUrl}" -H "Authorization: Bearer ${token.slice(0, 14)}..." -H "Content-Type: application/json" -d '{"fileId": "${fileRecord.id}"${targetSlug ? `, "slug": "${targetSlug}"` : ""}}'`,
+          `2. Complete the upload: curl -X POST "${completeUrl}" -H "Authorization: Bearer ${token.slice(0, 14)}..." -H "Content-Type: application/json" -d '{"fileId": "${fileRecord.id}"${targetSlug ? `, "slug": "${targetSlug}"` : ""}${noShareLink ? `, "noShareLink": true` : ""}}'`,
         ],
       },
       {

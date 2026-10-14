@@ -108,6 +108,8 @@ export async function purgeStaleReleaseBinaries(
       if (baseFileId && file.id === baseFileId) continue;
       // Rule: Never delete newly published / target binary
       if (resolvedTargetId && file.id === resolvedTargetId) continue;
+      // Rule: Never delete archived binaries in OLD/ (user manages/deletes manually)
+      if (file.r2_key && (file.r2_key.includes("/OLD/") || file.r2_key.startsWith("OLD/"))) continue;
 
       // This is a superseded stale binary
       console.log(`[Layer 1 Auto-Purge] Deleting superseded file: ${file.sanitized_name} (${file.id})`);
@@ -182,6 +184,9 @@ export async function purgeStaleReleaseBinaries(
 
       for (const obj of physicalObjects) {
         const key = obj.key;
+        // Never delete archived binaries in OLD/ (user manages/deletes manually)
+        if (key.includes("/OLD/") || key.startsWith("OLD/")) continue;
+
         // Check if object is an executable/installer payload
         const isBinaryPayload =
           key.endsWith(".exe") ||

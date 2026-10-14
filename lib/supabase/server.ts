@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import "@/lib/supabase/suppress-auth-warnings";
 
-export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7-day persistent session window
+export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30-day persistent session window (like GPN)
 
 /**
  * Creates a server-side Supabase client for Server Components, Server Actions,

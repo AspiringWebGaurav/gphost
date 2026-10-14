@@ -10,15 +10,14 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import "@/lib/supabase/suppress-auth-warnings";
 
-export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7-day persistent session window (active users stay logged in)
-export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30-minute inactivity window (background idle timeout)
+export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30-day persistent session window (permanent login persistence like GPN)
 
 /**
  * Next.js 16 Proxy (formerly middleware.ts):
  * 1. Generates dynamic 128-bit cryptographically secure per-request CSP nonce.
  * 2. Injects Content-Security-Policy header and forwards x-nonce to server components.
  * 3. Synchronizes and refreshes Supabase Auth cookies on incoming/outgoing requests.
- * 4. Enforces 30-minute background idle timeout while keeping live/active sessions uninterrupted.
+ * 4. Ensures persistent session maintenance with zero forced idle logouts.
  * 5. Enforces preliminary route gating and safe redirects.
  * Note: Proxy is NEVER the sole authorization boundary. Server Actions and Route Handlers
  * independently enforce authoritative database checks.
@@ -264,36 +263,6 @@ export async function proxy(request: NextRequest) {
         supabaseResponse = purgeStaleAuthCookies(request, requestHeaders, cspHeader);
       }
     }
-  }
-
-  // 5. Inactivity / Idle Timeout Check:
-  // If user is authenticated on a protected route, verify they haven't been idle in background > 30 minutes.
-  // Live users actively interacting have their timestamp continuously updated.
-  const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_SECONDS * 1000;
-  const now = Date.now();
-  const lastActiveCookie = request.cookies.get("gphost_last_active")?.value;
-
-  if (user && isProtectedPath && lastActiveCookie) {
-    const lastActiveTime = parseInt(lastActiveCookie, 10);
-    if (!isNaN(lastActiveTime) && now - lastActiveTime > IDLE_TIMEOUT_MS) {
-      // User was completely idle in background for > 30 minutes -> log out locally
-      await supabase.auth.signOut({ scope: "local" });
-      url.pathname = "/login";
-      url.searchParams.set("reason", "idle_timeout");
-      const res = redirectWithCsp(url);
-      res.cookies.delete("gphost_last_active");
-      return res;
-    }
-  }
-
-  // Update activity timestamp cookie on protected requests for active users
-  if (user && isProtectedPath) {
-    supabaseResponse.cookies.set("gphost_last_active", now.toString(), {
-      path: "/",
-      sameSite: "lax",
-      maxAge: SESSION_MAX_AGE_SECONDS,
-      httpOnly: false, // Accessible to client JavaScript for cross-tab activity synchronization
-    });
   }
 
   // Unauthenticated user attempting to access a protected route

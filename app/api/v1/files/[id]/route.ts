@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticateRequest, markFileApiAccessed } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { headR2Object, deleteR2Object } from "@/lib/storage/r2";
+import { headR2Object, deleteR2Object, moveR2Object, copyR2Object } from "@/lib/storage/r2";
 import { sanitizeFilename } from "@/lib/storage/sanitizer";
 import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { deleteXurlLink } from "@/lib/xurl/client";
@@ -17,6 +17,9 @@ const patchSchema = z.object({
   filename: z.string().trim().min(1).max(255).optional(),
   isReleaseLocked: z.boolean().optional(),
   expiryPreset: z.enum(EXPIRY_PRESET_VALUES).optional(),
+  customKey: z.string().trim().min(1).optional(),
+  folder: z.string().trim().min(1).optional(),
+  moveFolder: z.string().trim().min(1).optional(),
 });
 
 /**
@@ -198,6 +201,23 @@ export async function PATCH(
       updatePayload.expiry_preset = preset;
       const newExpiry = calculateExpiryDate(preset);
       updatePayload.expires_at = newExpiry ? newExpiry.toISOString() : null;
+    }
+
+    const targetFolder = parseBody.data.moveFolder || parseBody.data.folder;
+    let newR2Key = parseBody.data.customKey ? parseBody.data.customKey.trim().replace(/^\/+/, "").replace(/\.\.+/g, "") : null;
+
+    if (!newR2Key && targetFolder) {
+      const cleanFolder = targetFolder.trim().replace(/^\/+|\/+$/g, "").replace(/\.\.+/g, "");
+      const fileNameOnly = (file.r2_key || "").split("/").pop() || file.sanitized_name;
+      newR2Key = `${cleanFolder}/${fileNameOnly}`;
+    }
+
+    if (newR2Key && newR2Key !== file.r2_key && file.r2_key) {
+      const moved = await moveR2Object(file.r2_key, newR2Key);
+      if (!moved) {
+        return NextResponse.json({ error: "Failed to move file in storage bucket" }, { status: 500 });
+      }
+      updatePayload.r2_key = newR2Key;
     }
 
     let updateRes = await adminClient
