@@ -56,6 +56,24 @@ export async function GET(
       return NextResponse.json({ error: "File object not found in physical storage" }, { status: 404 });
     }
 
+    const asciiName = (file.sanitized_name || file.filename || "download.bin")
+      .replace(/["\\]/g, "_")
+      .replace(/[^\x20-\x7E]/g, "_");
+
+    // Offload direct download bandwidth to Cloudflare R2 (Zero Vercel Fast Origin Transfer)
+    const shouldStream = req.nextUrl.searchParams.get("stream") === "true";
+    if (!shouldStream) {
+      const { createPresignedGetUrl } = await import("@/lib/storage/r2");
+      const presignedUrl = await createPresignedGetUrl(file.r2_key, asciiName, 300, file.mime_type);
+      return NextResponse.redirect(presignedUrl, {
+        status: 307,
+        headers: {
+          "Cache-Control": "private, no-cache, no-store, must-revalidate",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
+
     const rangeHeader = req.headers.get("range");
     const r2Client = getR2Client();
 

@@ -75,9 +75,23 @@ export async function GET(
       );
     }
 
+    // 2. Offload download bandwidth to Cloudflare R2 Edge (Zero Vercel Fast Origin Transfer)
+    const shouldStream = req.nextUrl.searchParams.get("stream") === "true";
+    if (!shouldStream) {
+      const { createPresignedGetUrl } = await import("@/lib/storage/r2");
+      const presignedUrl = await createPresignedGetUrl(binaryR2Key, fileName, 3600);
+      return NextResponse.redirect(presignedUrl, {
+        status: 307,
+        headers: {
+          "Cache-Control": "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
+
     const r2Client = getR2Client();
 
-    // 2. Fetch object from R2
+    // Fallback: Direct serverless streaming only when explicitly requested via ?stream=true
     const getRes = await r2Client.send(
       new GetObjectCommand({
         Bucket: R2_BUCKET_NAME,

@@ -51,6 +51,18 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  serverExternalPackages: [
+    "@aws-sdk/client-s3",
+    "@aws-sdk/s3-request-presigner",
+  ],
+  outputFileTracingExcludes: {
+    "*": [
+      "node_modules/@swc/core*",
+      "node_modules/@esbuild*",
+      "node_modules/typescript",
+      "node_modules/@types",
+    ],
+  },
   experimental: {
     optimizePackageImports: [
       "lucide-react",
@@ -80,11 +92,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/api/v1/releases/gpn/download/:version*",
+        source: "/api/v1/releases/:appId/download/:version*",
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=31536000, immutable",
+            value: "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400",
           },
         ],
       },
