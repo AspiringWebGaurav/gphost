@@ -89,9 +89,6 @@ export async function GET(
     }
 
     const headers = new Headers();
-    const asciiName = (file.sanitized_name || file.filename || "download.bin")
-      .replace(/["\\]/g, "_")
-      .replace(/[^\x20-\x7E]/g, "_");
     const utf8Name = encodeURIComponent(file.sanitized_name || file.filename || "download.bin");
 
     headers.set("Content-Type", file.mime_type || "application/octet-stream");
