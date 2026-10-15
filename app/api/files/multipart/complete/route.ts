@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { completeR2MultipartUpload } from "@/lib/storage/r2";
 
@@ -22,7 +22,9 @@ const completeMultipartSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative server check
-    const { user } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:upload");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId } = authRes.auth;
 
     // 2. Validate payload
     const body = await req.json().catch(() => ({}));
@@ -48,7 +50,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    if (file.user_id !== user.id) {
+    if (file.user_id !== userId) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
     }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +12,16 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "storage:read");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const adminClient = createAdminClient();
 
     // Query active files to compute true active storage bytes
     const { data: activeFiles } = await adminClient
       .from("files")
       .select("byte_size")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .in("status", ["ACTIVE", "EXPIRING"]);
 
     const trueStorageUsedBytes = (activeFiles || []).reduce(
@@ -38,7 +40,7 @@ export async function GET(req: NextRequest) {
           reserved_bytes: 0,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", user.id);
+        .eq("id", userId);
     }
 
     const quotaBytes = profile.quota_bytes;
@@ -46,7 +48,7 @@ export async function GET(req: NextRequest) {
     const updatedAt = profile.updated_at || new Date().toISOString();
 
     // Compute smart checksum ETag
-    const signatureRaw = `${user.id}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${updatedAt}`;
+    const signatureRaw = `${userId}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${updatedAt}`;
     const etag = `"${crypto.createHash("md5").update(signatureRaw).digest("hex")}"`;
 
     // Check If-None-Match header

@@ -1,11 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { profileUpdateRatelimit } from "@/lib/redis/ratelimit";
 import { getClientIp, hashClientIp } from "@/lib/security/ip";
 
 export const dynamic = "force-dynamic";
+
+export async function GET(req: NextRequest) {
+  try {
+    const authRes = await authenticateRequest(req);
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+
+    return NextResponse.json({
+      success: true,
+      profile: {
+        id: userId,
+        email: profile.email,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+        role: profile.role,
+        quota_bytes: profile.quota_bytes,
+        storage_used_bytes: profile.storage_used_bytes,
+        reserved_bytes: profile.reserved_bytes,
+        can_create_permanent: profile.can_create_permanent || profile.role === "admin",
+      },
+    });
+  } catch (err: unknown) {
+    console.error("[Profile GET] Error:", err);
+    return NextResponse.json({ success: false, error: "INTERNAL_SERVER_ERROR" }, { status: 500 });
+  }
+}
 
 const updateProfileSchema = z
   .object({
@@ -33,10 +59,12 @@ const updateProfileSchema = z
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req);
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
 
     // Rate Limiting
-    const { success: allowed } = await profileUpdateRatelimit.limit(user.id);
+    const { success: allowed } = await profileUpdateRatelimit.limit(userId);
     if (!allowed) {
       return NextResponse.json(
         { success: false, error: "RATE_LIMITED", message: "Too many profile updates. Please wait." },
@@ -75,7 +103,7 @@ export async function PATCH(req: NextRequest) {
     const { error: updateError } = await adminClient
       .from("profiles")
       .update(updateData)
-      .eq("id", user.id);
+      .eq("id", userId);
 
     if (updateError) {
       console.error("[Profile API] Update error:", updateError);
@@ -90,10 +118,10 @@ export async function PATCH(req: NextRequest) {
     const ipHash = hashClientIp(clientIp);
 
     await adminClient.from("audit_logs").insert({
-      actor_id: user.id,
+      actor_id: userId,
       event_type: "USER_PROFILE_UPDATE",
       resource_type: "profile",
-      resource_id: user.id,
+      resource_id: userId,
       metadata: {
         old_full_name: profile.full_name,
         new_full_name: full_name !== undefined ? full_name : profile.full_name,
@@ -106,21 +134,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({
       success: true,
       profile: {
-        id: user.id,
+        id: userId,
         email: profile.email,
         full_name: full_name !== undefined ? full_name : profile.full_name,
         avatar_url: avatar_url !== undefined ? avatar_url : profile.avatar_url,
       },
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ success: false, error: "UNAUTHENTICATED" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ success: false, error: "FORBIDDEN" }, { status: 403 });
-    }
     console.error("[Profile API] Unhandled error:", err);
     return NextResponse.json({ success: false, error: "INTERNAL_SERVER_ERROR" }, { status: 500 });
   }
 }
+

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { multipartSignRatelimit } from "@/lib/redis/ratelimit";
 import { createPresignedPartUrl } from "@/lib/storage/r2";
@@ -16,10 +16,12 @@ const signPartSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative authentication & approval check
-    const { user } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:upload");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId } = authRes.auth;
 
     // 2. Ephemeral rate limiting
-    const { success: rateLimitOk } = await multipartSignRatelimit.limit(user.id);
+    const { success: rateLimitOk } = await multipartSignRatelimit.limit(userId);
     if (!rateLimitOk) {
       return NextResponse.json(
         { error: "Too many part-signing requests. Please throttle your upload." },
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     // IDOR protection: only owner can sign parts
-    if (file.user_id !== user.id) {
+    if (file.user_id !== userId) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
     }
 

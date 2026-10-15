@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadInitiateRatelimit } from "@/lib/redis/ratelimit";
 import { sanitizeFilename } from "@/lib/storage/sanitizer";
@@ -33,7 +33,10 @@ const initiateUploadSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     // 1. Authoritative server-side authentication & approval check
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:upload");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
+    const user = { id: userId, email: profile.email };
 
     // 2. Ephemeral rate limiting
     const { success: rateLimitOk } = await uploadInitiateRatelimit.limit(user.id);

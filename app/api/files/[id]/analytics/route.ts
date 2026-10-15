@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redis } from "@/lib/redis/client";
 
@@ -32,11 +32,13 @@ export interface FileAnalyticsResponse {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:read");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const { id: fileId } = await params;
 
     const parseId = idSchema.safeParse(fileId);
@@ -57,7 +59,7 @@ export async function GET(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    const isOwner = file.user_id === user.id;
+    const isOwner = file.user_id === userId;
     const isAdmin = profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });

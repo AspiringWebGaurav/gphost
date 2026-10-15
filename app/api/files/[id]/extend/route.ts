@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   EXPIRY_PRESET_VALUES,
@@ -20,7 +20,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const { id: fileId } = await params;
 
     const parseId = idSchema.safeParse(fileId);
@@ -66,7 +68,7 @@ export async function PATCH(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    const isOwner = file.user_id === user.id;
+    const isOwner = file.user_id === userId;
     const isAdmin = profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
@@ -104,7 +106,7 @@ export async function PATCH(
 
     // Record Audit Log
     await adminClient.from("audit_logs").insert({
-      actor_id: user.id,
+      actor_id: userId,
       event_type: "FILE_EXPIRY_EXTENDED",
       resource_type: "file",
       resource_id: fileId,

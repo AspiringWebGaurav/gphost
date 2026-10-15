@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  authenticateRequest,
   createApiKey,
   revokeApiKey,
   rotateApiKey,
@@ -12,15 +12,17 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const { user } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req);
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId } = authRes.auth;
     const adminClient = createAdminClient();
 
     const primaryRes = await adminClient
       .from("user_api_keys")
       .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
@@ -32,7 +34,7 @@ export async function GET() {
       const fallbackRes = await adminClient
         .from("user_api_keys")
         .select("id, name, key_prefix, created_at, last_used_at, is_active")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("is_active", true)
         .order("created_at", { ascending: false });
       rawData = fallbackRes.data as Array<Record<string, any>> | null;
@@ -58,25 +60,22 @@ export async function GET() {
       availablePermissions: API_PERMISSIONS,
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    console.error("[API Keys GET] Error:", err);
     return NextResponse.json({ error: "Failed to load API keys" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { user } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req);
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId } = authRes.auth;
+
     const body = await req.json().catch(() => ({}));
 
     // Action 1: Rotate Key
     if (body.action === "rotate" && body.keyId) {
-      const { keyItem, rawKey } = await rotateApiKey(user.id, body.keyId);
+      const { keyItem, rawKey } = await rotateApiKey(userId, body.keyId);
       return NextResponse.json({
         success: true,
         rotated: true,
@@ -91,7 +90,7 @@ export async function POST(req: NextRequest) {
       ? body.permissions
       : ["*"];
 
-    const { keyItem, rawKey } = await createApiKey(user.id, name, requestedPermissions);
+    const { keyItem, rawKey } = await createApiKey(userId, name, requestedPermissions);
 
     return NextResponse.json({
       success: true,
@@ -99,25 +98,22 @@ export async function POST(req: NextRequest) {
       rawKey,
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    console.error("[API Keys POST] Error:", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to process API key" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
-    const { user } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req);
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId } = authRes.auth;
+
     const body = await req.json().catch(() => ({}));
 
     // Emergency Revoke All
     if (body.all === true) {
-      const { success, count } = await revokeAllApiKeys(user.id);
+      const { success, count } = await revokeAllApiKeys(userId);
       return NextResponse.json({ success, count, revokedAll: true });
     }
 
@@ -127,20 +123,15 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Invalid API key ID" }, { status: 400 });
     }
 
-    const success = await revokeApiKey(user.id, keyId);
+    const success = await revokeApiKey(userId, keyId);
     if (!success) {
       return NextResponse.json({ error: "Failed to revoke API key" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    console.error("[API Keys DELETE] Error:", err);
     return NextResponse.json({ error: "Failed to revoke API key" }, { status: 500 });
   }
 }
+

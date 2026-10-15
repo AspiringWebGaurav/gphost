@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shortenUrl, deleteXurlLink } from "@/lib/xurl/client";
 import { reserveXurlMapping, updateXurlMapping } from "@/lib/xurl/mapping";
@@ -14,7 +14,9 @@ export async function POST(
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const { slug } = await context.params;
 
     if (!slug) {
@@ -36,7 +38,7 @@ export async function POST(
 
     // 2. Authorization guard: owner or admin only
     const file = Array.isArray(share.file) ? share.file[0] : share.file;
-    const isOwner = file && file.user_id === user.id;
+    const isOwner = file && file.user_id === userId;
     const isAdmin = profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Forbidden: Not share link owner" }, { status: 403 });
@@ -110,7 +112,9 @@ export async function DELETE(
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const { slug } = await context.params;
 
     const adminClient = createAdminClient();
@@ -125,7 +129,7 @@ export async function DELETE(
     }
 
     const file = Array.isArray(share.file) ? share.file[0] : share.file;
-    const isOwner = file && file.user_id === user.id;
+    const isOwner = file && file.user_id === userId;
     const isAdmin = profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

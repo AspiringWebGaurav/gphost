@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { NextRequest, NextResponse } from "next/server";
+import { authenticateRequest } from "@/lib/auth/api-keys";
 import { reconcileUserStorage } from "@/lib/storage/reconcile";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -9,12 +9,14 @@ export const dynamic = "force-dynamic";
  * POST /api/storage/reconcile
  * Scans Cloudflare R2 bucket physically and syncs PostgreSQL state with reality.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "files:manage");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const isAdmin = profile.role === "admin";
 
-    const result = await reconcileUserStorage(user.id, isAdmin);
+    const result = await reconcileUserStorage(userId, isAdmin);
 
     return NextResponse.json({
       success: true,
@@ -23,12 +25,6 @@ export async function POST() {
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Reconciliation failed";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (errorMsg.startsWith("ACCESS_DENIED")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
     console.error("[Storage Reconcile API Error]:", err);
     return NextResponse.json(
       { error: "Failed to reconcile storage with R2", details: errorMsg },
@@ -41,16 +37,18 @@ export async function POST() {
  * GET /api/storage/reconcile
  * Returns current authoritative storage metrics for authenticated user.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const { user, profile } = await requireApprovedUser();
+    const authRes = await authenticateRequest(req, "storage:read");
+    if ("errorResponse" in authRes) return authRes.errorResponse;
+    const { userId, profile } = authRes.auth;
     const adminClient = createAdminClient();
 
     // Query active files count & total byte sum
     const { data: activeFiles } = await adminClient
       .from("files")
       .select("byte_size")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .in("status", ["ACTIVE", "EXPIRING"]);
 
     const activeFilesCount = activeFiles?.length || 0;
@@ -60,7 +58,7 @@ export async function GET() {
     const { data: currentProfile } = await adminClient
       .from("profiles")
       .select("quota_bytes, storage_used_bytes, reserved_bytes")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     let storageUsed = currentProfile?.storage_used_bytes ?? profile.storage_used_bytes;
@@ -73,12 +71,12 @@ export async function GET() {
           reserved_bytes: 0,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", user.id);
+        .eq("id", userId);
     }
 
     return NextResponse.json({
       success: true,
-      userId: user.id,
+      userId,
       storageUsedBytes: storageUsed,
       computedByteSize,
       quotaBytes: currentProfile?.quota_bytes ?? profile.quota_bytes,
@@ -88,12 +86,10 @@ export async function GET() {
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Sync check failed";
-    if (errorMsg === "UNAUTHENTICATED") {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
     return NextResponse.json(
       { error: "Failed to fetch storage sync status", details: errorMsg },
       { status: 500 }
     );
   }
 }
+
