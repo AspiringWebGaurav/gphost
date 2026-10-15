@@ -212,6 +212,22 @@ export default async function DashboardPage() {
         }
       : undefined;
 
+  // Authoritative active storage check & self-healing
+  const { data: activeFilesForStorage } = await adminClient
+    .from("files")
+    .select("byte_size")
+    .eq("user_id", user.id)
+    .in("status", ["ACTIVE", "EXPIRING"]);
+  const trueActiveBytes = (activeFilesForStorage || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+
+  if (profile.storage_used_bytes !== trueActiveBytes) {
+    profile.storage_used_bytes = trueActiveBytes;
+    void adminClient
+      .from("profiles")
+      .update({ storage_used_bytes: trueActiveBytes, updated_at: nowIso })
+      .eq("id", user.id);
+  }
+
   return (
     <DashboardContent
       initialFiles={formattedFiles}
@@ -226,7 +242,7 @@ export default async function DashboardPage() {
         email: profile.email,
         role: profile.role,
         quota_bytes: profile.quota_bytes,
-        storage_used_bytes: profile.storage_used_bytes,
+        storage_used_bytes: trueActiveBytes,
         reserved_bytes: profile.reserved_bytes,
         can_create_permanent: profile.can_create_permanent,
         max_files: maxFiles,

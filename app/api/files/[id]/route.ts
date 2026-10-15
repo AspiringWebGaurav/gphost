@@ -229,6 +229,26 @@ export async function DELETE(
       })
       .eq("id", fileId);
 
+    // 5.1. Authoritatively sync profile storage_used_bytes to actual remaining active files
+    try {
+      const { data: remainingFiles } = await adminClient
+        .from("files")
+        .select("byte_size")
+        .eq("user_id", file.user_id)
+        .in("status", ["ACTIVE", "EXPIRING"]);
+      const updatedStorageBytes = (remainingFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: updatedStorageBytes,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", file.user_id);
+    } catch (syncErr) {
+      console.warn("Storage profile sync warning after deletion:", syncErr);
+    }
+
     // Record Audit Log
     try {
       await adminClient.from("audit_logs").insert({

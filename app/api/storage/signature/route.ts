@@ -1,19 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { requireApprovedUser } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/storage/signature
  * Smart Conditional Storage Tracker with ETag and 304 Not Modified.
- * Extremely lightweight (<15ms response): returns 304 if no change has occurred.
+ * Self-healing: authoritatively verifies active file storage and fixes any profile drift.
  */
 export async function GET(req: NextRequest) {
   try {
     const { user, profile } = await requireApprovedUser();
-    // Use profile already memoized from requireApprovedUser() for zero extra DB query overhead
-    const storageUsedBytes = profile.storage_used_bytes;
+    const adminClient = createAdminClient();
+
+    // Query active files to compute true active storage bytes
+    const { data: activeFiles } = await adminClient
+      .from("files")
+      .select("byte_size")
+      .eq("user_id", user.id)
+      .in("status", ["ACTIVE", "EXPIRING"]);
+
+    const trueStorageUsedBytes = (activeFiles || []).reduce(
+      (sum, f) => sum + (f.byte_size || 0),
+      0
+    );
+
+    // Self-heal profile if storage_used_bytes drifted or was out of sync
+    let storageUsedBytes = profile.storage_used_bytes;
+    if (storageUsedBytes !== trueStorageUsedBytes) {
+      storageUsedBytes = trueStorageUsedBytes;
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: trueStorageUsedBytes,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+    }
+
     const quotaBytes = profile.quota_bytes;
     const reservedBytes = profile.reserved_bytes;
     const updatedAt = profile.updated_at || new Date().toISOString();

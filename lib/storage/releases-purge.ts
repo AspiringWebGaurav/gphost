@@ -216,7 +216,8 @@ export async function purgeStaleReleaseBinaries(
     const { data: remainingFiles } = await adminClient
       .from("files")
       .select("id, byte_size, sanitized_name, filename")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .in("status", ["ACTIVE", "EXPIRING"]);
 
     const totalUsed = (remainingFiles || []).reduce((acc, f) => acc + (f.byte_size || 0), 0);
 

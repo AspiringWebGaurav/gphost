@@ -134,7 +134,10 @@ if (latestActiveOta) {
 }
 
 // 5. Recalculate profile storage usage
-const { data: remainingFiles } = await supabase.from("files").select("byte_size");
+const { data: remainingFiles } = await supabase
+  .from("files")
+  .select("byte_size")
+  .in("status", ["ACTIVE", "EXPIRING"]);
 const totalUsed = (remainingFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
 
 await supabase

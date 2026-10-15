@@ -43,6 +43,18 @@ export function StorageProvider({
   const [realtimeConnected, setRealtimeConnected] = useState<boolean>(false);
 
   const isAdmin = initialProfile.role === "admin";
+
+  // Self-healing guard: if there are 0 active files, storageUsedBytes cannot be > 0
+  useEffect(() => {
+    if (activeFilesCount === 0 && storageUsedBytes > 0) {
+      setStorageUsedBytes(0);
+      storageEvents.emit("storage:updated", {
+        storageUsedBytes: 0,
+        activeFilesCount: 0,
+        source: "local_optimistic",
+      });
+    }
+  }, [activeFilesCount, storageUsedBytes]);
   const isUnlimited = quotaBytes === -1 || isAdmin;
 
   const realtimeConnectedRef = useRef<boolean>(false);

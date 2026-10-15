@@ -513,6 +513,24 @@ export async function deleteFolder(
       reclaimedBytes += file.byte_size || 0;
       deletedFilesCount++;
     }
+
+    // Authoritatively sync profile storage_used_bytes
+    try {
+      const { data: remainingFiles } = await adminClient
+        .from("files")
+        .select("byte_size")
+        .eq("user_id", userId)
+        .in("status", ["ACTIVE", "EXPIRING"]);
+      const updatedStorageBytes = (remainingFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: updatedStorageBytes,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+    } catch {}
   }
 
   // 3. Delete folders

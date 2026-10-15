@@ -56,17 +56,30 @@ export async function GET() {
     const activeFilesCount = activeFiles?.length || 0;
     const computedByteSize = (activeFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
 
-    // Refresh profile quota state
+    // Refresh profile quota state & self-heal if drifted
     const { data: currentProfile } = await adminClient
       .from("profiles")
       .select("quota_bytes, storage_used_bytes, reserved_bytes")
       .eq("id", user.id)
       .single();
 
+    let storageUsed = currentProfile?.storage_used_bytes ?? profile.storage_used_bytes;
+    if (storageUsed !== computedByteSize) {
+      storageUsed = computedByteSize;
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: computedByteSize,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+    }
+
     return NextResponse.json({
       success: true,
       userId: user.id,
-      storageUsedBytes: currentProfile?.storage_used_bytes ?? profile.storage_used_bytes,
+      storageUsedBytes: storageUsed,
       computedByteSize,
       quotaBytes: currentProfile?.quota_bytes ?? profile.quota_bytes,
       reservedBytes: currentProfile?.reserved_bytes ?? profile.reserved_bytes,
