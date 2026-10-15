@@ -96,11 +96,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Category filter
-      if (category === "gpn") {
-        q = q.or("sanitized_name.ilike.%gpn%,filename.ilike.%gpn%");
-      } else if (category === "api") {
-        q = q.or("sanitized_name.ilike.%gpn%,filename.ilike.%gpn%,filename.ilike.%.exe,filename.ilike.%.sig,filename.ilike.%.msi,filename.ilike.%.zip");
-      } else if (category === "websites") {
+      if (category === "websites") {
         q = q.or("mime_type.eq.text/html,filename.ilike.%.html,filename.ilike.%.htm");
       } else if (category === "images") {
         q = q.like("mime_type", "image/%");
@@ -253,19 +249,13 @@ export async function GET(req: NextRequest) {
         f.sanitized_name?.toLowerCase().endsWith(".html") ||
         f.sanitized_name?.toLowerCase().endsWith(".htm");
 
-      const isGpn =
-        f.sanitized_name?.toLowerCase().includes("gpn") ||
-        f.filename?.toLowerCase().includes("gpn") ||
-        shareSlug === "gpn-app" ||
-        shareSlug === "gpn-app-sig";
       const isApiUpload = Boolean(
         f.sha256 ||
         f.is_release_locked ||
-        isGpn ||
         apiManagedFileIds.has(f.id)
       );
       const dynamicFolder = extractFolderFromR2Key(f.r2_key);
-      const folder = dynamicFolder || (isGpn ? "gpn" : (isApiUpload ? "api" : null));
+      const folder = dynamicFolder || null;
 
       return {
         id: f.id,

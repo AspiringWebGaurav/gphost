@@ -91,19 +91,31 @@ export async function purgeStaleReleaseBinaries(
     // -------------------------------------------------------------------------
     // LAYER 1: Server Database & Metadata Scan
     // -------------------------------------------------------------------------
-    // Query all files matching GPN installer patterns
-    const gpnFiles = allFiles.filter((f) => {
+    // Query all files matching app release patterns
+    const isGpnApp = appId.toLowerCase() === "gpn";
+    const appFiles = allFiles.filter((f) => {
       const name = (f.sanitized_name || f.filename || "").toLowerCase();
+      if (isGpnApp) {
+        return (
+          name.includes("gaurav personal notes") ||
+          name.includes("gpn") ||
+          name.endsWith(".exe") ||
+          name.endsWith(".msi") ||
+          name.endsWith(".nsis.zip")
+        );
+      }
       return (
-        name.includes("gaurav personal notes") ||
-        name.includes("gpn") ||
+        name.includes(appId.toLowerCase()) ||
         name.endsWith(".exe") ||
         name.endsWith(".msi") ||
-        name.endsWith(".nsis.zip")
+        name.endsWith(".zip") ||
+        name.endsWith(".dmg") ||
+        name.endsWith(".appimage") ||
+        name.endsWith(".deb")
       );
     });
 
-    for (const file of gpnFiles) {
+    for (const file of appFiles) {
       // Rule: Never delete Base 0.0.0 installer
       if (baseFileId && file.id === baseFileId) continue;
       // Rule: Never delete newly published / target binary
@@ -174,9 +186,15 @@ export async function purgeStaleReleaseBinaries(
     // LAYER 2: Cloudflare R2 Direct Reconciliation Sweep
     // Physical bucket scan for orphaned/untracked binary payloads
     // -------------------------------------------------------------------------
+    const purgedIds = new Set(layer1_purged_files.map((p) => p.id));
     const allowedR2Keys = new Set<string>();
     if (baseFile?.r2_key) allowedR2Keys.add(baseFile.r2_key);
     if (targetFile?.r2_key) allowedR2Keys.add(targetFile.r2_key);
+    for (const f of allFiles) {
+      if (!purgedIds.has(f.id) && f.r2_key) {
+        allowedR2Keys.add(f.r2_key);
+      }
+    }
 
     try {
       const userPrefix = `u/${userId}/`;

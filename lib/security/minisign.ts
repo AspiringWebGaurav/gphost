@@ -234,9 +234,19 @@ export function verifyMinisignSignature(
 
     // 4. If trusted comment and global signature exist, verify global signature
     if (sig.trustedComment && sig.globalSignature) {
-      const commentText = sig.trustedComment.replace(/^trusted comment:\s*/, "");
-      const globalData = Buffer.concat([sig.rawSignature, Buffer.from(commentText, "utf8")]);
-      const globalValid = crypto.verify(null, globalData, importedPubKey, sig.globalSignature);
+      const fullComment = sig.trustedComment.startsWith("trusted comment:")
+        ? sig.trustedComment
+        : `trusted comment: ${sig.trustedComment}`;
+      const globalData = Buffer.concat([sig.rawSignature, Buffer.from(fullComment, "utf8")]);
+      let globalValid = crypto.verify(null, globalData, importedPubKey, sig.globalSignature);
+
+      if (!globalValid) {
+        // Fallback for custom signers that only hashed the comment body without prefix
+        const commentText = sig.trustedComment.replace(/^trusted comment:\s*/, "");
+        const fallbackData = Buffer.concat([sig.rawSignature, Buffer.from(commentText, "utf8")]);
+        globalValid = crypto.verify(null, fallbackData, importedPubKey, sig.globalSignature);
+      }
+
       if (!globalValid) {
         return {
           valid: false,

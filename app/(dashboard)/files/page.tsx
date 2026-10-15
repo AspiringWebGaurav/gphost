@@ -124,19 +124,13 @@ export default async function FilesPage() {
     const xurlShortUrl = xurl?.status === "active" ? xurl.xurl_short_url : null;
     const xurlStatus = xurl?.status || null;
 
-    const isGpn =
-      f.sanitized_name?.toLowerCase().includes("gpn") ||
-      f.filename?.toLowerCase().includes("gpn") ||
-      shareSlug === "gpn-app" ||
-      shareSlug === "gpn-app-sig";
     const isApiUpload = Boolean(
       f.sha256 ||
       f.is_release_locked ||
-      isGpn ||
       apiManagedFileIds.has(f.id)
     );
     const dynamicFolder = extractFolderFromR2Key(f.r2_key);
-    const folder = dynamicFolder || (isGpn ? "gpn" : (isApiUpload ? "api" : null));
+    const folder = dynamicFolder || null;
 
     return {
       id: f.id,

@@ -315,17 +315,16 @@ export async function POST(req: NextRequest) {
       );
 
       // 2. Old binary cleanup / archiving
-      const isGpn =
+      const isReleaseBinary =
+        Boolean(existingFile.is_release_locked) ||
         existingSlug === "gpn-app" ||
-        existingSlug === "gpn-app-sig" ||
-        existingFile.sanitized_name?.toLowerCase().includes("gpn") ||
-        existingFile.filename?.toLowerCase().includes("gpn");
+        existingSlug === "gpn-app-sig";
 
       const shouldDeletePrevious =
         formData.get("delete_previous") === "true" ||
         formData.get("deletePrevious") === "true" ||
         req.headers.get("x-delete-previous") === "true" ||
-        isGpn;
+        isReleaseBinary;
 
       let archivedVersion = 1;
       if (shouldDeletePrevious) {
@@ -502,17 +501,16 @@ export async function POST(req: NextRequest) {
       }
 
       // Mode B Step 2: Old binary cleanup / archiving
-      const isGpn =
+      const isReleaseBinary =
+        Boolean((existingFile as any).is_release_locked) ||
         stagedPayload.slug === "gpn-app" ||
-        stagedPayload.slug === "gpn-app-sig" ||
-        existingFile.sanitized_name?.toLowerCase().includes("gpn") ||
-        existingFile.filename?.toLowerCase().includes("gpn");
+        stagedPayload.slug === "gpn-app-sig";
 
       const shouldDeletePrevious =
         body.delete_previous === true ||
         body.deletePrevious === true ||
         req.headers.get("x-delete-previous") === "true" ||
-        isGpn;
+        isReleaseBinary;
 
       let archivedVersion = 1;
       if (shouldDeletePrevious) {

@@ -195,7 +195,7 @@ export async function listFolderContents(
   if (!options?.recursive) {
     files = files.filter((f) => {
       if (!norm) {
-        return !f.folder || f.folder === "gpn" || f.folder === "api";
+        return !f.folder;
       }
       return f.folder === norm;
     });
@@ -268,14 +268,6 @@ export async function relocateFolder(
 ): Promise<{ oldPath: string; newPath: string; updatedFolders: number; updatedFiles: number }> {
   if (oldNorm === newNorm) {
     return { oldPath: oldNorm, newPath: newNorm, updatedFolders: 0, updatedFiles: 0 };
-  }
-
-  // Base installer permanence guard
-  if (oldNorm.toLowerCase() === "gpn" || oldNorm.toLowerCase().startsWith("gpn/")) {
-    const err = new Error("BASE_INSTALLER_PROTECTED: Gaurav Personal Notes v0.0.0 installer is permanently protected.");
-    (err as any).code = "BASE_INSTALLER_PROTECTED";
-    (err as any).status = 403;
-    throw err;
   }
 
   const adminClient = createAdminClient();
@@ -449,14 +441,6 @@ export async function deleteFolder(
 ): Promise<{ deletedFolders: number; deletedFiles: number; reclaimedBytes: number }> {
   const norm = normalizeFolderPath(path);
   if (!norm) throw new Error("Root folder cannot be deleted");
-
-  // Base v0.0.0 installer permanence guard
-  if (norm.toLowerCase() === "gpn" || norm.toLowerCase().startsWith("gpn/")) {
-    const err = new Error("BASE_INSTALLER_PROTECTED: Gaurav Personal Notes v0.0.0 installer is permanently protected.");
-    (err as any).code = "BASE_INSTALLER_PROTECTED";
-    (err as any).status = 403;
-    throw err;
-  }
 
   const adminClient = createAdminClient();
 
