@@ -4,8 +4,8 @@ import { useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-// 30-minute background idle timeout window
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+// 2-hour background idle timeout window
+const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 // Throttle activity updates to once every 15 seconds to avoid performance overhead
 const THROTTLE_MS = 15 * 1000;
 
@@ -32,9 +32,9 @@ function getStoredLastActive(): number {
 /**
  * IdleSessionMonitor:
  * - Keeps live/active users logged in continuously without interruption.
- * - Detects true background inactivity (no interaction for 30 consecutive minutes).
+ * - Detects true background inactivity (no interaction for 2 consecutive hours).
  * - Synchronizes activity across all open browser tabs via localStorage.
- * - Gracefully signs out and redirects to /login?reason=idle_timeout when 30 minutes of complete inactivity occurs.
+ * - Gracefully signs out and redirects to /login?reason=idle_timeout when 2 hours of complete inactivity occurs.
  */
 export function IdleSessionMonitor() {
   const router = useRouter();
