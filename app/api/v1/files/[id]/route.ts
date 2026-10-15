@@ -213,6 +213,18 @@ export async function PATCH(
     }
 
     if (newR2Key && newR2Key !== file.r2_key && file.r2_key) {
+      if (
+        file.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
+        file.r2_key === "cb08c84f-e25f-4a0b-a19c-88c9dfdcf3dc.exe"
+      ) {
+        return NextResponse.json(
+          {
+            error: "Forbidden: Base v0.0.0 installer is permanently isolated and cannot be moved.",
+            code: "BASE_INSTALLER_PROTECTED",
+          },
+          { status: 403 }
+        );
+      }
       const moved = await moveR2Object(file.r2_key, newR2Key);
       if (!moved) {
         return NextResponse.json({ error: "Failed to move file in storage bucket" }, { status: 500 });

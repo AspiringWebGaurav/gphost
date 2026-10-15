@@ -47,7 +47,10 @@ import {
   Flame,
   RotateCcw,
   Package,
+  FolderPlus,
+  FolderInput,
 } from "lucide-react";
+import { sanitizeFolderName } from "@/lib/storage/folders";
 import { QRCodeSVG } from "qrcode.react";
 import {
   downloadQrCodePng,
@@ -257,7 +260,7 @@ export function mapDbToFileItem(
     xurl_short_url: (raw.xurl_short_url as string | null) || null,
     xurl_status: (raw.xurl_status as string | null) || null,
     is_api_upload: isApiUpload,
-    folder: isGpn ? "gpn" : (isApiUpload ? "api" : null),
+    folder: (raw.folder as string | null) || (isGpn ? "gpn" : (isApiUpload ? "api" : null)),
     sha256: (raw.sha256 as string | null) || null,
     is_release_locked: Boolean(raw.is_release_locked),
   };
@@ -377,6 +380,28 @@ export function FileManager({
   const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Custom Dynamic Folders State
+  const [customFolders, setCustomFolders] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("gphost_custom_folders");
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return ["gpn-dynamic-update"];
+  });
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderNameInput, setNewFolderNameInput] = useState("");
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+
+  // Bulk Delete & Move State
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ current: number; total: number } | null>(null);
+  const [showMoveFolderModal, setShowMoveFolderModal] = useState(false);
+  const [targetMoveFolder, setTargetMoveFolder] = useState("");
+  const [isMovingFiles, setIsMovingFiles] = useState(false);
 
   const handleOpenZipViewer = async (file: SafeFileItem) => {
     setOpeningZipId(file.id);
@@ -1027,6 +1052,173 @@ export function FileManager({
     }
   };
 
+  const isBaseInstaller = useCallback(
+    (file: SafeFileItem) =>
+      file.share_slug === "gpn-app" ||
+      file.share_slug === "gpn-app-sig" ||
+      file.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe",
+    []
+  );
+
+  const selectedFiles = React.useMemo(
+    () => files.filter((f) => selectedFileIds.has(f.id)),
+    [files, selectedFileIds]
+  );
+
+  const protectedFiles = React.useMemo(
+    () => selectedFiles.filter((f) => isBaseInstaller(f)),
+    [selectedFiles, isBaseInstaller]
+  );
+
+  const deletableFiles = React.useMemo(
+    () => selectedFiles.filter((f) => !isBaseInstaller(f)),
+    [selectedFiles, isBaseInstaller]
+  );
+
+  const handleBulkDeleteConfirm = async () => {
+    if (deletableFiles.length === 0) {
+      setShowBulkDeleteModal(false);
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    setBulkDeleteProgress({ current: 0, total: deletableFiles.length });
+
+    const deletedIds: string[] = [];
+    let completed = 0;
+
+    for (const file of deletableFiles) {
+      try {
+        const forceParam = file.is_release_locked ? "?force=true" : "";
+        const res = await authFetch(`/api/files/${file.id}${forceParam}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmReleaseDeletion: true }),
+        });
+        if (res.ok || res.status === 404) {
+          deletedIds.push(file.id);
+          storageEvents.emit("file:lifecycle", {
+            fileId: file.id,
+            size: file.byte_size,
+            action: "deleted",
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to delete file ${file.id}:`, err);
+      } finally {
+        completed++;
+        setBulkDeleteProgress({ current: completed, total: deletableFiles.length });
+      }
+    }
+
+    if (deletedIds.length > 0) {
+      const deletedSet = new Set(deletedIds);
+      setFiles((prev) => prev.filter((f) => !deletedSet.has(f.id)));
+      setTotalCount((c) => Math.max(0, c - deletedIds.length));
+      setSelectedFileIds(new Set());
+      setLastLiveAction({
+        message: `Deleted ${deletedIds.length} ${deletedIds.length === 1 ? "file" : "files"}`,
+        timestamp: Date.now(),
+      });
+    }
+
+    setIsBulkDeleting(false);
+    setBulkDeleteProgress(null);
+    setShowBulkDeleteModal(false);
+  };
+
+  const handleMoveFilesToFolder = async (folderName: string) => {
+    const cleanFolder = sanitizeFolderName(folderName);
+    if (!cleanFolder || selectedFiles.length === 0) return;
+
+    setIsMovingFiles(true);
+    const movedIds: string[] = [];
+
+    for (const file of selectedFiles) {
+      try {
+        const res = await authFetch(`/api/files/${file.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folder: cleanFolder, moveFolder: cleanFolder }),
+        });
+        if (res.ok) {
+          movedIds.push(file.id);
+        }
+      } catch (err) {
+        console.error(`Failed to move file ${file.id}:`, err);
+      }
+    }
+
+    if (movedIds.length > 0) {
+      const movedSet = new Set(movedIds);
+      setFiles((prev) =>
+        prev.map((f) => (movedSet.has(f.id) ? { ...f, folder: cleanFolder } : f))
+      );
+      setCustomFolders((prev) => {
+        const next = Array.from(new Set([...prev, cleanFolder]));
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setSelectedFileIds(new Set());
+      setLastLiveAction({
+        message: `Moved ${movedIds.length} ${movedIds.length === 1 ? "file" : "files"} to ${cleanFolder}`,
+        timestamp: Date.now(),
+      });
+    }
+
+    setIsMovingFiles(false);
+    setShowMoveFolderModal(false);
+    setTargetMoveFolder("");
+  };
+
+  const handleCreateNewFolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = sanitizeFolderName(newFolderNameInput);
+    if (!clean) {
+      setNewFolderError("Please enter a valid folder name (alphanumeric, dashes)");
+      return;
+    }
+    if (clean.length < 2) {
+      setNewFolderError("Folder name must be at least 2 characters");
+      return;
+    }
+    setCustomFolders((prev) => {
+      const next = Array.from(new Set([...prev, clean]));
+      try {
+        localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setCategory(clean);
+    setShowNewFolderModal(false);
+    setNewFolderNameInput("");
+    setNewFolderError(null);
+    setLastLiveAction({
+      message: `Folder '${clean}' active`,
+      timestamp: Date.now(),
+    });
+  };
+
+  const handleDeleteCustomFolder = (folderName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCustomFolders((prev) => {
+      const next = prev.filter((f) => f !== folderName);
+      try {
+        localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    if (category === folderName) {
+      setCategory("all");
+    }
+    setLastLiveAction({
+      message: `Removed folder '${folderName}'`,
+      timestamp: Date.now(),
+    });
+  };
+
   const handleCreateShare = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFileForShare) return;
@@ -1129,6 +1321,27 @@ export function FileManager({
     (f) => f.is_api_upload || Boolean(f.sha256) || Boolean(f.is_release_locked)
   ).length;
 
+  const allDynamicFolders = React.useMemo(() => {
+    const system = new Set(["all", "gpn", "api", "websites", "images", "documents", "media", "archives"]);
+    const set = new Set<string>(customFolders);
+    for (const f of files) {
+      if (f.folder && !system.has(f.folder)) {
+        set.add(f.folder);
+      }
+    }
+    return Array.from(set);
+  }, [customFolders, files]);
+
+  const dynamicFolderItems = allDynamicFolders.map((fName) => ({
+    id: fName,
+    name: fName,
+    count: files.filter((f) => f.folder === fName).length,
+    icon: Folder,
+    isCustom: true,
+    color: "text-blue-600 dark:text-blue-400",
+    bg: "bg-blue-500/10 border-blue-500/20",
+  }));
+
   const FOLDERS = [
     { id: "all", name: "All Files", count: totalCount, icon: Folder, color: "text-amber-500", bg: "bg-amber-500/10 border-amber-500/20" },
     {
@@ -1149,6 +1362,7 @@ export function FileManager({
       color: "text-purple-600 dark:text-purple-400",
       bg: "bg-purple-500/10 border-purple-500/30",
     },
+    ...dynamicFolderItems,
     {
       id: "websites",
       name: "GP-Sites",
@@ -1217,26 +1431,42 @@ export function FileManager({
             <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
             <span>Suggested folders</span>
           </span>
-          {category !== "all" && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setCategory("all")}
-              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
+              type="button"
+              onClick={() => {
+                setNewFolderNameInput("");
+                setNewFolderError(null);
+                setShowNewFolderModal(true);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
+              title="Create new custom dynamic folder (e.g. gpn-dynamic-update)"
             >
-              <span>View all files</span>
-              <ChevronRight className="w-3 h-3" />
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span>New Folder</span>
             </button>
-          )}
+            {category !== "all" && (
+              <button
+                onClick={() => setCategory("all")}
+                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
+              >
+                <span>View all files</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-4 lg:grid-cols-8 sm:overflow-visible">
           {FOLDERS.map((f) => {
             const isSelected = category === f.id;
             const FolderIcon = f.icon || Folder;
+            const isCustom = "isCustom" in f && Boolean(f.isCustom);
             return (
-              <button
+              <div
                 key={f.id}
                 onClick={() => setCategory(f.id)}
-                className={`shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
+                className={`relative shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
                   isSelected
                     ? f.id === "gpn"
                       ? "bg-violet-500/15 border-violet-500/50 text-violet-600 dark:text-violet-300 shadow-2xs font-semibold ring-1 ring-violet-500/40"
@@ -1265,7 +1495,17 @@ export function FileManager({
                     {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
                   </div>
                 </div>
-              </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteCustomFolder(f.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 hover:text-rose-600 rounded-md transition text-muted-foreground cursor-pointer shrink-0"
+                    title={`Remove folder '${f.id}' from quick list`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -1494,32 +1734,81 @@ export function FileManager({
         </div>
       )}
 
-      {/* 3. Section Title */}
+      {/* 3. Section Title & Master Select All Checkbox */}
       <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5 pt-1">
-        <span className="font-semibold text-foreground">
-          {category === "all"
-            ? "Suggested files"
-            : category === "gpn"
-            ? "📁 gpn Binary Release Distribution"
-            : category === "api"
-            ? "⚡ Owner API Uploads"
-            : `${category.charAt(0).toUpperCase() + category.slice(1)} files`}
-        </span>
+        <div className="flex items-center gap-2.5">
+          {files.length > 0 && (
+            <label className="flex items-center gap-2 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={files.length > 0 && files.every((f) => selectedFileIds.has(f.id))}
+                ref={(el) => {
+                  if (el) {
+                    const allSelected = files.length > 0 && files.every((f) => selectedFileIds.has(f.id));
+                    const someSelected = files.some((f) => selectedFileIds.has(f.id));
+                    el.indeterminate = !allSelected && someSelected;
+                  }
+                }}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedFileIds(new Set(files.map((f) => f.id)));
+                  } else {
+                    setSelectedFileIds(new Set());
+                  }
+                }}
+                className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer transition accent-blue-600"
+              />
+              <span className="text-xs font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
+                {selectedFileIds.size > 0 && selectedFileIds.size === files.length
+                  ? "Deselect all"
+                  : `Select all (${files.length})`}
+              </span>
+            </label>
+          )}
+          <span className="text-muted-foreground hidden sm:inline">
+            •{" "}
+            {category === "all"
+              ? "Suggested files"
+              : category === "gpn"
+              ? "📁 gpn Binary Release Distribution"
+              : category === "api"
+              ? "⚡ Owner API Uploads"
+              : `📁 ${category} files`}
+          </span>
+        </div>
         <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
       </div>
 
       {/* Batch Selection Toolbar */}
       {selectedFileIds.size > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-foreground shadow-sm animate-in fade-in duration-150">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" />
             <span className="font-semibold text-blue-600 dark:text-blue-400">
               {selectedFileIds.size} {selectedFileIds.size === 1 ? "file" : "files"} selected
             </span>
+            {protectedFiles.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
+                1 permanently protected (v0.0.0)
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
+              type="button"
+              onClick={() => {
+                setTargetMoveFolder("");
+                setShowMoveFolderModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium transition cursor-pointer shadow-xs active:scale-[0.98]"
+              title="Move selected files to a folder"
+            >
+              <FolderInput className="w-3.5 h-3.5 text-blue-500" />
+              <span>Move to Folder</span>
+            </button>
+            <button
+              type="button"
               onClick={handleBatchZipDownload}
               disabled={zippingProgress !== null}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer shadow-xs disabled:opacity-50"
@@ -1539,6 +1828,16 @@ export function FileManager({
               )}
             </button>
             <button
+              type="button"
+              onClick={() => setShowBulkDeleteModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-semibold transition cursor-pointer shadow-xs"
+              title="Delete selected files"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedFileIds.size})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setSelectedFileIds(new Set())}
               className="px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
             >
@@ -1590,7 +1889,9 @@ export function FileManager({
                 <div
                   key={file.id}
                   className={`relative rounded-2xl border ${
-                    highlightedIds.has(file.id)
+                    selectedFileIds.has(file.id)
+                      ? "border-blue-500 ring-2 ring-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10 shadow-md"
+                      : highlightedIds.has(file.id)
                       ? "border-blue-500 ring-2 ring-blue-500/60 bg-blue-500/5 dark:bg-blue-500/10 shadow-md scale-[1.01] animate-in fade-in slide-in-from-top-2 duration-300"
                       : isExpired
                       ? "border-rose-500/35 bg-rose-500/[0.02]"
@@ -1645,6 +1946,15 @@ export function FileManager({
                             >
                               <Package className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
                               <span>gpn</span>
+                            </span>
+                          )}
+                          {file.folder && file.folder !== "gpn" && file.folder !== "api" && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-blue-500/10 border border-blue-500/25 text-blue-600 dark:text-blue-300 shadow-2xs shrink-0 select-none"
+                              title={`Folder: ${file.folder}`}
+                            >
+                              <Folder className="w-2.5 h-2.5 text-blue-500" />
+                              <span>{file.folder}</span>
                             </span>
                           )}
                           {file.is_release_locked && (
@@ -2022,7 +2332,9 @@ export function FileManager({
                 <div
                   key={file.id}
                   className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-300 group ${
-                    highlightedIds.has(file.id)
+                    selectedFileIds.has(file.id)
+                      ? "bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-l-blue-500 shadow-xs"
+                      : highlightedIds.has(file.id)
                       ? "bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-l-blue-500 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300"
                       : isExpired
                       ? "bg-rose-500/[0.02] dark:bg-rose-500/[0.04] hover:bg-rose-500/[0.06] border-l-2 border-l-rose-500/60"
@@ -2075,6 +2387,15 @@ export function FileManager({
                           >
                             <Package className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
                             <span>gpn</span>
+                          </span>
+                        )}
+                        {file.folder && file.folder !== "gpn" && file.folder !== "api" && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-blue-500/10 border border-blue-500/25 text-blue-600 dark:text-blue-300 shadow-2xs shrink-0 select-none"
+                            title={`Folder: ${file.folder}`}
+                          >
+                            <Folder className="w-2.5 h-2.5 text-blue-500" />
+                            <span>{file.folder}</span>
                           </span>
                         )}
                         {file.is_release_locked && (
@@ -4101,6 +4422,288 @@ export function FileManager({
           );
         }}
       />
+
+      {/* Create New Dynamic Folder Modal */}
+      {showNewFolderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Create New Folder
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Organize files into custom or API-controlled dynamic folders
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewFolderModal(false)}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewFolder} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  Folder Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. gpn-dynamic-update"
+                  value={newFolderNameInput}
+                  onChange={(e) => {
+                    setNewFolderNameInput(e.target.value);
+                    setNewFolderError(null);
+                  }}
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Use lowercase letters, numbers, and hyphens. Files uploaded with this folder via API or moved here will be grouped automatically.
+                </p>
+                {newFolderError && (
+                  <p className="text-xs text-rose-500 font-medium">{newFolderError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowNewFolderModal(false)}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span>Create Folder</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Move Files to Folder Modal */}
+      {showMoveFolderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <FolderInput className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Move Files to Folder
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Move {selectedFiles.length} {selectedFiles.length === 1 ? "file" : "files"} to a target folder
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMoveFolderModal(false)}
+                disabled={isMovingFiles}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-semibold text-foreground">
+                Select Existing Folder or Enter New Name
+              </label>
+
+              {allDynamicFolders.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {allDynamicFolders.map((fName) => (
+                    <button
+                      key={fName}
+                      type="button"
+                      onClick={() => setTargetMoveFolder(fName)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                        targetMoveFolder === fName
+                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                          : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                      }`}
+                    >
+                      <Folder className="w-3 h-3" />
+                      <span>{fName}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <input
+                type="text"
+                placeholder="Or enter custom folder (e.g. gpn-dynamic-update)"
+                value={targetMoveFolder}
+                onChange={(e) => setTargetMoveFolder(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowMoveFolderModal(false)}
+                disabled={isMovingFiles}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMoveFilesToFolder(targetMoveFolder)}
+                disabled={isMovingFiles || !targetMoveFolder.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isMovingFiles ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Moving...</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderInput className="w-3.5 h-3.5" />
+                    <span>Move Files</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Delete {deletableFiles.length} Selected {deletableFiles.length === 1 ? "File" : "Files"}?
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Storage will be reclaimed permanently
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isBulkDeleting && setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Base Installer Protection Notice */}
+            {protectedFiles.length > 0 && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                <div>
+                  <p className="font-semibold">Base Installer Permanently Protected</p>
+                  <p className="text-[11px] mt-0.5 text-amber-700/80 dark:text-amber-400/80">
+                    Gaurav Personal Notes v0.0.0 Base Installer is protected for public website downloads and will NOT be deleted.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Storage Reclamation Summary */}
+            <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+              <div className="flex items-center justify-between font-medium">
+                <span className="text-muted-foreground">Files to be purged:</span>
+                <span className="font-semibold text-foreground">{deletableFiles.length}</span>
+              </div>
+              <div className="flex items-center justify-between font-medium">
+                <span className="text-muted-foreground">Reclaimed storage:</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
+                  {formatBytes(deletableFiles.reduce((acc, f) => acc + f.byte_size, 0))}
+                </span>
+              </div>
+              <div className="max-h-32 overflow-y-auto space-y-1 pt-1.5 border-t border-border/60">
+                {deletableFiles.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span className="truncate max-w-[240px]">{f.sanitized_name}</span>
+                    <span className="font-mono text-[10px] shrink-0">{formatBytes(f.byte_size)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Bulk Delete Progress Bar */}
+            {bulkDeleteProgress && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Purging files from Cloudflare R2...</span>
+                  <span className="font-mono font-semibold">
+                    {bulkDeleteProgress.current} / {bulkDeleteProgress.total}
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-rose-500 transition-all duration-200"
+                    style={{
+                      width: `${Math.round((bulkDeleteProgress.current / bulkDeleteProgress.total) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Modal Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteConfirm}
+                disabled={isBulkDeleting || deletableFiles.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete {deletableFiles.length} Files</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

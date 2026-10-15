@@ -3,6 +3,7 @@ import { authenticateRequest, getApiManagedFileIds } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { scheduleOpportunisticLifecycleSweep } from "@/lib/storage/lifecycle";
 import { redis } from "@/lib/redis/client";
+import { extractFolderFromR2Key } from "@/lib/storage/folders";
 
 export const dynamic = "force-dynamic";
 
@@ -52,8 +53,10 @@ export async function GET(req: NextRequest) {
       // Ignore if outside after context
     }
 
+
+
     // PostgREST query helper strictly bound to the authenticated user (Tenant Isolation)
-    const selectWithRelease = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked,
+    const selectWithRelease = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked, r2_key,
          share_links (
            id,
            slug,
@@ -65,7 +68,7 @@ export async function GET(req: NextRequest) {
            )
          )`;
 
-    const selectStandard = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+    const selectStandard = `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, r2_key,
          share_links (
            id,
            slug,
@@ -122,6 +125,8 @@ export async function GET(req: NextRequest) {
           "application/vnd.rar",
           "application/x-zip-compressed",
         ]);
+      } else if (category && category !== "all") {
+        q = q.ilike("r2_key", `${category}/%`);
       }
 
       const sortColumn = sortBy === "recent" ? "created_at" : sortBy;
@@ -226,6 +231,7 @@ export async function GET(req: NextRequest) {
       created_at: string;
       sha256?: string | null;
       is_release_locked?: boolean;
+      r2_key?: string | null;
       share_links?: DbShareLink | DbShareLink[] | null;
     }
 
@@ -258,7 +264,8 @@ export async function GET(req: NextRequest) {
         isGpn ||
         apiManagedFileIds.has(f.id)
       );
-      const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
+      const dynamicFolder = extractFolderFromR2Key(f.r2_key);
+      const folder = dynamicFolder || (isGpn ? "gpn" : (isApiUpload ? "api" : null));
 
       return {
         id: f.id,

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getApiManagedFileIds } from "@/lib/auth/api-keys";
+import { extractFolderFromR2Key } from "@/lib/storage/folders";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +31,14 @@ export default async function FilesPage() {
   const apiManagedFileIds = await getApiManagedFileIds(user.id);
 
   // Initial Server-Side Query (Page 1, pageSize 20) with schema fallback
-  // STRICT PRIVACY: r2_key, r2_upload_id, r2_etag are strictly omitted from select
+  // STRICT PRIVACY: r2_key is used server-side only to extract folder prefix and never passed to client
   let initialFilesRaw: any[] | null = null;
   let count: number | null = 0;
 
   const primaryRes = await adminClient
     .from("files")
     .select(
-      `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked,
+      `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, sha256, is_release_locked, r2_key,
        share_links (
          id,
          slug,
@@ -59,7 +60,7 @@ export default async function FilesPage() {
     const fallbackRes = await adminClient
       .from("files")
       .select(
-        `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at,
+        `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, r2_key,
          share_links (
            id,
            slug,
@@ -105,6 +106,7 @@ export default async function FilesPage() {
     created_at: string;
     sha256?: string | null;
     is_release_locked?: boolean;
+    r2_key?: string | null;
     share_links?: DbShareLink | DbShareLink[] | null;
   }
 
@@ -133,7 +135,8 @@ export default async function FilesPage() {
       isGpn ||
       apiManagedFileIds.has(f.id)
     );
-    const folder = isGpn ? "gpn" : (isApiUpload ? "api" : null);
+    const dynamicFolder = extractFolderFromR2Key(f.r2_key);
+    const folder = dynamicFolder || (isGpn ? "gpn" : (isApiUpload ? "api" : null));
 
     return {
       id: f.id,
