@@ -221,7 +221,7 @@ export function StorageProvider({
           }
         }
       )
-      // B. File additions & deletions pushed live via WebSocket
+      // B. File additions, updates, and deletions pushed live via WebSocket
       .on(
         "postgres_changes",
         {
@@ -230,13 +230,65 @@ export function StorageProvider({
           table: "files",
           filter: `user_id=eq.${initialUserId}`,
         },
-        (payload: { eventType: string }) => {
+        (payload: {
+          eventType: string;
+          new?: Record<string, unknown>;
+          old?: Record<string, unknown>;
+        }) => {
           if (!isMountedRef.current) return;
-          if (payload.eventType === "INSERT") {
+          if (payload.eventType === "INSERT" && payload.new) {
             setActiveFilesCount((c) => c + 1);
-          } else if (payload.eventType === "DELETE") {
+            storageEvents.emit("file:lifecycle", {
+              fileId: (payload.new.id as string) || "",
+              filename: (payload.new.sanitized_name || payload.new.filename) as string,
+              size: Number(payload.new.byte_size || 0),
+              action: "created",
+              rawRecord: payload.new,
+            });
+          } else if (payload.eventType === "UPDATE" && payload.new) {
+            storageEvents.emit("file:lifecycle", {
+              fileId: (payload.new.id as string) || "",
+              filename: (payload.new.sanitized_name || payload.new.filename) as string,
+              size: Number(payload.new.byte_size || 0),
+              action: "updated",
+              rawRecord: payload.new,
+            });
+          } else if (payload.eventType === "DELETE" && payload.old) {
             setActiveFilesCount((c) => Math.max(0, c - 1));
+            storageEvents.emit("file:lifecycle", {
+              fileId: (payload.old.id as string) || "",
+              size: 0,
+              action: "deleted",
+              rawRecord: payload.old,
+            });
           }
+        }
+      )
+      // C. Share link additions, updates, and deletions pushed live via WebSocket
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "share_links",
+        },
+        (payload: {
+          eventType: string;
+          new?: Record<string, unknown>;
+          old?: Record<string, unknown>;
+        }) => {
+          if (!isMountedRef.current) return;
+          const actionMap: Record<string, "created" | "updated" | "deleted"> = {
+            INSERT: "created",
+            UPDATE: "updated",
+            DELETE: "deleted",
+          };
+          const action = actionMap[payload.eventType] || "updated";
+          storageEvents.emit("share:lifecycle", {
+            action,
+            shareLink: payload.new,
+            oldShareLink: payload.old,
+          });
         }
       )
       .subscribe((status: string) => {

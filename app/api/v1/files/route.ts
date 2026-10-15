@@ -20,10 +20,11 @@ export async function GET(req: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10) || 20));
     const searchQuery = searchParams.get("q")?.trim() || "";
     const category = searchParams.get("category")?.toLowerCase() || "all";
-    const sortBy = ["created_at", "updated_at", "byte_size", "sanitized_name"].includes(
-      searchParams.get("sortBy") || ""
+    const sortByRaw = searchParams.get("sortBy")?.toLowerCase() || "";
+    const sortBy = ["recent", "created_at", "updated_at", "byte_size", "sanitized_name"].includes(
+      sortByRaw
     )
-      ? (searchParams.get("sortBy") as "created_at" | "updated_at" | "byte_size" | "sanitized_name")
+      ? (sortByRaw as "recent" | "created_at" | "updated_at" | "byte_size" | "sanitized_name")
       : "created_at";
     const sortOrder = searchParams.get("sortOrder")?.toLowerCase() === "asc" ? "asc" : "desc";
 
@@ -65,7 +66,9 @@ export async function GET(req: NextRequest) {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
-    query = query.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
+    const sortColumn = sortBy === "recent" ? "created_at" : sortBy;
+    const isAsc = sortBy === "recent" && !searchParams.has("sortOrder") ? false : sortOrder === "asc";
+    query = query.order(sortColumn, { ascending: isAsc }).range(from, to);
 
     const primaryRes = await query;
     let data = primaryRes.data as Array<Record<string, any>> | null;

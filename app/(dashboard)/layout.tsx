@@ -10,6 +10,7 @@ import { IdleSessionMonitor } from "@/components/auth/idle-session-monitor";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { Layers, Home, BookOpen } from "lucide-react";
+import { RefreshButton } from "@/components/dashboard/refresh-button";
 
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 
@@ -117,6 +118,8 @@ export default async function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <RefreshButton />
+
             <Link
               href="/"
               className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 h-8 sm:h-9 rounded-xl border border-border bg-card/60 hover:bg-muted/60 text-xs sm:text-sm font-semibold text-foreground transition-all duration-150 shadow-xs shrink-0"

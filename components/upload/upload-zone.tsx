@@ -544,6 +544,19 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
         filename: finalFileName,
         size: fileSize,
         action: "created",
+        rawRecord: {
+          id: fileId,
+          filename: finalFileName,
+          sanitized_name: finalFileName,
+          byte_size: fileSize,
+          mime_type: finalMimeType,
+          status: "ACTIVE",
+          expires_at: finalExpiresAt,
+          expiry_preset: expiryPreset,
+          created_at: new Date().toISOString(),
+          is_release_locked: false,
+          is_site: isHtmlDocument(finalFileName, finalMimeType),
+        },
       });
 
       if (onUploadSuccess) {

@@ -180,6 +180,7 @@ export default async function FilesPage() {
         initialTotalPages={totalPages}
         canCreatePermanent={profile.can_create_permanent || isAdmin}
         isPremium={isPremium}
+        currentUserId={user.id}
       />
     </div>
   );

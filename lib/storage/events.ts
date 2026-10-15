@@ -19,12 +19,22 @@ export interface FileLifecyclePayload {
   fileId: string;
   filename?: string;
   size: number;
-  action: "created" | "deleted" | "extended" | "burned";
+  action: "created" | "deleted" | "extended" | "burned" | "updated";
+  rawRecord?: Record<string, unknown>;
+  fileItem?: unknown;
+}
+
+export interface ShareLifecyclePayload {
+  action: "created" | "updated" | "deleted" | "insert" | "update" | "delete";
+  shareLink?: Record<string, unknown>;
+  oldShareLink?: Record<string, unknown>;
 }
 
 export type StorageEventMap = {
   "storage:updated": StorageUpdatedPayload;
   "file:lifecycle": FileLifecyclePayload;
+  "share:lifecycle": ShareLifecyclePayload;
+  "screen:refresh": { timestamp: number; forced?: boolean };
   "r2:reconciled": {
     r2ObjectCount: number;
     r2TotalBytes: number;

@@ -69,6 +69,7 @@ import { authFetch } from "@/lib/auth/client-fetch";
 import { getFriendlyFileType } from "@/lib/storage/file-type";
 import { getShareDomainConfig } from "@/lib/share/constants";
 import { useSlugValidation } from "@/lib/hooks/use-slug-validation";
+import { createClient } from "@/lib/supabase/client";
 
 function getFileTypeDetails(mimeType: string, filename: string) {
   const lowerMime = (mimeType || "").toLowerCase();
@@ -176,6 +177,90 @@ interface FileManagerProps {
   initialTotalPages: number;
   canCreatePermanent?: boolean;
   isPremium?: boolean;
+  currentUserId?: string;
+}
+
+export type FileSortOption =
+  | "recent"
+  | "created_at"
+  | "byte_size"
+  | "sanitized_name"
+  | "expires_at";
+
+export function sortFiles(
+  items: SafeFileItem[],
+  sort: FileSortOption,
+  order: "desc" | "asc"
+): SafeFileItem[] {
+  return [...items].sort((a, b) => {
+    if (sort === "recent") {
+      const timeA = new Date(a.created_at).getTime() || 0;
+      const timeB = new Date(b.created_at).getTime() || 0;
+      return order === "asc" ? timeA - timeB : timeB - timeA;
+    }
+    if (sort === "created_at") {
+      const timeA = new Date(a.created_at).getTime() || 0;
+      const timeB = new Date(b.created_at).getTime() || 0;
+      return order === "asc" ? timeA - timeB : timeB - timeA;
+    }
+    if (sort === "byte_size") {
+      return order === "asc" ? a.byte_size - b.byte_size : b.byte_size - a.byte_size;
+    }
+    if (sort === "sanitized_name") {
+      const cmp = a.sanitized_name.localeCompare(b.sanitized_name);
+      return order === "asc" ? cmp : -cmp;
+    }
+    if (sort === "expires_at") {
+      const timeA = a.expires_at ? new Date(a.expires_at).getTime() : Infinity;
+      const timeB = b.expires_at ? new Date(b.expires_at).getTime() : Infinity;
+      return order === "asc" ? timeA - timeB : timeB - timeA;
+    }
+    return 0;
+  });
+}
+
+export function mapDbToFileItem(
+  raw: Record<string, unknown>,
+  existingShareSlug?: string | null
+): SafeFileItem {
+  const sanitizedName = (raw.sanitized_name || raw.filename || "file") as string;
+  const filename = (raw.filename || raw.sanitized_name || "file") as string;
+  const isGpn =
+    sanitizedName.toLowerCase().includes("gpn") ||
+    filename.toLowerCase().includes("gpn") ||
+    existingShareSlug === "gpn-app" ||
+    existingShareSlug === "gpn-app-sig";
+  const isApiUpload = Boolean(
+    raw.sha256 ||
+    raw.is_release_locked ||
+    isGpn
+  );
+  const mimeType = (raw.mime_type || "application/octet-stream") as string;
+  const isSite =
+    mimeType === "text/html" ||
+    sanitizedName.toLowerCase().endsWith(".html") ||
+    sanitizedName.toLowerCase().endsWith(".htm") ||
+    Boolean(raw.is_site);
+
+  return {
+    id: (raw.id as string) || crypto.randomUUID(),
+    filename,
+    sanitized_name: sanitizedName,
+    byte_size: Number(raw.byte_size || 0),
+    mime_type: mimeType,
+    status: (raw.status as string) || "ACTIVE",
+    expiry_preset: raw.expiry_preset as string | undefined,
+    expires_at: (raw.expires_at as string | null) || null,
+    created_at: (raw.created_at as string) || new Date().toISOString(),
+    share_slug: existingShareSlug ?? ((raw.share_slug as string | null) || null),
+    is_site: isSite,
+    xurl_short_url: (raw.xurl_short_url as string | null) || null,
+    xurl_status: (raw.xurl_status as string | null) || null,
+    is_api_upload: isApiUpload,
+    folder: isGpn ? "gpn" : (isApiUpload ? "api" : null),
+    sha256: (raw.sha256 as string | null) || null,
+    is_release_locked: Boolean(raw.is_release_locked),
+  };
 }
 
 function formatBytes(bytes: number): string {
@@ -195,16 +280,59 @@ export function FileManager({
   initialTotalCount,
   initialTotalPages,
   isPremium = false,
+  currentUserId,
 }: FileManagerProps) {
-  const [files, setFiles] = useState<SafeFileItem[]>(initialFiles);
+  // Sort State: Defaults to "recent" (Google Drive style), remembering user's saved choice
+  const [sortBy, setSortBy] = useState<FileSortOption>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("gphost_file_sort_by");
+        if (
+          saved &&
+          ["recent", "created_at", "byte_size", "sanitized_name", "expires_at"].includes(saved)
+        ) {
+          return saved as FileSortOption;
+        }
+      } catch {}
+    }
+    return "recent";
+  });
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+
+  // Files state initialized with automatic recency sort
+  const [files, setFiles] = useState<SafeFileItem[]>(() =>
+    sortFiles(initialFiles, "recent", "desc")
+  );
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState("all");
-  const [sortBy, setSortBy] = useState<"created_at" | "byte_size" | "sanitized_name" | "expires_at">("created_at");
-  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [loading, setLoading] = useState(false);
+
+  // Real-time live dynamic update tracking
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const [lastLiveAction, setLastLiveAction] = useState<{ message: string; timestamp: number } | null>(
+    null
+  );
+
+  const handleSortChange = (newSort: FileSortOption) => {
+    setSortBy(newSort);
+    try {
+      localStorage.setItem("gphost_file_sort_by", newSort);
+    } catch {}
+
+    if (newSort === "recent") {
+      setSortOrder("desc");
+      setFiles((prev) => sortFiles(prev, "recent", "desc"));
+      setLastLiveAction({
+        message: "Sorted by Recent • Auto-shuffle active",
+        timestamp: Date.now(),
+      });
+    } else {
+      setFiles((prev) => sortFiles(prev, newSort, sortOrder));
+    }
+  };
 
   // Google Drive & Windows 11 View Mode: "grid" (default) or "list"
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
@@ -599,7 +727,7 @@ export function FileManager({
         const res = await fetch(`/api/files?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
-          setFiles(data.files);
+          setFiles(sortFiles(data.files, sort as FileSortOption, order as "desc" | "asc"));
           setTotalCount(data.totalCount);
           setTotalPages(data.totalPages);
           setPage(data.page);
@@ -612,6 +740,228 @@ export function FileManager({
     },
     []
   );
+
+  // Single-file enrich helper for live events with ID only
+  const fetchSingleFileEnrich = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/files/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.file) {
+            const safe = mapDbToFileItem(data.file, data.file.share_slug || data.file.slug);
+            setFiles((prev) => {
+              const exists = prev.findIndex((f) => f.id === safe.id);
+              let next: SafeFileItem[];
+              if (exists >= 0) {
+                next = [...prev];
+                next[exists] = { ...next[exists], ...safe };
+              } else {
+                next = [safe, ...prev];
+                setTotalCount((c) => c + 1);
+              }
+              return sortFiles(next, sortBy, sortOrder);
+            });
+            setHighlightedIds((prev) => new Set(prev).add(safe.id));
+            setTimeout(() => {
+              setHighlightedIds((prev) => {
+                const next = new Set(prev);
+                next.delete(safe.id);
+                return next;
+              });
+            }, 4000);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to enrich file live:", err);
+      }
+    },
+    [sortBy, sortOrder]
+  );
+
+  // Google Drive-style Pure Push Real-Time Dynamic Engine (Zero Polling)
+  useEffect(() => {
+    // 1. Subscribe to typed StorageEventBus (local window, cross-tab BroadcastChannel, and StorageProvider WebSocket relay)
+    const unsubLifecycle = storageEvents.on("file:lifecycle", (payload) => {
+      if (payload.action === "deleted") {
+        setFiles((prev) => prev.filter((f) => f.id !== payload.fileId));
+        setTotalCount((c) => Math.max(0, c - 1));
+        setLastLiveAction({
+          message: "File deleted live",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      if (payload.action === "created" || payload.action === "updated") {
+        let item: SafeFileItem | null = null;
+        if (payload.fileItem) {
+          item = payload.fileItem as SafeFileItem;
+        } else if (payload.rawRecord) {
+          item = mapDbToFileItem(payload.rawRecord);
+        }
+
+        if (!item && payload.fileId) {
+          void fetchSingleFileEnrich(payload.fileId);
+          return;
+        }
+
+        if (item) {
+          const incoming = item;
+          setFiles((prev) => {
+            const existingIdx = prev.findIndex((f) => f.id === incoming.id);
+            let nextList: SafeFileItem[];
+            if (existingIdx >= 0) {
+              nextList = [...prev];
+              nextList[existingIdx] = {
+                ...nextList[existingIdx],
+                ...incoming,
+                share_slug: incoming.share_slug || nextList[existingIdx].share_slug,
+              };
+            } else {
+              nextList = [incoming, ...prev];
+              setTotalCount((c) => c + 1);
+            }
+            return sortFiles(nextList, sortBy, sortOrder);
+          });
+
+          setHighlightedIds((prev) => new Set(prev).add(incoming.id));
+          setTimeout(() => {
+            setHighlightedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(incoming.id);
+              return next;
+            });
+          }, 4000);
+
+          setLastLiveAction({
+            message:
+              payload.action === "created"
+                ? "New file pushed live • Shuffled to top"
+                : "File updated in real-time",
+            timestamp: Date.now(),
+          });
+        }
+      }
+    });
+
+    // 2. Subscribe to Share link lifecycle events (dynamic slug generation & revocation)
+    const unsubShare = storageEvents.on("share:lifecycle", (payload) => {
+      const fileId = (payload.shareLink?.file_id || payload.oldShareLink?.file_id) as string;
+      if (!fileId) return;
+
+      if (
+        payload.action === "created" ||
+        payload.action === "updated" ||
+        payload.action === "insert" ||
+        payload.action === "update"
+      ) {
+        const slug = (payload.shareLink?.slug as string) || null;
+        const isActive = payload.shareLink?.is_active !== false;
+        if (slug && isActive) {
+          setFiles((prev) =>
+            prev.map((f) => (f.id === fileId ? { ...f, share_slug: slug } : f))
+          );
+        }
+      } else if (payload.action === "deleted" || payload.action === "delete") {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === fileId ? { ...f, share_slug: null } : f))
+        );
+      }
+    });
+
+    // 3. Direct Supabase Realtime channel redundancy (guarantees push even if tab was dormant)
+    const supabase = createClient();
+    let directChannel: ReturnType<typeof supabase.channel> | null = null;
+    if (currentUserId) {
+      const channelName = `files-live-sync-${currentUserId}`;
+      const existing = supabase
+        .getChannels()
+        .find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
+      if (existing) {
+        supabase.removeChannel(existing);
+      }
+
+      directChannel = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "files",
+            filter: `user_id=eq.${currentUserId}`,
+          },
+          (payload: {
+            eventType: string;
+            new?: Record<string, unknown>;
+            old?: Record<string, unknown>;
+          }) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const incoming = mapDbToFileItem(payload.new as Record<string, unknown>);
+              setFiles((prev) => {
+                if (prev.some((f) => f.id === incoming.id)) return prev;
+                const nextList = [incoming, ...prev];
+                setTotalCount((c) => c + 1);
+                return sortFiles(nextList, sortBy, sortOrder);
+              });
+              setHighlightedIds((prev) => new Set(prev).add(incoming.id));
+              setTimeout(() => {
+                setHighlightedIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(incoming.id);
+                  return next;
+                });
+              }, 4000);
+              setLastLiveAction({
+                message: "New file pushed live • Shuffled to top",
+                timestamp: Date.now(),
+              });
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const incoming = mapDbToFileItem(payload.new as Record<string, unknown>);
+              setFiles((prev) => {
+                const idx = prev.findIndex((f) => f.id === incoming.id);
+                if (idx === -1) return prev;
+                const nextList = [...prev];
+                nextList[idx] = {
+                  ...nextList[idx],
+                  ...incoming,
+                  share_slug: incoming.share_slug || nextList[idx].share_slug,
+                };
+                return sortFiles(nextList, sortBy, sortOrder);
+              });
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const oldId = payload.old.id as string;
+              setFiles((prev) => prev.filter((f) => f.id !== oldId));
+              setTotalCount((c) => Math.max(0, c - 1));
+              setLastLiveAction({
+                message: "File deleted live",
+                timestamp: Date.now(),
+              });
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    // 4. Listen to global navbar screen refresh trigger
+    const unsubScreenRefresh = storageEvents.on("screen:refresh", () => {
+      void fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+      setLastLiveAction({
+        message: "Screen refreshed live",
+        timestamp: Date.now(),
+      });
+    });
+
+    return () => {
+      unsubLifecycle();
+      unsubShare();
+      unsubScreenRefresh();
+      if (directChannel) {
+        supabase.removeChannel(directChannel);
+      }
+    };
+  }, [currentUserId, sortBy, sortOrder, fetchSingleFileEnrich, fetchFiles, page, searchQuery, category]);
 
   // Skip redundant initial fetch on mount (page 1 is already server-rendered in initialFiles)
   const isInitialMount = useRef(true);
@@ -638,20 +988,25 @@ export function FileManager({
     if (!selectedFileForDelete) return;
     setIsDeleting(true);
     setDeleteError(null);
+    const targetFile = selectedFileForDelete;
     try {
-      const res = await authFetch(`/api/files/${selectedFileForDelete.id}`, {
+      const res = await authFetch(`/api/files/${targetFile.id}`, {
         method: "DELETE",
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const deletedId = selectedFileForDelete.id;
-        const deletedSize = selectedFileForDelete.byte_size;
         setSelectedFileForDelete(null);
         setDeleteError(null);
-        fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+        // Optimistically remove immediately from local state
+        setFiles((prev) => prev.filter((f) => f.id !== targetFile.id));
+        setTotalCount((c) => Math.max(0, c - 1));
+        setLastLiveAction({
+          message: `Deleted "${targetFile.sanitized_name}"`,
+          timestamp: Date.now(),
+        });
         storageEvents.emit("file:lifecycle", {
-          fileId: deletedId,
-          size: deletedSize,
+          fileId: targetFile.id,
+          size: targetFile.byte_size,
           action: "deleted",
         });
       } else {
@@ -660,7 +1015,8 @@ export function FileManager({
         if (res.status === 404 || data.status === "PURGED") {
           setSelectedFileForDelete(null);
           setDeleteError(null);
-          fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+          setFiles((prev) => prev.filter((f) => f.id !== targetFile.id));
+          setTotalCount((c) => Math.max(0, c - 1));
         }
       }
     } catch (err) {
@@ -917,22 +1273,49 @@ export function FileManager({
 
       {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
-        {/* Windows 11 Breadcrumb / Address Bar */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none">
-          <span className="flex items-center gap-1 text-foreground font-medium">
-            <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
-            <span>Storage</span>
-          </span>
-          <span>/</span>
-          <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize">
-            {category === "all"
-              ? "All Files"
-              : category === "gpn"
-              ? "📁 gpn (Releases)"
-              : category === "api"
-              ? "⚡ API Uploads"
-              : category}
-          </span>
+        {/* Windows 11 Breadcrumb / Address Bar & Google Drive Live Sync Indicator */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none">
+            <span className="flex items-center gap-1 text-foreground font-medium">
+              <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
+              <span>Storage</span>
+            </span>
+            <span>/</span>
+            <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize">
+              {category === "all"
+                ? "All Files"
+                : category === "gpn"
+                ? "📁 gpn (Releases)"
+                : category === "api"
+                ? "⚡ API Uploads"
+                : category}
+            </span>
+          </div>
+
+          {/* Google Drive-style Dynamic Real-time Live Status Badge */}
+          <div
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border transition-all duration-300 shadow-2xs select-none ${
+              lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
+                ? "bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-300 ring-1 ring-blue-500/30 scale-102"
+                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+            }`}
+            title="Real-time live push updates active (WebSocket + BroadcastChannel • Zero polling)"
+          >
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-semibold text-[11px]">
+              {lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
+                ? lastLiveAction.message
+                : "Live Sync"}
+            </span>
+            {sortBy === "recent" && (
+              <span className="text-[10px] text-muted-foreground hidden md:inline border-l border-border/60 pl-1.5">
+                Auto-shuffle active
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Search, Sort, and View Switcher */}
@@ -962,17 +1345,11 @@ export function FileManager({
             <div className="flex items-center gap-1">
               <select
                 value={sortBy}
-                onChange={(e) =>
-                  setSortBy(
-                    e.target.value as
-                      | "created_at"
-                      | "byte_size"
-                      | "sanitized_name"
-                      | "expires_at"
-                  )
-                }
-                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer"
+                onChange={(e) => handleSortChange(e.target.value as FileSortOption)}
+                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
+                title="Sort files (Recent automatically shuffles latest to top)"
               >
+                <option value="recent">Recent</option>
                 <option value="created_at">Date</option>
                 <option value="byte_size">Size</option>
                 <option value="sanitized_name">Name</option>
@@ -981,7 +1358,11 @@ export function FileManager({
 
               <button
                 type="button"
-                onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+                onClick={() => {
+                  const nextOrder = sortOrder === "desc" ? "asc" : "desc";
+                  setSortOrder(nextOrder);
+                  setFiles((prev) => sortFiles(prev, sortBy, nextOrder));
+                }}
                 className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer"
                 title="Toggle sort order"
               >
@@ -1203,8 +1584,12 @@ export function FileManager({
                 <div
                   key={file.id}
                   className={`relative rounded-2xl border ${
-                    isExpired ? "border-rose-500/35 bg-rose-500/[0.02]" : "border-border bg-card"
-                  } p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-200 group flex flex-col justify-between overflow-hidden`}
+                    highlightedIds.has(file.id)
+                      ? "border-blue-500 ring-2 ring-blue-500/60 bg-blue-500/5 dark:bg-blue-500/10 shadow-md scale-[1.01] animate-in fade-in slide-in-from-top-2 duration-300"
+                      : isExpired
+                      ? "border-rose-500/35 bg-rose-500/[0.02]"
+                      : "border-border bg-card"
+                  } p-3.5 shadow-2xs hover:shadow-md hover:border-border/80 transition-all duration-300 group flex flex-col justify-between overflow-hidden`}
                 >
                   {/* Card Top: Type badge & Name */}
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -1229,6 +1614,15 @@ export function FileManager({
                           <span className="text-xs font-semibold text-foreground truncate max-w-[130px] sm:max-w-[160px]" title={file.sanitized_name}>
                             {file.sanitized_name}
                           </span>
+                          {highlightedIds.has(file.id) && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-blue-500 text-white shadow-2xs shrink-0 select-none animate-in zoom-in-75"
+                              title="File arrived live"
+                            >
+                              <Sparkles className="w-2.5 h-2.5 animate-spin" />
+                              <span>Just added</span>
+                            </span>
+                          )}
                           {file.is_api_upload && (
                             <span
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"
@@ -1621,8 +2015,10 @@ export function FileManager({
               return (
                 <div
                   key={file.id}
-                  className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition group ${
-                    isExpired
+                  className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-300 group ${
+                    highlightedIds.has(file.id)
+                      ? "bg-blue-500/10 dark:bg-blue-500/15 border-l-4 border-l-blue-500 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300"
+                      : isExpired
                       ? "bg-rose-500/[0.02] dark:bg-rose-500/[0.04] hover:bg-rose-500/[0.06] border-l-2 border-l-rose-500/60"
                       : "hover:bg-muted/40 border-l-2 border-l-transparent"
                   }`}
@@ -1648,6 +2044,15 @@ export function FileManager({
                         <h3 className="text-sm font-semibold text-foreground truncate max-w-sm sm:max-w-md">
                           {file.sanitized_name}
                         </h3>
+                        {highlightedIds.has(file.id) && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-blue-500 text-white shadow-2xs shrink-0 select-none animate-in zoom-in-75"
+                            title="File arrived live"
+                          >
+                            <Sparkles className="w-2.5 h-2.5 animate-spin" />
+                            <span>Just added</span>
+                          </span>
+                        )}
                         {file.is_api_upload && (
                           <span
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/30 text-violet-600 dark:text-violet-300 shadow-2xs shrink-0 select-none"

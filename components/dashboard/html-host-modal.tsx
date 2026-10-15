@@ -290,6 +290,29 @@ export function HtmlHostModal({
         source: "local_optimistic",
       });
 
+      const deployedFileName = file?.name || "index.html";
+      const deployedFileSize = file?.size || 0;
+      if (targetFileId) {
+        storageEvents.emit("file:lifecycle", {
+          fileId: targetFileId,
+          filename: deployedFileName,
+          size: deployedFileSize,
+          action: "created",
+          rawRecord: {
+            id: targetFileId,
+            filename: deployedFileName,
+            sanitized_name: deployedFileName,
+            byte_size: deployedFileSize,
+            mime_type: "text/html",
+            status: "ACTIVE",
+            expires_at: null,
+            created_at: new Date().toISOString(),
+            share_slug: finalSlug,
+            is_site: true,
+          },
+        });
+      }
+
       setDeployedResult({
         slug: finalSlug,
         siteUrl: liveSiteUrl,

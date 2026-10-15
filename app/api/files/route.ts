@@ -23,10 +23,11 @@ export async function GET(req: NextRequest) {
     const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10) || 20));
     const searchQuery = searchParams.get("q")?.trim() || "";
     const category = searchParams.get("category")?.toLowerCase() || "all";
-    const sortBy = ["created_at", "byte_size", "sanitized_name", "expires_at"].includes(
-      searchParams.get("sortBy") || ""
+    const sortByRaw = searchParams.get("sortBy")?.toLowerCase() || "";
+    const sortBy = ["recent", "created_at", "byte_size", "sanitized_name", "expires_at"].includes(
+      sortByRaw
     )
-      ? (searchParams.get("sortBy") as "created_at" | "byte_size" | "sanitized_name" | "expires_at")
+      ? (sortByRaw as "recent" | "created_at" | "byte_size" | "sanitized_name" | "expires_at")
       : "created_at";
     const sortOrder = searchParams.get("sortOrder")?.toLowerCase() === "asc" ? "asc" : "desc";
 
@@ -123,7 +124,9 @@ export async function GET(req: NextRequest) {
         ]);
       }
 
-      return q.order(sortBy, { ascending: sortOrder === "asc" }).range(from, to);
+      const sortColumn = sortBy === "recent" ? "created_at" : sortBy;
+      const isAsc = sortBy === "recent" && !searchParams.has("sortOrder") ? false : sortOrder === "asc";
+      return q.order(sortColumn, { ascending: isAsc }).range(from, to);
     };
 
     // Check for cached user share stats in Redis (30-second TTL)

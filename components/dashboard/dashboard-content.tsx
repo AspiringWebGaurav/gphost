@@ -96,14 +96,19 @@ export function DashboardContent({
     }
   }, []);
 
-  // Listen to typed live file lifecycle events (upload, delete, expiry change)
+  // Listen to typed live file lifecycle events and global navbar screen refresh
   useEffect(() => {
     const unsubLifecycle = storageEvents.on("file:lifecycle", () => {
       refreshData();
     });
 
+    const unsubScreenRefresh = storageEvents.on("screen:refresh", () => {
+      refreshData();
+    });
+
     return () => {
       unsubLifecycle();
+      unsubScreenRefresh();
     };
   }, [refreshData]);
 
