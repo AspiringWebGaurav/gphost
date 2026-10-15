@@ -166,8 +166,8 @@ function validateFolderMove(sourcePath, destParentPath) {
 
 function validateBaseInstallerPermanence(targetPath, files = []) {
   const norm = normalizeFolderPath(targetPath);
-  if (norm === "gpn") {
-    const err = new Error("BASE_INSTALLER_PROTECTED: Gaurav Personal Notes v0.0.0 installer is permanently protected.");
+  if (norm === "gpn-dynamic-update" || norm.startsWith("gpn-dynamic-update/")) {
+    const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently protected.");
     err.code = "BASE_INSTALLER_PROTECTED";
     throw err;
   }
@@ -348,7 +348,7 @@ console.log("\n--- Suite 6: Base v0.0.0 Installer Protection ---");
 
 await runTest("Rejects deletion or rename of protected Base v0.0.0 installer folder", () => {
   assert.throws(
-    () => validateBaseInstallerPermanence("gpn"),
+    () => validateBaseInstallerPermanence("gpn-dynamic-update"),
     (err) => {
       assert.equal(err.code, "BASE_INSTALLER_PROTECTED");
       return true;
@@ -520,7 +520,7 @@ if (apiKey) {
     });
 
     await runTest("Live API: Protects Base v0.0.0 installer from deletion (403 BASE_INSTALLER_PROTECTED)", async () => {
-      const res = await fetch(`${baseUrl}/api/v1/folders?path=gpn&recursive=true`, {
+      const res = await fetch(`${baseUrl}/api/v1/folders?path=gpn-dynamic-update&recursive=true`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${apiKey}` },
       });

@@ -127,89 +127,229 @@ flowchart TD
 
 ---
 
-## 💻 Developer API & Dynamic Storage Controls
+## 💻 Developer API & SaaS Platform Capabilities
 
-Authorized developers and automated pipelines can use scoped Developer API Keys (`gp_live_...`) to perform dynamic, unconstrained file storage operations directly in Cloudflare R2:
+GPHost is a developer-first SaaS platform designed for high-performance file transit, hierarchical storage management, and automated software release distribution. Authenticated developers and CI/CD pipelines can use API Keys (`gp_live_...`) to perform full programmatic operations across the entire platform.
 
-### 1. Direct Upload with Dynamic Folder & Private Options
+### 1. API Key Authentication & Programmatic Key Management
+
+All API requests accept your API key via the `Authorization` header:
 
 ```bash
-# Upload into a dedicated folder (e.g., app updates) without generating public share links
+Authorization: Bearer gp_live_YOUR_API_KEY
+```
+
+API key holders can also programmatically list, generate, and revoke keys:
+
+```bash
+# List all active API keys
+curl -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  "https://gphost.eu.cc/api/user/api-keys"
+
+# Generate a new API key with specific permissions
+curl -X POST "https://gphost.eu.cc/api/user/api-keys" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "CI/CD Deployment Runner", "permissions": ["*"]}'
+
+# Revoke an API key
+curl -X DELETE "https://gphost.eu.cc/api/user/api-keys" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"keyId": "KEY_UUID"}'
+```
+
+---
+
+### 2. Hierarchical Nested Folders API (`/api/v1/folders`)
+
+API holders enjoy unconstrained hierarchical folder management with unlimited nesting, automatic ancestor creation, atomic moves/renames, and recursive deletion:
+
+```bash
+# 1. Create a nested folder structure (creates missing parents automatically)
+curl -X POST "https://gphost.eu.cc/api/v1/folders" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "projects/backend/releases/v1"}'
+
+# 2. List immediate contents of a folder (subfolders, files, breadcrumbs, counts)
+curl -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  "https://gphost.eu.cc/api/v1/folders?path=projects/backend"
+
+# 3. Retrieve the full recursive folder hierarchy tree
+curl -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  "https://gphost.eu.cc/api/v1/folders?tree=true"
+
+# 4. Rename a folder (atomically cascades across all child paths & storage keys)
+curl -X PATCH "https://gphost.eu.cc/api/v1/folders" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "projects/backend/releases/v1", "newName": "v1-stable"}'
+
+# 5. Move a folder to a new parent location
+curl -X PATCH "https://gphost.eu.cc/api/v1/folders" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "projects/backend/releases/v1-stable", "destinationParent": "archive/2026"}'
+
+# 6. Delete a folder hierarchy (recursively removes files, frees storage quota)
+curl -X DELETE "https://gphost.eu.cc/api/v1/folders?path=archive/2026&recursive=true" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY"
+```
+
+---
+
+### 3. Multi-App Software Release Distribution Engine (`/api/v1/releases/[appId]`)
+
+GPHost provides a production-grade software distribution pipeline for **any desktop or mobile application** (Tauri, Electron, Flutter, Go, Rust, etc.) with native Tauri v2 autoupdater support, cryptographic Minisign Ed25519 verification, and atomic releases:
+
+```bash
+# 1. Publish a new release with Minisign Ed25519 signature
+curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/publish" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "1.2.0",
+    "binaryFileId": "BINARY_FILE_UUID",
+    "signature": "untrusted comment: signature...\n...",
+    "notes": "Feature release v1.2.0 with improved syncing"
+  }'
+
+# 2. Query live release manifest (Tauri v2 updater compliant format)
+curl "https://gphost.eu.cc/api/v1/releases/my-desktop-app/latest"
+
+# 3. Query complete release version history and active status
+curl -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  "https://gphost.eu.cc/api/v1/releases/my-desktop-app/history"
+
+# 4. Download version-specific binary (direct edge redirect to Cloudflare R2)
+curl -L "https://gphost.eu.cc/api/v1/releases/my-desktop-app/download/1.2.0" -o app-setup.exe
+
+# 5. Instant atomic rollback to previous version
+curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/rollback" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"targetVersion": "1.1.9"}'
+
+# 6. Automated multi-layer stale binary storage purge
+curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/purge-stale" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY"
+```
+
+---
+
+### 4. Direct & Chunked Multipart File Uploads (`/api/v1/upload`)
+
+Upload files directly into custom folders, specify exact R2 keys, or create private assets without generating public share links:
+
+```bash
+# Upload a file directly into a nested folder
 curl -X POST "https://gphost.eu.cc/api/v1/upload" \
   -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
-  -F "file=@update0.0.1.gpn.bin" \
-  -F "folder=gpn-dynamic-update" \
+  -F "file=@document.pdf" \
+  -F "folder=projects/backend/docs" \
+  -F "expiryPreset=30d"
+
+# Upload directly to an exact custom R2 key (private, without public share link)
+curl -X POST "https://gphost.eu.cc/api/v1/upload" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -F "file=@build-artifact.tar.gz" \
+  -F "customKey=artifacts/2026/build-104.tar.gz" \
   -F "noShareLink=true" \
   -F "overwrite=true"
 ```
 
-### 2. Direct Custom R2 Key Placement
-
-API key holders have full power over exact object placement within their storage bucket:
-
-```bash
-# Upload directly to an exact custom R2 key
-curl -X POST "https://gphost.eu.cc/api/v1/upload" \
-  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
-  -F "file=@update0.0.1.gpn.bin" \
-  -F "customKey=gpn-dynamic-update/update0.0.1.gpn.bin" \
-  -F "noShareLink=true"
-```
-
-### 3. Server-Side File Move & Archival
-
-Move or archive existing files on the server instantly without re-uploading bytes:
-
-```bash
-# Move an existing binary to an archive folder (e.g. OLD/)
-curl -X PATCH "https://gphost.eu.cc/api/v1/files/FILE_UUID" \
-  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"moveFolder": "gpn-dynamic-update/OLD"}'
-```
-
-### 4. API Request & Upload Parameters
+#### Upload Parameters Reference
 
 | Parameter | Type | Mode | Description |
 | :--- | :--- | :--- | :--- |
-| `file` | `File` | Multipart | Binary payload (up to 4.5 MB direct; > 4.5 MB presigned) |
-| `folder` | `string` | Form / JSON | Target prefix/folder in R2 (e.g. `gpn-dynamic-update`, `backups`) |
-| `customKey` | `string` | Form / JSON | Explicit R2 object key (e.g. `gpn-dynamic-update/update0.0.1.gpn.bin`) |
-| `noShareLink` | `boolean` | Form / JSON | If `true`, skips generating public `/f/{slug}` links (private binaries) |
-| `overwrite` | `boolean` | Form / JSON | If `true`, replaces existing files with identical custom key |
-| `expiryPreset` | `string` | Form / JSON | Retention window: `1h`, `24h`, `7d`, `30d`, `90d`, or `never` |
-| `slug` | `string` | Form / JSON | Vanity custom download slug (e.g. `gpn-app`) |
+| `file` | `File` | Multipart | Binary payload (up to 4.5 MB direct; > 4.5 MB via multipart lease) |
+| `folder` | `string` | Form / JSON | Target hierarchical folder path (e.g. `projects/backend`, `backups`) |
+| `customKey` | `string` | Form / JSON | Explicit R2 object key (e.g. `artifacts/2026/build-104.tar.gz`) |
+| `noShareLink` | `boolean` | Form / JSON | If `true`, creates private object without `/f/{slug}` share link |
+| `overwrite` | `boolean` | Form / JSON | If `true`, replaces existing files with matching custom key |
+| `expiryPreset` | `string` | Form / JSON | Retention duration: `1h`, `24h`, `7d`, `30d`, `90d`, or `never` |
+| `slug` | `string` | Form / JSON | Vanity custom public download slug |
+| `isPermanent` | `boolean` | Form / JSON | Marks file as non-expiring permanent asset |
 
-### 5. Programmatic Node.js / TypeScript Example
+---
+
+### 5. Atomic Zero-Downtime Binary Replacement (`/api/v1/replace`)
+
+Replace an existing file or vanity download link atomically without breaking downstream download URLs:
+
+```bash
+# Mode A: Direct replacement (payloads <= 4.5 MB)
+curl -X POST "https://gphost.eu.cc/api/v1/replace" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -F "target=my-app" \
+  -F "file=@app-setup-v1.0.1.exe" \
+  -F "delete_previous=true"
+
+# Mode B: Two-phase presigned replacement (payloads up to 1 GB)
+# Phase 1: Request presigned stage lease
+curl -X POST "https://gphost.eu.cc/api/v1/replace" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"target": "my-app", "filename": "app-setup-v1.0.1.exe", "byteSize": 52428800}'
+
+# Phase 2: Upload binary bytes directly to the returned S3 uploadUrl
+# Phase 3: Finalize atomic pointer switch
+curl -X POST "https://gphost.eu.cc/api/v1/replace" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "complete", "stageToken": "<STAGE_TOKEN>", "delete_previous": true}'
+```
+
+---
+
+### 6. Storage Reconciliation & Self-Auditing (`/api/storage/reconcile`)
+
+Trigger physical Cloudflare R2 bucket scans to synchronize PostgreSQL file records with raw S3 storage:
+
+```bash
+curl -X POST "https://gphost.eu.cc/api/storage/reconcile" \
+  -H "Authorization: Bearer gp_live_YOUR_API_KEY"
+```
+
+---
+
+### 7. Programmatic Node.js / TypeScript SDK Example
 
 ```typescript
 import { readFileSync } from "fs";
 
-async function uploadBinaryRelease(filePath: string, version: string, apiKey: string) {
-  const fileBlob = new Blob([readFileSync(filePath)]);
-  const formData = new FormData();
-  formData.append("file", fileBlob, `update${version}.gpn.bin`);
-  formData.append("folder", "gpn-dynamic-update");
-  formData.append("noShareLink", "true");
-  formData.append("overwrite", "true");
+interface GPHostUploadResponse {
+  success: boolean;
+  file: {
+    id: string;
+    filename: string;
+    byte_size: number;
+    url: string;
+    raw_url?: string;
+  };
+}
 
-  const response = await fetch("https://gphost.eu.cc/api/v1/upload", {
+async function uploadToGPHost(filePath: string, folder: string, apiKey: string): Promise<GPHostUploadResponse> {
+  const fileBytes = readFileSync(filePath);
+  const formData = new FormData();
+  formData.append("file", new Blob([fileBytes]), filePath.split("/").pop()!);
+  formData.append("folder", folder);
+
+  const res = await fetch("https://gphost.eu.cc/api/v1/upload", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: { Authorization: `Bearer ${apiKey}` },
     body: formData,
   });
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Upload failed");
-  return data; // { success: true, fileId, r2Key, isPrivate: true }
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Upload failed with HTTP ${res.status}`);
+  }
+
+  return res.json();
 }
 ```
-
-### 6. Persistent 30-Day Sessions (Zero Idle Logouts)
-- Web sessions are configured with a **30-day persistent sliding window** (`SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60`).
-- The 30-minute idle auto-logout has been completely removed from proxy and session middleware, matching GPN's robust persistent login architecture.
 
 
 ---

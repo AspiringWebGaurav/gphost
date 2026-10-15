@@ -272,12 +272,11 @@ export async function relocateFolder(
 
   const adminClient = createAdminClient();
 
-  // Guard: Base v0.0.0 installer check in files
+  // Guard: Base v0.0.0 installer check in files (global protection)
   const { data: baseCheck } = await adminClient
     .from("files")
-    .select("id, sanitized_name, is_release_locked, share_links(slug)")
-    .eq("user_id", userId)
-    .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/${userId}/${oldNorm}/%`);
+    .select("id, sanitized_name, share_links(slug)")
+    .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/%/${oldNorm}/%`);
 
   if (baseCheck) {
     for (const f of baseCheck) {
@@ -285,7 +284,7 @@ export async function relocateFolder(
       if (
         shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
         f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-        f.is_release_locked
+        (f.sanitized_name || "").includes("0.0.0")
       ) {
         const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently isolated and cannot be moved or renamed.");
         (err as any).code = "BASE_INSTALLER_PROTECTED";
@@ -444,10 +443,31 @@ export async function deleteFolder(
 
   const adminClient = createAdminClient();
 
-  // 1. Guard check: Base v0.0.0 installer permanence in files
+  // 1. Guard check: Base v0.0.0 installer permanence in files (global protection)
+  const { data: baseCheck } = await adminClient
+    .from("files")
+    .select("id, sanitized_name, share_links(slug)")
+    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/%/${norm}/%`);
+
+  if (baseCheck) {
+    for (const f of baseCheck) {
+      const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
+      if (
+        shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
+        f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
+        (f.sanitized_name || "").includes("0.0.0")
+      ) {
+        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected.");
+        (err as any).code = "BASE_INSTALLER_PROTECTED";
+        (err as any).status = 403;
+        throw err;
+      }
+    }
+  }
+
   const { data: candidateFiles } = await adminClient
     .from("files")
-    .select("id, sanitized_name, byte_size, r2_key, is_release_locked, share_links(id, slug)")
+    .select("id, sanitized_name, byte_size, r2_key, share_links(id, slug)")
     .eq("user_id", userId)
     .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%`);
 
@@ -457,7 +477,7 @@ export async function deleteFolder(
       if (
         shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
         f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-        f.is_release_locked
+        (f.sanitized_name || "").includes("0.0.0")
       ) {
         const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected.");
         (err as any).code = "BASE_INSTALLER_PROTECTED";

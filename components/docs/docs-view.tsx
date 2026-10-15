@@ -232,7 +232,7 @@ curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
 # Dynamic folder, private (no public link), and overwrite:
 curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -F "file=@update.bin" \\
-  -F "folder=gpn-dynamic-update" \\
+  -F "folder=releases/v1" \\
   -F "noShareLink=true" \\
   -F "overwrite=true" \\
   https://gphost.eu.cc/api/v1/upload
@@ -240,25 +240,25 @@ curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
 # Direct custom R2 key placement:
 curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -F "file=@update.bin" \\
-  -F "customKey=gpn-dynamic-update/update0.0.1.gpn.bin" \\
+  -F "customKey=releases/v1/app-update.bin" \\
   -F "noShareLink=true" \\
   https://gphost.eu.cc/api/v1/upload`;
 
-  const folderApiCode = `# 1. Create nested folders without limitation (e.g. GPN -> 1 -> 2):
+  const folderApiCode = `# 1. Create nested folders without limitation (e.g. projects -> backend -> v1):
 curl -X POST https://gphost.eu.cc/api/v1/folders \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"path": "GPN/1/2"}'
+  -d '{"path": "projects/backend/v1"}'
 
 # 2. Upload file directly into a nested folder:
 curl -X POST https://gphost.eu.cc/api/v1/upload \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
-  -F "file=@notes.pdf" \\
-  -F "folder=GPN/1/2"
+  -F "file=@document.pdf" \\
+  -F "folder=projects/backend/v1"
 
 # 3. List folder contents (immediate subfolders, files, breadcrumbs, item counts):
 curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
-  "https://gphost.eu.cc/api/v1/folders?path=GPN/1"
+  "https://gphost.eu.cc/api/v1/folders?path=projects/backend"
 
 # 4. Fetch the entire recursive folder tree:
 curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
@@ -268,28 +268,52 @@ curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
 curl -X PATCH https://gphost.eu.cc/api/v1/folders \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"path": "GPN/1/2", "newName": "final"}'
+  -d '{"path": "projects/backend/v1", "newName": "stable"}'
 
-# 6. Move a folder to a new parent (e.g. GPN/1/final -> GPN/final):
+# 6. Move a folder to a new parent location:
 curl -X PATCH https://gphost.eu.cc/api/v1/folders \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"path": "GPN/1/final", "destinationParent": "GPN"}'
+  -d '{"path": "projects/backend/stable", "destinationParent": "archive/2026"}'
 
 # 7. Safely delete a folder hierarchy (purges R2 files, reclaims storage quota):
-curl -X DELETE "https://gphost.eu.cc/api/v1/folders?path=GPN/final&recursive=true" \\
+curl -X DELETE "https://gphost.eu.cc/api/v1/folders?path=archive/2026&recursive=true" \\
   -H "Authorization: Bearer gp_live_YOUR_KEY"`;
 
-  const replaceCode = `# Replace an existing release binary atomically while keeping permanent URL intact
+  const releaseApiCode = `# 1. Publish a new release with Minisign Ed25519 cryptographic signature:
+curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/publish" \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "version": "1.2.0",
+    "binaryFileId": "BINARY_FILE_UUID",
+    "signature": "untrusted comment: signature...\\n...",
+    "notes": "Feature release v1.2.0 with performance optimizations"
+  }'
+
+# 2. Query live Tauri v2 autoupdater manifest:
+curl "https://gphost.eu.cc/api/v1/releases/my-desktop-app/latest"
+
+# 3. Direct edge download of specific version (Cloudflare R2 presigned redirect):
+curl -L "https://gphost.eu.cc/api/v1/releases/my-desktop-app/download/1.2.0" -o app-setup.exe
+
+# 4. Instant rollback to previous active release:
+curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/rollback" \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"targetVersion": "1.1.9"}'`;
+
+  const replaceCode = `# Replace an existing release binary atomically while keeping permanent URL intact:
 curl -X POST https://gphost.eu.cc/api/v1/replace \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
-  -F "target=gpn-app" \\
-  -F "file=@gpn-setup-1.0.2.exe"
+  -F "target=my-app" \\
+  -F "file=@app-setup-1.0.2.exe" \\
+  -F "delete_previous=true"
 
 # For large releases (> 4.5MB), use presigned negotiation:
-# Step 1: POST https://gphost.eu.cc/api/v1/replace with {"target": "gpn-app", "filename": "gpn-setup-1.0.2.exe", "byteSize": 52428800}
+# Step 1: POST https://gphost.eu.cc/api/v1/replace with {"target": "my-app", "filename": "app-setup-1.0.2.exe", "byteSize": 52428800}
 # Step 2: PUT file to the returned uploadUrl
-# Step 3: POST https://gphost.eu.cc/api/v1/replace with {"action": "complete", "stageToken": "<STAGE_TOKEN>"}`;
+# Step 3: POST https://gphost.eu.cc/api/v1/replace with {"action": "complete", "stageToken": "<STAGE_TOKEN>", "delete_previous": true}`;
 
   const powershellCode = `curl.exe -H "Authorization: Bearer gp_live_YOUR_KEY" \`
   -F "file=@homework.pdf" \`
@@ -907,7 +931,7 @@ print("Link to share:", data["file"]["url"])`;
             </div>
 
             <p className="text-sm text-muted-foreground leading-relaxed">
-              API holders enjoy complete hierarchical control over folders and files. You can create arbitrarily nested directories without limits (for example: <code className="font-mono text-foreground font-semibold">GPN/1/2/3</code>), upload directly into subfolders, list immediate contents or the entire tree, rename, move, and safely delete folder hierarchies.
+              API holders enjoy complete hierarchical control over folders and files. You can create arbitrarily nested directories without limits (for example: <code className="font-mono text-foreground font-semibold">projects/backend/v1</code>), upload directly into subfolders, list immediate contents or the entire tree, rename, move, and safely delete folder hierarchies.
             </p>
 
             {/* Endpoints Table */}
@@ -926,7 +950,7 @@ print("Link to share:", data["file"]["url"])`;
                 <div className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 font-bold">GET</span>
-                    <span className="text-foreground">/api/v1/folders?path=GPN/1</span>
+                    <span className="text-foreground">/api/v1/folders?path=projects/backend</span>
                   </div>
                   <span className="font-sans text-muted-foreground text-xs">Returns subfolders, files, breadcrumbs, and item counts</span>
                 </div>
@@ -956,7 +980,7 @@ print("Link to share:", data["file"]["url"])`;
                     <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">POST</span>
                     <span className="text-foreground">/api/v1/upload</span>
                   </div>
-                  <span className="font-sans text-muted-foreground text-xs">Supply <code className="bg-muted px-1 py-0.5 rounded">-F &quot;folder=GPN/1/2&quot;</code> to upload directly into folder</span>
+                  <span className="font-sans text-muted-foreground text-xs">Supply <code className="bg-muted px-1 py-0.5 rounded">-F &quot;folder=projects/backend/v1&quot;</code> to upload directly into folder</span>
                 </div>
               </div>
             </div>
@@ -1026,24 +1050,35 @@ print("Link to share:", data["file"]["url"])`;
             </div>
 
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Distributing desktop application installers (like <strong className="text-foreground">Gaurav Personal Notes</strong> built with Tauri or Electron)?
-              GPHost allows you to replace an underlying binary atomically without changing its permanent raw URL:
+              Distributing desktop or mobile application releases (Tauri, Electron, Flutter, Go, Rust)? GPHost provides full multi-tenant release pipelines with Minisign Ed25519 verification, native Tauri v2 updater manifests, and zero-downtime atomic pointer switches:
             </p>
 
-            <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground space-y-2">
-              <strong className="text-foreground font-semibold">Permanent Stable URL Example:</strong>
-              <div className="font-mono text-xs text-purple-600 dark:text-purple-400 bg-background/80 p-2.5 rounded-lg border border-border">
-                https://gphost.eu.cc/raw/gpn-app
+            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
+              <div className="px-4 py-2 bg-muted/40 border-b border-border flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground">Dynamic Software Releases API (/api/v1/releases/[appId])</span>
+                <button
+                  onClick={() => copyCode(releaseApiCode, "releaseApi")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground bg-background border border-border transition cursor-pointer"
+                >
+                  {copiedSnippet === "releaseApi" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSnippet === "releaseApi" ? "Copied!" : "Copy Commands"}</span>
+                </button>
               </div>
+              <pre className="p-4 bg-background font-mono text-xs text-foreground overflow-x-auto leading-relaxed select-all">
+                {releaseApiCode}
+              </pre>
+            </div>
+
+            <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground space-y-2">
+              <strong className="text-foreground font-semibold">Atomic Binary Replacement (/api/v1/replace):</strong>
               <p>
-                When you deploy a new release, <code className="font-mono">POST /api/v1/replace</code> points the permanent slug to the new binary instantly.
-                Previous versions are archived for rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
+                When you deploy a new version, <code className="font-mono">POST /api/v1/replace</code> points any permanent custom slug (e.g. <code className="font-mono text-purple-600 dark:text-purple-400">/raw/my-app</code>) to the new binary instantly without changing downstream download links. Previous versions are archived with instant rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
               </p>
             </div>
 
             <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
               <div className="px-4 py-2 bg-muted/40 border-b border-border flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">Replacement API</span>
+                <span className="text-xs font-bold text-foreground">Atomic Replacement API</span>
                 <button
                   onClick={() => copyCode(replaceCode, "replace")}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground bg-background border border-border transition cursor-pointer"

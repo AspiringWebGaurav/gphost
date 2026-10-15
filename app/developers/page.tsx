@@ -398,10 +398,10 @@ export default function HowItWorksPage() {
           <section className="space-y-4 p-6 rounded-2xl bg-card border border-border">
             <div className="flex items-center gap-2 font-bold text-foreground text-base">
               <Terminal className="w-5 h-5 text-purple-500" />
-              <span>Developer API &amp; Automated Desktop Release Pipeline</span>
+              <span>Developer API &amp; Automated Release Pipelines</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Programmatically distribute software updates (such as Gaurav Personal Notes / Tauri), upload directly from CI/CD scripts, or manage release artifacts without touching the web dashboard.
+              Programmatically distribute software updates for any desktop or mobile app (Tauri, Electron, Flutter, Go, Rust), upload directly from CI/CD scripts, or manage release artifacts without touching the web dashboard.
             </p>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -413,8 +413,8 @@ export default function HowItWorksPage() {
                 <div className="font-mono text-[10.5px] text-foreground leading-relaxed overflow-x-auto">
                   curl -X POST https://gphost.eu.cc/api/v1/upload \<br />
                   &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
-                  &nbsp;&nbsp;-F &quot;file=@gpn-setup-1.0.0.exe&quot; \<br />
-                  &nbsp;&nbsp;-F &quot;slug=gpn-app&quot; -F &quot;isPermanent=true&quot;
+                  &nbsp;&nbsp;-F &quot;file=@app-setup-1.0.0.exe&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;slug=my-app&quot; -F &quot;isPermanent=true&quot;
                 </div>
               </div>
 
@@ -426,8 +426,8 @@ export default function HowItWorksPage() {
                 <div className="font-mono text-[10.5px] text-foreground leading-relaxed overflow-x-auto">
                   curl -X POST https://gphost.eu.cc/api/v1/replace \<br />
                   &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
-                  &nbsp;&nbsp;-F &quot;target=gpn-app&quot; \<br />
-                  &nbsp;&nbsp;-F &quot;file=@gpn-setup-1.0.1.exe&quot;
+                  &nbsp;&nbsp;-F &quot;target=my-app&quot; \<br />
+                  &nbsp;&nbsp;-F &quot;file=@app-setup-1.0.1.exe&quot;
                 </div>
               </div>
 
@@ -440,13 +440,13 @@ export default function HowItWorksPage() {
                   curl -X POST https://gphost.eu.cc/api/v1/folders \<br />
                   &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
                   &nbsp;&nbsp;-H &quot;Content-Type: application/json&quot; \<br />
-                  &nbsp;&nbsp;-d &apos;&#123;&quot;path&quot;: &quot;GPN/1/2&quot;&#125;&apos;
+                  &nbsp;&nbsp;-d &apos;&#123;&quot;path&quot;: &quot;projects/releases/v1&quot;&#125;&apos;
                 </div>
               </div>
             </div>
 
             <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">Permanent Distribution URL:</strong> Releases served at <code className="text-purple-600 dark:text-purple-400 font-semibold font-mono">https://gphost.eu.cc/raw/gpn-app</code> preserve the exact URL across updates. Previous binaries are archived with instant rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
+              <strong className="text-foreground">Permanent Distribution URL:</strong> Releases served at <code className="text-purple-600 dark:text-purple-400 font-semibold font-mono">https://gphost.eu.cc/raw/&#123;slug&#125;</code> preserve the exact URL across updates. Previous binaries are archived with instant rollback via <code className="font-mono text-[11px]">POST /api/v1/files/&#123;id&#125;/rollback</code>.
             </div>
 
             <p className="text-[11px] text-muted-foreground">
