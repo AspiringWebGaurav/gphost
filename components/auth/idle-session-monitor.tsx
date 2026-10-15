@@ -135,9 +135,8 @@ export function IdleSessionMonitor() {
   }, [handleIdleLogout]);
 
   useEffect(() => {
-    // Initial sync
+    // Initial sync (server layout already authoritatively verified status milliseconds ago)
     recordActivity();
-    checkRevocationStatus();
 
     // 1. Supabase Realtime Listener for Immediate Revocation (<500ms response)
     let isCancelled = false;

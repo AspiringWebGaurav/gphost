@@ -1,8 +1,7 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { requireApprovedUser, checkUserActivePin } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { requireApprovedUser, checkUserActivePin, getActiveStorageBytes } from "@/lib/auth/session";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { QuotaWidget } from "@/components/dashboard/quota-widget";
 import { StorageProvider } from "@/components/storage/storage-provider";
@@ -44,22 +43,9 @@ export default async function DashboardLayout({
     redirect("/access-gate");
   }
 
-  // Authoritative active storage check & self-healing
-  const adminClient = createAdminClient();
-  const { data: activeFiles } = await adminClient
-    .from("files")
-    .select("byte_size")
-    .eq("user_id", user.id)
-    .in("status", ["ACTIVE", "EXPIRING"]);
-  const trueActiveBytes = (activeFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
-
-  if (profile.storage_used_bytes !== trueActiveBytes) {
-    profile.storage_used_bytes = trueActiveBytes;
-    void adminClient
-      .from("profiles")
-      .update({ storage_used_bytes: trueActiveBytes, updated_at: new Date().toISOString() })
-      .eq("id", user.id);
-  }
+  // Authoritative active storage check & self-healing (memoized per-request, shared with DashboardPage)
+  const trueActiveBytes = await getActiveStorageBytes(user.id, profile.storage_used_bytes);
+  profile.storage_used_bytes = trueActiveBytes;
 
   const isAdmin = profile.role === "admin";
 

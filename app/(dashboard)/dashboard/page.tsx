@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { requireApprovedUser } from "@/lib/auth/session";
+import { requireApprovedUser, getActiveStorageBytes } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserMaxFiles } from "@/lib/storage/user-limits";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
@@ -212,21 +212,8 @@ export default async function DashboardPage() {
         }
       : undefined;
 
-  // Authoritative active storage check & self-healing
-  const { data: activeFilesForStorage } = await adminClient
-    .from("files")
-    .select("byte_size")
-    .eq("user_id", user.id)
-    .in("status", ["ACTIVE", "EXPIRING"]);
-  const trueActiveBytes = (activeFilesForStorage || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
-
-  if (profile.storage_used_bytes !== trueActiveBytes) {
-    profile.storage_used_bytes = trueActiveBytes;
-    void adminClient
-      .from("profiles")
-      .update({ storage_used_bytes: trueActiveBytes, updated_at: nowIso })
-      .eq("id", user.id);
-  }
+  // Authoritative active storage check & self-healing (memoized per-request, shares layout result)
+  const trueActiveBytes = await getActiveStorageBytes(user.id, profile.storage_used_bytes);
 
   return (
     <DashboardContent

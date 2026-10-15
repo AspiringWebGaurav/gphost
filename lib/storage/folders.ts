@@ -364,23 +364,26 @@ export async function relocateFolder(
 
   let updatedFilesCount = 0;
   if (filesToMove && filesToMove.length > 0) {
-    for (const file of filesToMove) {
-      let newR2Key: string;
-      if (file.r2_key.startsWith(`${oldNorm}/`)) {
-        newR2Key = `${newNorm}/${file.r2_key.substring(oldNorm.length + 1)}`;
-      } else if (file.r2_key.startsWith(`u/${userId}/${oldNorm}/`)) {
-        newR2Key = `u/${userId}/${newNorm}/${file.r2_key.substring(`u/${userId}/${oldNorm}/`.length)}`;
-      } else {
-        continue;
-      }
+    const moveResults = await Promise.allSettled(
+      filesToMove.map(async (file) => {
+        let newR2Key: string;
+        if (file.r2_key.startsWith(`${oldNorm}/`)) {
+          newR2Key = `${newNorm}/${file.r2_key.substring(oldNorm.length + 1)}`;
+        } else if (file.r2_key.startsWith(`u/${userId}/${oldNorm}/`)) {
+          newR2Key = `u/${userId}/${newNorm}/${file.r2_key.substring(`u/${userId}/${oldNorm}/`.length)}`;
+        } else {
+          return false;
+        }
 
-      await moveR2Object(file.r2_key, newR2Key);
-      await adminClient
-        .from("files")
-        .update({ r2_key: newR2Key, updated_at: new Date().toISOString() })
-        .eq("id", file.id);
-      updatedFilesCount++;
-    }
+        await moveR2Object(file.r2_key, newR2Key);
+        await adminClient
+          .from("files")
+          .update({ r2_key: newR2Key, updated_at: new Date().toISOString() })
+          .eq("id", file.id);
+        return true;
+      })
+    );
+    updatedFilesCount = moveResults.filter((r) => r.status === "fulfilled" && (r as PromiseFulfilledResult<boolean>).value).length;
   }
 
   return {
@@ -480,39 +483,46 @@ export async function deleteFolder(
     }
   }
 
-  // 2. Delete files
+  // 2. Delete files concurrently
   let deletedFilesCount = 0;
   let reclaimedBytes = 0;
 
   if (candidateFiles && candidateFiles.length > 0) {
-    for (const file of candidateFiles) {
-      // Physical R2 deletion
-      if (file.r2_key) {
-        await deleteR2Object(file.r2_key);
-      }
+    const fileIds = candidateFiles.map((f) => f.id);
+    const slugsToPurge: string[] = [];
 
-      // Reclaim quota
-      await adminClient.rpc("reclaim_file_storage", {
-        p_user_id: userId,
-        p_file_id: file.id,
-      });
-
-      // Purge share links & cache
-      const shares = Array.isArray(file.share_links) ? file.share_links : file.share_links ? [file.share_links] : [];
-      for (const s of shares) {
-        if (s.slug) {
-          await purgeShareLinkRedisData(s.slug);
+    // Parallelize physical R2 deletions & collect slugs
+    await Promise.allSettled(
+      candidateFiles.map(async (file) => {
+        if (file.r2_key) {
+          await deleteR2Object(file.r2_key);
         }
-      }
+        const shares = Array.isArray(file.share_links)
+          ? file.share_links
+          : file.share_links
+          ? [file.share_links]
+          : [];
+        for (const s of shares) {
+          if (s.slug) {
+            slugsToPurge.push(s.slug);
+          }
+        }
+      })
+    );
 
-      await adminClient
-        .from("files")
-        .update({ status: "PURGED", updated_at: new Date().toISOString() })
-        .eq("id", file.id);
-
-      reclaimedBytes += file.byte_size || 0;
-      deletedFilesCount++;
+    // Concurrently purge share link Redis caches
+    if (slugsToPurge.length > 0) {
+      await Promise.allSettled(slugsToPurge.map((slug) => purgeShareLinkRedisData(slug)));
     }
+
+    // Batch database update to PURGED status
+    await adminClient
+      .from("files")
+      .update({ status: "PURGED", updated_at: new Date().toISOString() })
+      .in("id", fileIds);
+
+    deletedFilesCount = candidateFiles.length;
+    reclaimedBytes = candidateFiles.reduce((sum, f) => sum + (f.byte_size || 0), 0);
 
     // Authoritatively sync profile storage_used_bytes
     try {
@@ -533,26 +543,28 @@ export async function deleteFolder(
     } catch {}
   }
 
-  // 3. Delete folders
+  // 3. Delete folders in batch
   const allFolders = await getAllUserFolders(userId);
   const targetFolders = allFolders.filter((f) => f.path === norm || (recursive && f.path.startsWith(`${norm}/`)));
 
   let deletedFoldersCount = 0;
-  for (const f of targetFolders) {
-    let deleted = false;
-    try {
-      const { error } = await adminClient.from("folders").delete().eq("id", f.id);
-      if (!error) deleted = true;
-    } catch {}
+  if (targetFolders.length > 0) {
+    const targetFolderIds = targetFolders.map((f) => f.id).filter(Boolean);
+    const targetFolderPaths = targetFolders.map((f) => f.path);
 
-    if (redis) {
+    if (targetFolderIds.length > 0) {
       try {
-        const res = await redis.hdel(getRedisFolderKey(userId), f.path);
-        if (res > 0) deleted = true;
+        await adminClient.from("folders").delete().in("id", targetFolderIds);
       } catch {}
     }
 
-    if (deleted) deletedFoldersCount++;
+    if (redis && targetFolderPaths.length > 0) {
+      try {
+        await redis.hdel(getRedisFolderKey(userId), ...targetFolderPaths);
+      } catch {}
+    }
+
+    deletedFoldersCount = targetFolders.length;
   }
 
   return {

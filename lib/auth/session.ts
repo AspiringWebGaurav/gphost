@@ -259,3 +259,29 @@ export const checkUserActivePin = cache(async (userEmail: string): Promise<boole
   }
 });
 
+/**
+ * Authoritatively computes active storage used bytes from non-purged files.
+ * Memoized per-request via React cache() so layout and page share the single result.
+ * Automatically syncs profile storage_used_bytes in PostgreSQL if desynchronized.
+ */
+export const getActiveStorageBytes = cache(async (userId: string, currentProfileBytes?: number): Promise<number> => {
+  if (!userId) return 0;
+  const adminClient = createAdminClient();
+  const { data: activeFiles } = await adminClient
+    .from("files")
+    .select("byte_size")
+    .eq("user_id", userId)
+    .in("status", ["ACTIVE", "EXPIRING"]);
+
+  const trueActiveBytes = (activeFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+
+  if (currentProfileBytes !== undefined && currentProfileBytes !== trueActiveBytes) {
+    void adminClient
+      .from("profiles")
+      .update({ storage_used_bytes: trueActiveBytes, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+  }
+
+  return trueActiveBytes;
+});
+

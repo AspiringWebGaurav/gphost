@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getApiManagedFileIds } from "@/lib/auth/api-keys";
-import { extractFolderFromR2Key } from "@/lib/storage/folders";
+import { extractFolderFromR2Key } from "@/lib/storage/folder-utils";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
