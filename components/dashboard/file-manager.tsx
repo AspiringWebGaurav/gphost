@@ -49,8 +49,21 @@ import {
   Package,
   FolderPlus,
   FolderInput,
+  FolderTree,
+  CornerLeftUp,
+  Edit2,
+  Move,
+  MoreVertical,
 } from "lucide-react";
-import { sanitizeFolderName } from "@/lib/storage/folders";
+import {
+  sanitizeFolderName,
+  normalizeFolderPath,
+  getFolderNameFromPath,
+  getFolderParentPath,
+  getBreadcrumbs,
+  type FolderItem,
+  type FolderTreeNode,
+} from "@/lib/storage/folder-utils";
 import { QRCodeSVG } from "qrcode.react";
 import {
   downloadQrCodePng,
@@ -312,6 +325,18 @@ export function FileManager({
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [customFolders, setCustomFolders] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("gphost_custom_folders");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
 
   // Real-time live dynamic update tracking
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
@@ -381,19 +406,33 @@ export function FileManager({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Custom Dynamic Folders State
-  const [customFolders, setCustomFolders] = useState<string[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("gphost_custom_folders");
-        if (saved) return JSON.parse(saved);
-      } catch {}
-    }
-    return ["gpn-dynamic-update"];
-  });
+  // Hierarchical Folder Management State
+  const [folderTree, setFolderTree] = useState<FolderTreeNode[]>([]);
+  const [currentFolderData, setCurrentFolderData] = useState<{
+    subfolders: FolderItem[];
+    breadcrumbs: { name: string; path: string }[];
+    totalSubfolders: number;
+    totalFiles: number;
+  } | null>(null);
+  const [isLoadingFolderContents, setIsLoadingFolderContents] = useState(false);
+
+  // Folder Modals
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderNameInput, setNewFolderNameInput] = useState("");
   const [newFolderError, setNewFolderError] = useState<string | null>(null);
+
+  const [folderToRename, setFolderToRename] = useState<FolderItem | null>(null);
+  const [renameFolderNameInput, setRenameFolderNameInput] = useState("");
+  const [renameFolderError, setRenameFolderError] = useState<string | null>(null);
+  const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+
+  const [folderToDelete, setFolderToDelete] = useState<FolderItem | null>(null);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
+  const [deleteFolderError, setDeleteFolderError] = useState<string | null>(null);
+
+  const [folderToMove, setFolderToMove] = useState<FolderItem | null>(null);
+  const [folderMoveTarget, setFolderMoveTarget] = useState("");
+  const [isMovingFolder, setIsMovingFolder] = useState(false);
 
   // Bulk Delete & Move State
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
@@ -991,6 +1030,73 @@ export function FileManager({
   // Skip redundant initial fetch on mount (page 1 is already server-rendered in initialFiles)
   const isInitialMount = useRef(true);
 
+  // Hierarchical Folder Fetchers
+  const fetchFolderTree = useCallback(async () => {
+    try {
+      const res = await authFetch("/api/v1/folders?tree=true");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.tree) {
+          setFolderTree(data.tree);
+        }
+      }
+    } catch (err) {
+      console.warn("Notice: failed to load folder tree:", err);
+    }
+  }, []);
+
+  const fetchFolderContents = useCallback(async (path: string) => {
+    const isSystemCategory = [
+      "all",
+      "gpn",
+      "api",
+      "websites",
+      "images",
+      "documents",
+      "media",
+      "archives",
+    ].includes(path);
+
+    if (isSystemCategory) {
+      try {
+        const res = await authFetch("/api/v1/folders");
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentFolderData({
+            subfolders: data.subfolders || [],
+            breadcrumbs: [{ name: "Storage", path: "" }],
+            totalSubfolders: data.totalSubfolders || 0,
+            totalFiles: data.totalFiles || 0,
+          });
+        }
+      } catch {}
+      return;
+    }
+
+    setIsLoadingFolderContents(true);
+    try {
+      const res = await authFetch(`/api/v1/folders?path=${encodeURIComponent(path)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentFolderData({
+          subfolders: data.subfolders || [],
+          breadcrumbs: data.breadcrumbs || getBreadcrumbs(path),
+          totalSubfolders: data.totalSubfolders || 0,
+          totalFiles: data.totalFiles || 0,
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to fetch folder contents:", err);
+    } finally {
+      setIsLoadingFolderContents(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchFolderTree();
+    void fetchFolderContents(category);
+  }, [category, fetchFolderTree, fetchFolderContents]);
+
   // Trigger search on query / filter change with debounce
   useEffect(() => {
     if (isInitialMount.current) {
@@ -1173,49 +1279,250 @@ export function FileManager({
     setTargetMoveFolder("");
   };
 
-  const handleCreateNewFolder = (e: React.FormEvent) => {
+  const handleCreateNewFolder = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = sanitizeFolderName(newFolderNameInput);
-    if (!clean) {
-      setNewFolderError("Please enter a valid folder name (alphanumeric, dashes)");
+    const rawInput = newFolderNameInput.trim();
+    if (!rawInput) {
+      setNewFolderError("Please enter a folder name or path");
       return;
     }
-    if (clean.length < 2) {
-      setNewFolderError("Folder name must be at least 2 characters");
+
+    const isSystemCategory = [
+      "all",
+      "gpn",
+      "api",
+      "websites",
+      "images",
+      "documents",
+      "media",
+      "archives",
+    ].includes(category);
+
+    let targetPath = rawInput;
+    if (!rawInput.includes("/") && !isSystemCategory && category) {
+      targetPath = `${category}/${rawInput}`;
+    }
+
+    try {
+      const normalized = normalizeFolderPath(targetPath);
+      const res = await authFetch("/api/v1/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: normalized }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNewFolderError(data.error || "Failed to create folder");
+        return;
+      }
+
+      setCustomFolders((prev) => {
+        const next = Array.from(new Set([...prev, normalized]));
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      setCategory(normalized);
+      setShowNewFolderModal(false);
+      setNewFolderNameInput("");
+      setNewFolderError(null);
+      void fetchFolderTree();
+      void fetchFolderContents(normalized);
+      setLastLiveAction({
+        message: `Folder '${normalized}' created`,
+        timestamp: Date.now(),
+      });
+    } catch (err: unknown) {
+      setNewFolderError(err instanceof Error ? err.message : "Failed to create folder");
+    }
+  };
+
+  const handleRenameFolderConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!folderToRename) return;
+    const newName = renameFolderNameInput.trim();
+    if (!newName) {
+      setRenameFolderError("Please enter a new folder name");
       return;
     }
-    setCustomFolders((prev) => {
-      const next = Array.from(new Set([...prev, clean]));
-      try {
-        localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-    setCategory(clean);
-    setShowNewFolderModal(false);
-    setNewFolderNameInput("");
-    setNewFolderError(null);
-    setLastLiveAction({
-      message: `Folder '${clean}' active`,
-      timestamp: Date.now(),
-    });
+
+    setIsRenamingFolder(true);
+    setRenameFolderError(null);
+    try {
+      const res = await authFetch("/api/v1/folders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: folderToRename.path,
+          newName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRenameFolderError(data.error || "Failed to rename folder");
+        setIsRenamingFolder(false);
+        return;
+      }
+
+      const oldPath = folderToRename.path;
+      const newPath = data.newPath as string;
+
+      setCustomFolders((prev) => {
+        const next = prev.map((f) => {
+          if (f === oldPath) return newPath;
+          if (f.startsWith(`${oldPath}/`)) return `${newPath}${f.substring(oldPath.length)}`;
+          return f;
+        });
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      if (category === oldPath) {
+        setCategory(newPath);
+      } else if (category.startsWith(`${oldPath}/`)) {
+        setCategory(`${newPath}${category.substring(oldPath.length)}`);
+      }
+
+      setFiles((prev) =>
+        prev.map((f) => {
+          if (f.folder === oldPath) {
+            return { ...f, folder: newPath };
+          }
+          if (f.folder && f.folder.startsWith(`${oldPath}/`)) {
+            return { ...f, folder: `${newPath}${f.folder.substring(oldPath.length)}` };
+          }
+          return f;
+        })
+      );
+
+      setFolderToRename(null);
+      setRenameFolderNameInput("");
+      void fetchFolderTree();
+      void fetchFolderContents(category === oldPath ? newPath : category);
+      setLastLiveAction({
+        message: `Folder renamed to '${newName}'`,
+        timestamp: Date.now(),
+      });
+    } catch (err: unknown) {
+      setRenameFolderError(err instanceof Error ? err.message : "Failed to rename folder");
+    } finally {
+      setIsRenamingFolder(false);
+    }
+  };
+
+  const handleDeleteFolderConfirm = async () => {
+    if (!folderToDelete) return;
+    setIsDeletingFolder(true);
+    setDeleteFolderError(null);
+    try {
+      const res = await authFetch(
+        `/api/v1/folders?path=${encodeURIComponent(folderToDelete.path)}&recursive=true`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteFolderError(data.error || "Failed to delete folder");
+        setIsDeletingFolder(false);
+        return;
+      }
+
+      const deletedPath = folderToDelete.path;
+      setCustomFolders((prev) => {
+        const next = prev.filter((f) => f !== deletedPath && !f.startsWith(`${deletedPath}/`));
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      setFiles((prev) =>
+        prev.filter(
+          (f) =>
+            f.folder !== deletedPath && (!f.folder || !f.folder.startsWith(`${deletedPath}/`))
+        )
+      );
+
+      if (category === deletedPath || category.startsWith(`${deletedPath}/`)) {
+        const parent = getFolderParentPath(deletedPath);
+        setCategory(parent || "all");
+      }
+
+      setFolderToDelete(null);
+      void fetchFolderTree();
+      void fetchFolderContents(category === deletedPath ? "all" : category);
+      setLastLiveAction({
+        message: `Folder '${deletedPath}' deleted`,
+        timestamp: Date.now(),
+      });
+    } catch (err: unknown) {
+      setDeleteFolderError(err instanceof Error ? err.message : "Failed to delete folder");
+    } finally {
+      setIsDeletingFolder(false);
+    }
+  };
+
+  const handleMoveFolderConfirm = async (destinationParent: string) => {
+    if (!folderToMove) return;
+    setIsMovingFolder(true);
+    try {
+      const res = await authFetch("/api/v1/folders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: folderToMove.path,
+          destinationParent: destinationParent || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to move folder");
+        setIsMovingFolder(false);
+        return;
+      }
+
+      const oldPath = folderToMove.path;
+      const newPath = data.newPath as string;
+
+      if (category === oldPath) {
+        setCategory(newPath);
+      } else if (category.startsWith(`${oldPath}/`)) {
+        setCategory(`${newPath}${category.substring(oldPath.length)}`);
+      }
+
+      setFolderToMove(null);
+      setFolderMoveTarget("");
+      void fetchFolderTree();
+      void fetchFolderContents(category === oldPath ? newPath : category);
+      setLastLiveAction({
+        message: `Folder moved to '${newPath}'`,
+        timestamp: Date.now(),
+      });
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to move folder");
+    } finally {
+      setIsMovingFolder(false);
+    }
   };
 
   const handleDeleteCustomFolder = (folderName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setCustomFolders((prev) => {
-      const next = prev.filter((f) => f !== folderName);
-      try {
-        localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-    if (category === folderName) {
-      setCategory("all");
-    }
-    setLastLiveAction({
-      message: `Removed folder '${folderName}'`,
-      timestamp: Date.now(),
+    setFolderToDelete({
+      id: folderName,
+      name: getFolderNameFromPath(folderName),
+      path: folderName,
+      parentPath: getFolderParentPath(folderName),
+      depth: folderName.split("/").length,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      totalFiles: files.filter((f) => f.folder === folderName).length,
+      totalBytes: 0,
+      totalSubfolders: 0,
     });
   };
 
@@ -1323,19 +1630,33 @@ export function FileManager({
 
   const allDynamicFolders = React.useMemo(() => {
     const system = new Set(["all", "gpn", "api", "websites", "images", "documents", "media", "archives"]);
-    const set = new Set<string>(customFolders);
+    const set = new Set<string>();
+    for (const f of customFolders) {
+      if (!system.has(f)) {
+        const top = f.split("/")[0];
+        if (top) set.add(top);
+      }
+    }
     for (const f of files) {
       if (f.folder && !system.has(f.folder)) {
-        set.add(f.folder);
+        const top = f.folder.split("/")[0];
+        if (top) set.add(top);
+      }
+    }
+    if (folderTree && folderTree.length > 0) {
+      for (const node of folderTree) {
+        if (!system.has(node.name)) {
+          set.add(node.name);
+        }
       }
     }
     return Array.from(set);
-  }, [customFolders, files]);
+  }, [customFolders, files, folderTree]);
 
   const dynamicFolderItems = allDynamicFolders.map((fName) => ({
     id: fName,
     name: fName,
-    count: files.filter((f) => f.folder === fName).length,
+    count: files.filter((f) => f.folder === fName || f.folder?.startsWith(`${fName}/`)).length,
     icon: Folder,
     isCustom: true,
     color: "text-blue-600 dark:text-blue-400",
@@ -1424,113 +1745,363 @@ export function FileManager({
 
   return (
     <div className="space-y-3 sm:space-y-5">
-      {/* 1. Suggested Folders Section (Google Drive & Windows 11 Style) */}
-      <div className="space-y-1.5 sm:space-y-2">
-        <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
-          <span className="flex items-center gap-1.5 font-semibold text-foreground">
-            <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
-            <span>Suggested folders</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setNewFolderNameInput("");
-                setNewFolderError(null);
-                setShowNewFolderModal(true);
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
-              title="Create new custom dynamic folder (e.g. gpn-dynamic-update)"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-              <span>New Folder</span>
-            </button>
-            {category !== "all" && (
+      {/* 1. Suggested Folders or Subfolder Grid */}
+      {category === "all" ? (
+        <div className="space-y-1.5 sm:space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
+            <span className="flex items-center gap-1.5 font-semibold text-foreground">
+              <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+              <span>Suggested folders</span>
+            </span>
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setCategory("all")}
-                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
+                type="button"
+                onClick={() => {
+                  setNewFolderNameInput("");
+                  setNewFolderError(null);
+                  setShowNewFolderModal(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
+                title="Create new custom dynamic folder (e.g. GPN, Projects)"
               >
-                <span>View all files</span>
-                <ChevronRight className="w-3 h-3" />
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>New Folder</span>
               </button>
-            )}
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-4 lg:grid-cols-8 sm:overflow-visible">
-          {FOLDERS.map((f) => {
-            const isSelected = category === f.id;
-            const FolderIcon = f.icon || Folder;
-            const isCustom = "isCustom" in f && Boolean(f.isCustom);
-            return (
-              <div
-                key={f.id}
-                onClick={() => setCategory(f.id)}
-                className={`relative shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
-                  isSelected
-                    ? f.id === "gpn"
-                      ? "bg-violet-500/15 border-violet-500/50 text-violet-600 dark:text-violet-300 shadow-2xs font-semibold ring-1 ring-violet-500/40"
-                      : f.id === "api"
-                      ? "bg-purple-500/15 border-purple-500/50 text-purple-600 dark:text-purple-300 shadow-2xs font-semibold ring-1 ring-purple-500/40"
-                      : "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
-                    : "bg-card hover:bg-muted/40 border-border text-foreground hover:border-border/80 shadow-2xs"
-                }`}
-              >
+          <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-4 lg:grid-cols-8 sm:overflow-visible">
+            {FOLDERS.map((f) => {
+              const isSelected = category === f.id;
+              const FolderIcon = f.icon || Folder;
+              const isCustom = "isCustom" in f && Boolean(f.isCustom);
+              return (
                 <div
-                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 border ${
+                  key={f.id}
+                  onClick={() => setCategory(f.id)}
+                  className={`relative shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
                     isSelected
                       ? f.id === "gpn"
-                        ? "bg-violet-600 text-white border-violet-600 shadow-xs"
+                        ? "bg-violet-500/15 border-violet-500/50 text-violet-600 dark:text-violet-300 shadow-2xs font-semibold ring-1 ring-violet-500/40"
                         : f.id === "api"
-                        ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                        : "bg-blue-600 text-white border-blue-600 shadow-xs"
-                      : `${f.bg} ${f.color}`
+                        ? "bg-purple-500/15 border-purple-500/50 text-purple-600 dark:text-purple-300 shadow-2xs font-semibold ring-1 ring-purple-500/40"
+                        : "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
+                      : "bg-card hover:bg-muted/40 border-border text-foreground hover:border-border/80 shadow-2xs"
                   }`}
                 >
-                  <FolderIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <div
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 border ${
+                      isSelected
+                        ? f.id === "gpn"
+                          ? "bg-violet-600 text-white border-violet-600 shadow-xs"
+                          : f.id === "api"
+                          ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                          : "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : `${f.bg} ${f.color}`
+                    }`}
+                  >
+                    <FolderIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold truncate">{f.name}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
+                    </div>
+                  </div>
+                  {isCustom && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteCustomFolder(f.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 hover:text-rose-600 rounded-md transition text-muted-foreground cursor-pointer shrink-0"
+                      title={`Delete folder '${f.id}'`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold truncate">{f.name}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* Subfolders Grid if inside a folder and subfolders exist */
+        currentFolderData && currentFolderData.subfolders.length > 0 && (
+          <div className="space-y-1.5 sm:space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
+              <span className="flex items-center gap-1.5 font-semibold text-foreground">
+                <FolderOpen className="w-3.5 h-3.5 text-blue-500 fill-blue-500/20" />
+                <span>Subfolders ({currentFolderData.subfolders.length})</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewFolderNameInput("");
+                  setNewFolderError(null);
+                  setShowNewFolderModal(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>New Subfolder</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-2.5">
+              {currentFolderData.subfolders.map((sub) => (
+                <div
+                  key={sub.path}
+                  onClick={() => setCategory(sub.path)}
+                  className="group relative p-2.5 rounded-xl border border-border bg-card hover:bg-muted/40 hover:border-blue-500/40 text-foreground transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Folder className="w-4 h-4 fill-blue-500/20" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        {sub.name}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {(sub.totalFiles ?? sub.file_count ?? 0)} {(sub.totalFiles ?? sub.file_count ?? 0) === 1 ? "file" : "files"}
+                        {((sub.totalSubfolders ?? sub.subfolder_count ?? 0) > 0) ? ` • ${sub.totalSubfolders ?? sub.subfolder_count} folders` : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolderToRename(sub);
+                        setRenameFolderNameInput(sub.name);
+                        setRenameFolderError(null);
+                      }}
+                      className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
+                      title="Rename folder"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolderToMove(sub);
+                        setFolderMoveTarget(sub.parentPath || sub.parent_path || "");
+                      }}
+                      className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
+                      title="Move folder"
+                    >
+                      <Move className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolderToDelete(sub);
+                        setDeleteFolderError(null);
+                      }}
+                      className="p-1 hover:bg-rose-500/20 text-muted-foreground hover:text-rose-600 rounded-md transition cursor-pointer"
+                      title="Delete folder"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
-                {isCustom && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteCustomFolder(f.id, e)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 hover:text-rose-600 rounded-md transition text-muted-foreground cursor-pointer shrink-0"
-                    title={`Remove folder '${f.id}' from quick list`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              ))}
+            </div>
+          </div>
+        )
+      )}
 
       {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        {/* Windows 11 Breadcrumb / Address Bar & Google Drive Live Sync Indicator */}
+        {/* Windows 11 Breadcrumb / Address Bar with Up Button & Google Drive Live Sync Indicator */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none">
-            <span className="flex items-center gap-1 text-foreground font-medium">
+          {/* Back / Up to Parent Folder Button */}
+          {category !== "all" && (
+            <button
+              type="button"
+              onClick={() => {
+                const isSys = [
+                  "gpn",
+                  "api",
+                  "websites",
+                  "images",
+                  "documents",
+                  "media",
+                  "archives",
+                ].includes(category);
+                if (isSys) {
+                  setCategory("all");
+                } else {
+                  const parent = getFolderParentPath(category);
+                  setCategory(parent || "all");
+                }
+              }}
+              className="p-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground transition cursor-pointer flex items-center justify-center shrink-0 shadow-2xs hover:border-blue-500/40"
+              title="Navigate up one folder level"
+            >
+              <CornerLeftUp className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            </button>
+          )}
+
+          {/* Interactive Clickable Breadcrumbs */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none overflow-x-auto no-scrollbar max-w-full">
+            <button
+              type="button"
+              onClick={() => setCategory("all")}
+              className="flex items-center gap-1 text-foreground hover:text-blue-500 hover:underline cursor-pointer font-medium shrink-0"
+            >
               <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
               <span>Storage</span>
-            </span>
-            <span>/</span>
-            <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize">
-              {category === "all"
-                ? "All Files"
-                : category === "gpn"
-                ? "📁 gpn (Releases)"
-                : category === "api"
-                ? "⚡ API Uploads"
-                : category}
-            </span>
+            </button>
+            {category !== "all" && (
+              <>
+                <span>/</span>
+                {[
+                  "gpn",
+                  "api",
+                  "websites",
+                  "images",
+                  "documents",
+                  "media",
+                  "archives",
+                ].includes(category) ? (
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold capitalize shrink-0">
+                    {category === "gpn"
+                      ? "📁 gpn (Releases)"
+                      : category === "api"
+                      ? "⚡ API Uploads"
+                      : category}
+                  </span>
+                ) : (
+                  (() => {
+                    const crumbs = currentFolderData?.breadcrumbs?.length
+                      ? currentFolderData.breadcrumbs.filter((b) => b.path)
+                      : getBreadcrumbs(category).filter((b) => b.path);
+                    return crumbs.map((crumb, idx) => {
+                      const isLast = idx === crumbs.length - 1;
+                      return (
+                        <React.Fragment key={crumb.path}>
+                          {idx > 0 && <span>/</span>}
+                          {isLast ? (
+                            <span className="text-blue-600 dark:text-blue-400 font-bold shrink-0">
+                              {crumb.name}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCategory(crumb.path)}
+                              className="hover:text-foreground hover:underline cursor-pointer shrink-0"
+                            >
+                              {crumb.name}
+                            </button>
+                          )}
+                        </React.Fragment>
+                      );
+                    });
+                  })()
+                )}
+              </>
+            )}
           </div>
+
+          {/* Folder Action Buttons for Custom Hierarchical Folders */}
+          {category !== "all" &&
+            ![
+              "gpn",
+              "api",
+              "websites",
+              "images",
+              "documents",
+              "media",
+              "archives",
+            ].includes(category) && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewFolderNameInput("");
+                    setNewFolderError(null);
+                    setShowNewFolderModal(true);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition shadow-2xs cursor-pointer active:scale-95"
+                  title="Create subfolder inside current folder"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">New Subfolder</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderToRename({
+                      id: category,
+                      name: getFolderNameFromPath(category),
+                      path: category,
+                      parentPath: getFolderParentPath(category),
+                      depth: category.split("/").length,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      totalFiles: files.length,
+                      totalBytes: 0,
+                      totalSubfolders: currentFolderData?.subfolders?.length || 0,
+                    });
+                    setRenameFolderNameInput(getFolderNameFromPath(category));
+                    setRenameFolderError(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
+                  title="Rename current folder"
+                >
+                  <Edit2 className="w-3 h-3 text-muted-foreground" />
+                  <span className="hidden sm:inline">Rename</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderToMove({
+                      id: category,
+                      name: getFolderNameFromPath(category),
+                      path: category,
+                      parentPath: getFolderParentPath(category),
+                      depth: category.split("/").length,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      totalFiles: files.length,
+                      totalBytes: 0,
+                      totalSubfolders: currentFolderData?.subfolders?.length || 0,
+                    });
+                    setFolderMoveTarget(getFolderParentPath(category) || "");
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
+                  title="Move current folder to another parent"
+                >
+                  <Move className="w-3 h-3 text-muted-foreground" />
+                  <span className="hidden sm:inline">Move</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderToDelete({
+                      id: category,
+                      name: getFolderNameFromPath(category),
+                      path: category,
+                      parentPath: getFolderParentPath(category),
+                      depth: category.split("/").length,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      totalFiles: files.length,
+                      totalBytes: 0,
+                      totalSubfolders: currentFolderData?.subfolders?.length || 0,
+                    });
+                    setDeleteFolderError(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-medium text-xs transition shadow-2xs cursor-pointer"
+                  title="Delete current folder and all contents"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span className="hidden sm:inline">Delete</span>
+                </button>
+              </div>
+            )}
 
           {/* Google Drive-style Dynamic Real-time Live Status Badge */}
           <div
@@ -4437,7 +5008,18 @@ export function FileManager({
                     Create New Folder
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Organize files into custom or API-controlled dynamic folders
+                    {category === "all" ||
+                    [
+                      "gpn",
+                      "api",
+                      "websites",
+                      "images",
+                      "documents",
+                      "media",
+                      "archives",
+                    ].includes(category)
+                      ? "Creating at root storage level"
+                      : `Creating inside: ${category}`}
                   </p>
                 </div>
               </div>
@@ -4453,11 +5035,11 @@ export function FileManager({
             <form onSubmit={handleCreateNewFolder} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-foreground">
-                  Folder Name
+                  Folder Name or Nested Path
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. gpn-dynamic-update"
+                  placeholder="e.g. GPN or subfolder or 1/2"
                   value={newFolderNameInput}
                   onChange={(e) => {
                     setNewFolderNameInput(e.target.value);
@@ -4467,8 +5049,28 @@ export function FileManager({
                   className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Use lowercase letters, numbers, and hyphens. Files uploaded with this folder via API or moved here will be grouped automatically.
+                  Alphanumeric, underscores, hyphens, and slashes. Intermediate parent folders are created automatically.
                 </p>
+                {newFolderNameInput.trim() && (
+                  <div className="p-2 rounded-lg bg-muted/40 border border-border text-[11px] font-mono text-muted-foreground truncate">
+                    Resolved path:{" "}
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">
+                      {category === "all" ||
+                      [
+                        "gpn",
+                        "api",
+                        "websites",
+                        "images",
+                        "documents",
+                        "media",
+                        "archives",
+                      ].includes(category) ||
+                      newFolderNameInput.includes("/")
+                        ? newFolderNameInput.trim()
+                        : `${category}/${newFolderNameInput.trim()}`}
+                    </span>
+                  </div>
+                )}
                 {newFolderError && (
                   <p className="text-xs text-rose-500 font-medium">{newFolderError}</p>
                 )}
@@ -4491,6 +5093,297 @@ export function FileManager({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Folder Modal */}
+      {folderToRename && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Rename Folder
+                  </h3>
+                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
+                    {folderToRename.path}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isRenamingFolder && setFolderToRename(null)}
+                disabled={isRenamingFolder}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRenameFolderConfirm} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  New Folder Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. NewName"
+                  value={renameFolderNameInput}
+                  onChange={(e) => {
+                    setRenameFolderNameInput(e.target.value);
+                    setRenameFolderError(null);
+                  }}
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Renaming cascades across all nested child folders and files in storage.
+                </p>
+                {renameFolderError && (
+                  <p className="text-xs text-rose-500 font-medium">{renameFolderError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setFolderToRename(null)}
+                  disabled={isRenamingFolder}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRenamingFolder || !renameFolderNameInput.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  {isRenamingFolder ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Renaming...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Folder Modal */}
+      {folderToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Delete Folder?
+                  </h3>
+                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
+                    {folderToDelete.path}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isDeletingFolder && setFolderToDelete(null)}
+                disabled={isDeletingFolder}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Base Installer Protection Guard */}
+            {folderToDelete.path === "gpn" ||
+            files.some(
+              (f) =>
+                (f.folder === folderToDelete.path ||
+                  f.folder?.startsWith(`${folderToDelete.path}/`)) &&
+                (f.is_release_locked || f.share_slug === "gpn-app")
+            ) ? (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                <div>
+                  <p className="font-semibold">Base Installer Permanently Protected</p>
+                  <p className="text-[11px] mt-0.5 text-amber-700/80 dark:text-amber-400/80">
+                    Gaurav Personal Notes v0.0.0 Base Installer is protected for public website downloads. Folders containing protected release binaries cannot be deleted.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-400">
+                  <p className="font-semibold">Permanent Deletion Warning</p>
+                  <p className="text-[11px] mt-0.5 text-rose-700/80 dark:text-rose-400/80">
+                    This will permanently delete this folder, all nested subfolders, and purge physical files from Cloudflare R2 storage. Storage quota will be reclaimed immediately.
+                  </p>
+                </div>
+
+                {deleteFolderError && (
+                  <p className="text-xs text-rose-500 font-medium">{deleteFolderError}</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setFolderToDelete(null)}
+                disabled={isDeletingFolder}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteFolderConfirm}
+                disabled={
+                  isDeletingFolder ||
+                  folderToDelete.path === "gpn" ||
+                  files.some(
+                    (f) =>
+                      (f.folder === folderToDelete.path ||
+                        f.folder?.startsWith(`${folderToDelete.path}/`)) &&
+                      (f.is_release_locked || f.share_slug === "gpn-app")
+                  )
+                }
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                {isDeletingFolder ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Folder</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Folder Modal */}
+      {folderToMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <Move className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                    Move Folder
+                  </h3>
+                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
+                    {folderToMove.path}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isMovingFolder && setFolderToMove(null)}
+                disabled={isMovingFolder}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-semibold text-foreground">
+                Destination Parent Folder (leave empty to move to root)
+              </label>
+
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFolderMoveTarget("")}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                    folderMoveTarget === ""
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                  }`}
+                >
+                  <Folder className="w-3 h-3" />
+                  <span>Storage (Root)</span>
+                </button>
+                {allDynamicFolders
+                  .filter((f) => f !== folderToMove.path && !f.startsWith(`${folderToMove.path}/`))
+                  .map((fName) => (
+                    <button
+                      key={fName}
+                      type="button"
+                      onClick={() => setFolderMoveTarget(fName)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                        folderMoveTarget === fName
+                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                          : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                      }`}
+                    >
+                      <Folder className="w-3 h-3" />
+                      <span>{fName}</span>
+                    </button>
+                  ))}
+              </div>
+
+              <input
+                type="text"
+                placeholder="Or type destination parent path (e.g. GPN/1)"
+                value={folderMoveTarget}
+                onChange={(e) => setFolderMoveTarget(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setFolderToMove(null)}
+                disabled={isMovingFolder}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMoveFolderConfirm(folderMoveTarget)}
+                disabled={isMovingFolder}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                {isMovingFolder ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Moving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Move className="w-3.5 h-3.5" />
+                    <span>Move Folder</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

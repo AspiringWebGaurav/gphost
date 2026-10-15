@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
           "application/x-zip-compressed",
         ]);
       } else if (category && category !== "all") {
-        q = q.ilike("r2_key", `${category}/%`);
+        q = q.or(`r2_key.ilike.${category}/%,r2_key.ilike.u/${user.id}/${category}/%`);
       }
 
       const sortColumn = sortBy === "recent" ? "created_at" : sortBy;

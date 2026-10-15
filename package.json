@@ -14,6 +14,7 @@
     "test:cors": "node scripts/test_r2_cors.mjs",
     "test:live": "node scripts/test_live_apis_and_quotas.mjs",
     "test:releases": "node scripts/test_owner_api_releases.mjs",
+    "test:folders": "node scripts/test_folder_management_api.mjs",
     "verify:storage": "node scripts/cleanup_to_exact_two_files.mjs",
     "purge": "node scripts/purge_all_storage_and_db.mjs",
     "clean": "node scripts/clean.mjs standard",

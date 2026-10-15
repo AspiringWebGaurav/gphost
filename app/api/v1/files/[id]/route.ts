@@ -8,6 +8,7 @@ import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { deleteXurlLink } from "@/lib/xurl/client";
 import { redis } from "@/lib/redis/client";
 import { calculateExpiryDate, EXPIRY_PRESET_VALUES } from "@/lib/storage/expiry";
+import { createFolder, normalizeFolderPath } from "@/lib/storage/folders";
 
 export const dynamic = "force-dynamic";
 
@@ -207,9 +208,19 @@ export async function PATCH(
     let newR2Key = parseBody.data.customKey ? parseBody.data.customKey.trim().replace(/^\/+/, "").replace(/\.\.+/g, "") : null;
 
     if (!newR2Key && targetFolder) {
-      const cleanFolder = targetFolder.trim().replace(/^\/+|\/+$/g, "").replace(/\.\.+/g, "");
+      let cleanFolder = "";
+      try {
+        cleanFolder = normalizeFolderPath(targetFolder);
+      } catch {
+        cleanFolder = targetFolder.trim().replace(/^\/+|\/+$/g, "").replace(/\.\.+/g, "");
+      }
+      if (cleanFolder) {
+        try {
+          await createFolder(userId, cleanFolder);
+        } catch {}
+      }
       const fileNameOnly = (file.r2_key || "").split("/").pop() || file.sanitized_name;
-      newR2Key = `${cleanFolder}/${fileNameOnly}`;
+      newR2Key = cleanFolder ? `${cleanFolder}/${fileNameOnly}` : fileNameOnly;
     }
 
     if (newR2Key && newR2Key !== file.r2_key && file.r2_key) {

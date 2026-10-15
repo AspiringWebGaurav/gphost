@@ -15,6 +15,7 @@ import {
 } from "@/lib/security/file-guard";
 import { RESERVED_SLUGS } from "@/lib/share/constants";
 import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
+import { createFolder } from "@/lib/storage/folders";
 
 export const dynamic = "force-dynamic";
 
@@ -244,6 +245,14 @@ export async function POST(req: NextRequest) {
       const sanitizedName = sanitizeFilename(file.name || "cli-upload.bin");
       const r2Key = generateR2ObjectKey(userId, sanitizedName, { folder, customKey });
       const mimeType = securityCheck.normalizedMime;
+
+      if (folder) {
+        try {
+          await createFolder(userId, folder);
+        } catch (folderErr) {
+          console.warn("Folder auto-registration notice:", folderErr);
+        }
+      }
 
       // Handle overwrite for customKey
       if (overwrite || customKey) {
@@ -505,6 +514,14 @@ export async function POST(req: NextRequest) {
     }
 
     const r2Key = generateR2ObjectKey(userId, filename, { folder, customKey });
+
+    if (folder) {
+      try {
+        await createFolder(userId, folder);
+      } catch (folderErr) {
+        console.warn("Folder auto-registration notice:", folderErr);
+      }
+    }
 
     // Handle overwrite for customKey
     if (overwrite || customKey) {

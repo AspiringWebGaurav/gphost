@@ -18,6 +18,7 @@ import {
   Layers,
   Cpu,
   RefreshCw,
+  FolderTree,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -403,7 +404,7 @@ export default function HowItWorksPage() {
               Programmatically distribute software updates (such as Gaurav Personal Notes / Tauri), upload directly from CI/CD scripts, or manage release artifacts without touching the web dashboard.
             </p>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="p-3.5 rounded-xl bg-muted/60 border border-border space-y-2">
                 <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Zap className="w-3.5 h-3.5 text-blue-500" />
@@ -429,6 +430,19 @@ export default function HowItWorksPage() {
                   &nbsp;&nbsp;-F &quot;file=@gpn-setup-1.0.1.exe&quot;
                 </div>
               </div>
+
+              <div className="p-3.5 rounded-xl bg-muted/60 border border-border space-y-2">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <FolderTree className="w-3.5 h-3.5 text-purple-500" />
+                  3. Nested Folders API
+                </span>
+                <div className="font-mono text-[10.5px] text-foreground leading-relaxed overflow-x-auto">
+                  curl -X POST https://gphost.eu.cc/api/v1/folders \<br />
+                  &nbsp;&nbsp;-H &quot;Authorization: Bearer gp_live_...&quot; \<br />
+                  &nbsp;&nbsp;-H &quot;Content-Type: application/json&quot; \<br />
+                  &nbsp;&nbsp;-d &apos;&#123;&quot;path&quot;: &quot;GPN/1/2&quot;&#125;&apos;
+                </div>
+              </div>
             </div>
 
             <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-muted-foreground leading-relaxed">
@@ -436,7 +450,7 @@ export default function HowItWorksPage() {
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Supports <code>.exe</code>, <code>.msi</code>, <code>.zip</code>, <code>.sig</code>, <code>.dmg</code>, <code>.AppImage</code>, and <code>.tar.gz</code> formats. Check our <Link href="/docs" className="text-purple-600 dark:text-purple-400 font-semibold underline underline-offset-2">Interactive API Documentation</Link> for detailed schemas.
+              Supports <code>.exe</code>, <code>.msi</code>, <code>.zip</code>, <code>.sig</code>, <code>.dmg</code>, <code>.AppImage</code>, and <code>.tar.gz</code> formats. Check our <Link href="/docs#folder-management-api" className="text-purple-600 dark:text-purple-400 font-semibold underline underline-offset-2">Interactive Folder &amp; Release API Docs</Link> for detailed schemas.
             </p>
           </section>
 
