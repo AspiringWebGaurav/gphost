@@ -1272,9 +1272,9 @@ export function FileManager({
       </div>
 
       {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         {/* Windows 11 Breadcrumb / Address Bar & Google Drive Live Sync Indicator */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none">
             <span className="flex items-center gap-1 text-foreground font-medium">
               <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
@@ -1311,7 +1311,7 @@ export function FileManager({
                 : "Live Sync"}
             </span>
             {sortBy === "recent" && (
-              <span className="text-[10px] text-muted-foreground hidden md:inline border-l border-border/60 pl-1.5">
+              <span className="text-[10px] text-muted-foreground hidden xl:inline border-l border-border/60 pl-1.5">
                 Auto-shuffle active
               </span>
             )}
@@ -1319,34 +1319,36 @@ export function FileManager({
         </div>
 
         {/* Search, Sort, and View Switcher */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 sm:justify-end">
+        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-between sm:justify-end min-w-0">
           {/* Search Input */}
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative flex-1 sm:w-44 md:w-52 lg:w-64 min-w-[120px]">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search files..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-7 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition"
+              className="w-full pl-9 pr-7 py-1.5 rounded-xl bg-background border border-border text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                aria-label="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          <div className="flex items-center justify-between sm:justify-end gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {/* Sort Dropdown & Order Toggle */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <select
                 value={sortBy}
                 onChange={(e) => handleSortChange(e.target.value as FileSortOption)}
-                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium"
+                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium shadow-2xs shrink-0"
                 title="Sort files (Recent automatically shuffles latest to top)"
               >
                 <option value="recent">Recent</option>
@@ -1363,7 +1365,7 @@ export function FileManager({
                   setSortOrder(nextOrder);
                   setFiles((prev) => sortFiles(prev, sortBy, nextOrder));
                 }}
-                className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer"
+                className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer shadow-2xs shrink-0"
                 title="Toggle sort order"
               >
                 {sortOrder}
@@ -1371,8 +1373,9 @@ export function FileManager({
             </div>
 
             {/* Google Drive View Mode Switcher [ ≡ List | ⊞ Grid ] */}
-            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border">
+            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border shrink-0 shadow-2xs">
               <button
+                type="button"
                 onClick={() => handleViewModeChange("list")}
                 title="List view"
                 className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
@@ -1384,6 +1387,7 @@ export function FileManager({
                 <ListIcon className="w-3.5 h-3.5" />
               </button>
               <button
+                type="button"
                 onClick={() => handleViewModeChange("grid")}
                 title="Grid view"
                 className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
@@ -1398,8 +1402,9 @@ export function FileManager({
 
             {/* Host HTML Webpage Button */}
             <button
+              type="button"
               onClick={() => setShowHtmlHostModal(true)}
-              className="px-2.5 py-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 font-medium"
+              className="px-2.5 py-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 font-medium shadow-2xs"
               title="Host static HTML webpage with custom domain and slug"
             >
               <Globe className="w-3.5 h-3.5" />
@@ -1408,8 +1413,9 @@ export function FileManager({
 
             {/* Terminal Upload cURL Quick Launcher */}
             <button
+              type="button"
               onClick={() => setShowTerminalModal(true)}
-              className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
+              className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-2xs"
               title="Upload via Terminal (cURL / PowerShell)"
             >
               <Terminal className="w-3.5 h-3.5 text-blue-500" />
