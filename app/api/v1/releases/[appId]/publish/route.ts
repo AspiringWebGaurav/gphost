@@ -310,12 +310,13 @@ export async function POST(
       // Graceful fallback if is_release_locked column not present
     }
 
-    // 11. Point Permanent Vanity Slug 'gpn-app' ONLY for Base v0.0.0 Installer Seeding
-    if (appId === "gpn" && cleanVersion === "0.0.0") {
+    // 11. Point Permanent Vanity Slug for Base v0.0.0 Installer Seeding
+    if (cleanVersion === "0.0.0") {
+      const primarySlug = appId === "gpn" ? "gpn-app" : appId === "downex" ? "downex-desktop" : `${appId}-desktop`;
       const { data: existingShare } = await adminClient
         .from("share_links")
         .select("id")
-        .eq("slug", "gpn-app")
+        .eq("slug", primarySlug)
         .maybeSingle();
 
       if (existingShare) {
@@ -333,18 +334,19 @@ export async function POST(
           .from("share_links")
           .insert({
             file_id: binFile.id,
-            slug: "gpn-app",
+            slug: primarySlug,
             token_hash: tokenHash,
             is_active: true,
             expires_at: null,
           });
       }
 
+      const sigSlug = appId === "gpn" ? "gpn-app-sig" : `${primarySlug}-sig`;
       if (resolvedSigFileId) {
         const { data: sigShare } = await adminClient
           .from("share_links")
           .select("id")
-          .eq("slug", "gpn-app-sig")
+          .eq("slug", sigSlug)
           .maybeSingle();
 
         if (sigShare) {
@@ -358,7 +360,7 @@ export async function POST(
             .from("share_links")
             .insert({
               file_id: resolvedSigFileId,
-              slug: "gpn-app-sig",
+              slug: sigSlug,
               token_hash: sigTokenHash,
               is_active: true,
               expires_at: null,
@@ -369,10 +371,10 @@ export async function POST(
       if (redis) {
         try {
           await Promise.allSettled([
-            redis.del("raw:meta:gpn-app"),
-            redis.del("raw:meta:gpn-app-sig"),
-            redis.del("share:gpn-app"),
-            redis.del("share:gpn-app-sig"),
+            redis.del(`raw:meta:${primarySlug}`),
+            redis.del(`raw:meta:${sigSlug}`),
+            redis.del(`share:${primarySlug}`),
+            redis.del(`share:${sigSlug}`),
           ]);
         } catch {}
       }
@@ -397,6 +399,7 @@ export async function POST(
         purgeSummary = await purgeStaleReleaseBinaries({
           userId: auth.userId,
           targetBinaryFileId,
+          baseFileId: body.baseFileId || body.base_file_id || null,
           appId,
         });
         console.log(`[Auto-Purge] Multi-layer purge completed for ${appId} v${cleanVersion}:`, purgeSummary);

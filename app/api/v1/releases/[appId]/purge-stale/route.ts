@@ -37,11 +37,12 @@ export async function POST(
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { targetBinaryFileId } = body;
+    const { targetBinaryFileId, baseFileId } = body;
 
     const result = await purgeStaleReleaseBinaries({
       userId: auth.userId,
       targetBinaryFileId,
+      baseFileId: baseFileId || body.base_file_id || null,
       appId,
     });
 
