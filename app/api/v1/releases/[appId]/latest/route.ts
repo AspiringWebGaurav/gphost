@@ -6,7 +6,7 @@ import { redis } from "@/lib/redis/client";
 
 export const dynamic = "force-dynamic";
 
-const CACHE_TTL_SECONDS = 15;
+const CACHE_TTL_SECONDS = 60;
 
 /**
  * GET /api/v1/releases/[appId]/latest
@@ -44,7 +44,7 @@ export async function GET(
             status: 200,
             headers: {
               "Content-Type": "application/json",
-              "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+              "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
               "Access-Control-Allow-Origin": "*",
               "X-Manifest-Source": "cache",
             },
@@ -212,7 +212,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
         "Access-Control-Allow-Origin": "*",
         "X-Manifest-Source": "database",
       },

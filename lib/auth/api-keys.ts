@@ -217,10 +217,10 @@ export async function validateApiKey(rawKey: string): Promise<{
     permissions,
   };
 
-  // Cache in Redis for 60 seconds
+  // Cache in Redis for 10 minutes (600s) to protect database from rapid API polling
   if (redis) {
     try {
-      await redis.set(redisKey, result, { ex: 60 });
+      await redis.set(redisKey, result, { ex: 600 });
     } catch {}
   }
 

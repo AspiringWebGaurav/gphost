@@ -122,6 +122,9 @@ flowchart TD
 ### 8. Vercel Free Hobby Quota Optimization & Zero-Egress Architecture
 - **Zero Vercel Fast Origin Transfer**: Binary releases (`.exe`, `.msi`, `.dmg`, `.zip`, `.appimage`, `gpn-app`) and explicit downloads (`?download=true`) 307-redirect directly to Cloudflare R2 presigned URLs. Payload bytes bypass Vercel serverless functions completely, keeping Vercel egress strictly at **0 MB** for file downloads while taking advantage of Cloudflare R2's **$0 egress fees**.
 - **Fluid Active CPU Offloading**: Eliminates 30s+ long-running serverless streaming streams. Generating an R2 presigned redirect executes in **<50 milliseconds**, preserving the 4-hour Vercel Active CPU limit.
+- **Global Edge CDN Shields for External Apps**:
+  - `GET /api/v1/releases/:appId/latest` and `/history` are cached directly at Vercel's Global Edge CDN with `s-maxage=60, stale-while-revalidate=300`. When 5–6 external client applications, desktop clients, or CI/CD pipelines poll for updates, 99%+ of checks are absorbed directly by Vercel Edge CDN without triggering serverless function invocations or consuming Active CPU.
+  - Programmatic API key validation (`gp_live_...`) is cached in Upstash Redis for **10 minutes (600s)** with atomic instant eviction on key revoke/rotation, shielding Supabase PostgreSQL connection limits and compute quotas.
 - **Elimination of Redundant Function Invocations**:
   - `FileManager` consumes server-rendered `initialFolderTree` and suppresses initial mount duplicate fetches (`/api/v1/folders`).
   - `StorageProvider` consumes server-rendered `initialProfile` and throttles background re-verification to 5 minutes, backed by real-time WebSocket push updates from **Supabase Realtime**.

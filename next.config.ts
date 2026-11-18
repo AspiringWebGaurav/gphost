@@ -110,6 +110,24 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        source: "/api/v1/releases/:appId/latest",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
+          },
+        ],
+      },
+      {
+        source: "/api/v1/releases/:appId/history",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
+          },
+        ],
+      },
+      {
         source: "/:path*/opengraph-image",
         headers: [
           {
