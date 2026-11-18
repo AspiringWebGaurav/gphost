@@ -3,7 +3,7 @@ import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getApiManagedFileIds } from "@/lib/auth/api-keys";
 import { extractFolderFromR2Key } from "@/lib/storage/folder-utils";
-import { getAllUserFolders } from "@/lib/storage/folders";
+import { getAllUserFolders, getFolderTree } from "@/lib/storage/folders";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
@@ -29,9 +29,10 @@ export default async function FilesPage() {
     profile.quota_bytes === -1 ||
     profile.quota_bytes > 5368709120;
   const adminClient = createAdminClient();
-  const [apiManagedFileIds, userFolders] = await Promise.all([
+  const [apiManagedFileIds, userFolders, initialFolderTree] = await Promise.all([
     getApiManagedFileIds(user.id),
     getAllUserFolders(user.id).catch(() => []),
+    getFolderTree(user.id).catch(() => []),
   ]);
   const initialCustomFolders = userFolders.map((f) => f.path);
 
@@ -181,6 +182,7 @@ export default async function FilesPage() {
         initialTotalCount={totalCount}
         initialTotalPages={totalPages}
         initialCustomFolders={initialCustomFolders}
+        initialFolderTree={initialFolderTree}
         canCreatePermanent={profile.can_create_permanent || isAdmin}
         isPremium={isPremium}
         currentUserId={user.id}

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/session";
+import { listUserApiKeys } from "@/lib/auth/api-keys";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { ApiKeysManager } from "@/components/dashboard/api-keys-manager";
 import { GdprComplianceCard } from "@/components/dashboard/gdpr-compliance-card";
@@ -8,10 +9,11 @@ import { Settings } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  let profile;
+  let profile, user;
   try {
     const auth = await requireApprovedUser();
     profile = auth.profile;
+    user = auth.user;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "";
     if (msg === "UNAUTHENTICATED") {
@@ -19,6 +21,9 @@ export default async function SettingsPage() {
     }
     redirect("/access-gate");
   }
+
+  // Pre-fetch active API keys on server to eliminate client mount network roundtrips
+  const initialKeys = await listUserApiKeys(user.id).catch(() => []);
 
   return (
     <div className="space-y-4 sm:space-y-5 max-w-5xl mx-auto">
@@ -58,7 +63,7 @@ export default async function SettingsPage() {
         memberSince={profile.created_at}
       />
 
-      <ApiKeysManager />
+      <ApiKeysManager initialKeys={initialKeys} />
     </div>
   );
 }

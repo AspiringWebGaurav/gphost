@@ -325,6 +325,49 @@ export async function authenticateRequest(
 }
 
 /**
+ * Authoritatively retrieves all active API keys for a user directly from the database.
+ * Used for server components and API routes to avoid redundant round-trips.
+ */
+export async function listUserApiKeys(userId: string): Promise<ApiKeyItem[]> {
+  const adminClient = createAdminClient();
+  const primaryRes = await adminClient
+    .from("user_api_keys")
+    .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  let rawData = primaryRes.data as Array<Record<string, unknown>> | null;
+  let queryError = primaryRes.error;
+
+  // Schema fallback if 'permissions' column not yet applied in DB
+  if (queryError && (queryError.code === "42703" || queryError.message?.includes("permissions"))) {
+    const fallbackRes = await adminClient
+      .from("user_api_keys")
+      .select("id, name, key_prefix, created_at, last_used_at, is_active")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+    rawData = fallbackRes.data as Array<Record<string, unknown>> | null;
+    queryError = fallbackRes.error;
+  }
+
+  if (queryError || !rawData) {
+    return [];
+  }
+
+  return rawData.map((k) => ({
+    id: k.id as string,
+    name: k.name as string,
+    key_prefix: k.key_prefix as string,
+    created_at: k.created_at as string,
+    last_used_at: (k.last_used_at as string | null) || null,
+    is_active: Boolean(k.is_active),
+    permissions: Array.isArray(k.permissions) && k.permissions.length > 0 ? (k.permissions as string[]) : ["*"],
+  }));
+}
+
+/**
  * Revokes an API key and evicts any Redis cache entries.
  */
 export async function revokeApiKey(userId: string, keyId: string): Promise<boolean> {

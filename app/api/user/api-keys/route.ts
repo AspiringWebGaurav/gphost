@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import {
   authenticateRequest,
   createApiKey,
   revokeApiKey,
   rotateApiKey,
   revokeAllApiKeys,
-  ApiKeyItem,
+  listUserApiKeys,
   API_PERMISSIONS,
 } from "@/lib/auth/api-keys";
 
@@ -17,43 +16,8 @@ export async function GET(req: NextRequest) {
     const authRes = await authenticateRequest(req);
     if ("errorResponse" in authRes) return authRes.errorResponse;
     const { userId } = authRes.auth;
-    const adminClient = createAdminClient();
 
-    const primaryRes = await adminClient
-      .from("user_api_keys")
-      .select("id, name, key_prefix, created_at, last_used_at, is_active, permissions")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-
-    let rawData = primaryRes.data as Array<Record<string, any>> | null;
-    let queryError = primaryRes.error;
-
-    // Schema fallback if 'permissions' column not yet applied in DB
-    if (queryError && (queryError.code === "42703" || queryError.message?.includes("permissions"))) {
-      const fallbackRes = await adminClient
-        .from("user_api_keys")
-        .select("id, name, key_prefix, created_at, last_used_at, is_active")
-        .eq("user_id", userId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-      rawData = fallbackRes.data as Array<Record<string, any>> | null;
-      queryError = fallbackRes.error;
-    }
-
-    if (queryError) {
-      return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 });
-    }
-
-    const keys: ApiKeyItem[] = (rawData || []).map((k) => ({
-      id: k.id,
-      name: k.name,
-      key_prefix: k.key_prefix,
-      created_at: k.created_at,
-      last_used_at: k.last_used_at,
-      is_active: k.is_active,
-      permissions: Array.isArray(k.permissions) && k.permissions.length > 0 ? k.permissions : ["*"],
-    }));
+    const keys = await listUserApiKeys(userId);
 
     return NextResponse.json({
       keys,

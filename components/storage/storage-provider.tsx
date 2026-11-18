@@ -182,8 +182,8 @@ export function StorageProvider({
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Initial smart signature check on client mount
-    void refreshStorageState();
+    // 1. Initial storage state is authoritatively supplied by layout.tsx server component.
+    // Mounting does not fire redundant network calls; live updates are pushed via Supabase Realtime below.
 
     // 2. Subscribe to typed StorageEventBus (In-tab & Cross-tab)
     const unsubEvents = storageEvents.on("storage:updated", (payload: StorageUpdatedPayload) => {
@@ -228,12 +228,12 @@ export function StorageProvider({
       void refreshStorageState();
     });
 
-    // 5. Smart Conditional Tracker: Re-verify signature if user returns to tab after > 10s
+    // 5. Smart Conditional Tracker: Re-verify signature only if user returns after extended inactivity (> 5 minutes)
     let lastFocusSync = Date.now();
     const onFocus = () => {
       if (document.visibilityState === "visible") {
         const now = Date.now();
-        if (now - lastFocusSync > 10 * 1000) {
+        if (now - lastFocusSync > 5 * 60 * 1000) {
           lastFocusSync = now;
           void refreshStorageState();
         }

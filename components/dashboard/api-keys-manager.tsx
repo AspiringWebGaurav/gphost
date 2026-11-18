@@ -45,9 +45,13 @@ const KEY_NAME_PRESETS = [
   "Local Dev",
 ];
 
-export function ApiKeysManager() {
-  const [keys, setKeys] = useState<ApiKeyItem[]>([]);
-  const [loading, setLoading] = useState(true);
+interface ApiKeysManagerProps {
+  initialKeys?: ApiKeyItem[];
+}
+
+export function ApiKeysManager({ initialKeys = [] }: ApiKeysManagerProps) {
+  const [keys, setKeys] = useState<ApiKeyItem[]>(initialKeys);
+  const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
@@ -114,11 +118,12 @@ export function ApiKeysManager() {
   }, []);
 
   useEffect(() => {
+    if (initialKeys.length > 0) return;
     const timer = setTimeout(() => {
       void fetchKeys();
     }, 0);
     return () => clearTimeout(timer);
-  }, [fetchKeys]);
+  }, [fetchKeys, initialKeys.length]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

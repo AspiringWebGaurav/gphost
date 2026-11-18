@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getR2ObjectStream } from "@/lib/storage/r2";
+import { getR2ObjectStream, createPresignedGetUrl } from "@/lib/storage/r2";
 import { getUnlockCookieName, verifyUnlockToken } from "@/lib/security/unlock-token";
 import { redis } from "@/lib/redis/client";
 import { isHtmlDocument } from "@/lib/storage/sanitizer";
@@ -347,6 +347,49 @@ export async function GET(
       req,
     });
 
+    const isBinaryRelease =
+      meta.sanitized_name?.toLowerCase().endsWith(".exe") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".msi") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".dmg") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".appimage") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".zip") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".tar.gz") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".tgz") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".iso") ||
+      meta.sanitized_name?.toLowerCase().endsWith(".sig") ||
+      slug === "gpn-app" ||
+      slug === "gpn-app-sig";
+
+    const mime = meta.mime_type || "application/octet-stream";
+    const isHtml = isHtmlDocument(meta.sanitized_name, mime);
+    const shouldStream = req.nextUrl.searchParams.get("stream") === "true";
+    const forceDownload = req.nextUrl.searchParams.get("download") === "true";
+
+    // Vercel Free Hobby Quota Optimization:
+    // Large binary releases & explicit downloads bypass Vercel serverless proxy streaming entirely.
+    // Presigned Cloudflare R2 redirect (HTTP 307) serves downloads at full edge line-rate with 0 MB Vercel Fast Origin Transfer
+    // and eliminates 30s+ of long-lived serverless Fluid Active CPU.
+    if ((isBinaryRelease || forceDownload) && !isHtml && !shouldStream) {
+      const presignedUrl = await createPresignedGetUrl(
+        meta.r2_key,
+        meta.sanitized_name || "download.bin",
+        3600,
+        meta.mime_type
+      );
+      const isImmutable = slug === "gpn-app" || slug === "gpn-app-sig";
+      const cacheControl = isImmutable
+        ? "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400"
+        : "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+
+      return NextResponse.redirect(presignedUrl, {
+        status: 307,
+        headers: {
+          ...CORS_HEADERS,
+          "Cache-Control": cacheControl,
+        },
+      });
+    }
+
     // 100% Backend Secure Proxy Stream:
     // Fetches object directly from Cloudflare R2 on the backend and streams payload to client.
     // The browser address bar strictly stays on the custom slug link (/site/[slug] or /raw/[slug]).
@@ -361,23 +404,12 @@ export async function GET(
       );
     }
 
-    const mime = meta.mime_type || s3Res.ContentType || "application/octet-stream";
-    const isHtml = isHtmlDocument(meta.sanitized_name, mime);
+    const effectiveMime = meta.mime_type || s3Res.ContentType || mime;
 
     const headers = new Headers();
     for (const [key, val] of Object.entries(CORS_HEADERS)) {
       headers.set(key, val);
     }
-
-    const isBinaryRelease =
-      meta.sanitized_name?.toLowerCase().endsWith(".exe") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".msi") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".dmg") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".appimage") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".zip") ||
-      meta.sanitized_name?.toLowerCase().endsWith(".sig") ||
-      slug === "gpn-app" ||
-      slug === "gpn-app-sig";
 
     const asciiName = (meta.sanitized_name || "release.bin").replace(/["\\]/g, "_").replace(/[^\x20-\x7E]/g, "_");
     const utf8Name = encodeURIComponent(meta.sanitized_name || "release.bin");
@@ -388,7 +420,7 @@ export async function GET(
       headers.set("Content-Type", "text/html; charset=utf-8");
       headers.set("Content-Disposition", `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
     } else {
-      headers.set("Content-Type", mime);
+      headers.set("Content-Type", effectiveMime);
       headers.set("Content-Disposition", `${dispositionType}; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
     }
 

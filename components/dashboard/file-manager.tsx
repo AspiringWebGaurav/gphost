@@ -194,6 +194,7 @@ interface FileManagerProps {
   initialTotalCount: number;
   initialTotalPages: number;
   initialCustomFolders?: string[];
+  initialFolderTree?: FolderTreeNode[];
   canCreatePermanent?: boolean;
   isPremium?: boolean;
   currentUserId?: string;
@@ -372,6 +373,8 @@ export function FileManager({
   initialTotalCount,
   initialTotalPages,
   initialCustomFolders = [],
+  initialFolderTree = [],
+  canCreatePermanent = false,
   isPremium = false,
   currentUserId,
 }: FileManagerProps) {
@@ -535,7 +538,7 @@ export function FileManager({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Hierarchical Folder Management State
-  const [folderTree, setFolderTree] = useState<FolderTreeNode[]>([]);
+  const [folderTree, setFolderTree] = useState<FolderTreeNode[]>(initialFolderTree);
   const [currentFolderData, setCurrentFolderData] = useState<{
     subfolders: FolderItem[];
     breadcrumbs: { name: string; path: string }[];
@@ -1231,10 +1234,17 @@ export function FileManager({
     };
   }, [currentUserId, sortBy, sortOrder, fetchSingleFileEnrich, fetchFiles, page, searchQuery, category, fetchFolderTree, fetchFolderContents]);
 
-  // Skip redundant initial fetch on mount (page 1 is already server-rendered in initialFiles)
+  // Skip redundant initial fetch on mount (page 1 and folders are already server-rendered)
   const isInitialMount = useRef(true);
+  const isInitialFoldersMount = useRef(true);
 
   useEffect(() => {
+    if (isInitialFoldersMount.current) {
+      isInitialFoldersMount.current = false;
+      if (category === "all") {
+        return;
+      }
+    }
     void fetchFolderTree();
     void fetchFolderContents(category);
   }, [category, fetchFolderTree, fetchFolderContents]);

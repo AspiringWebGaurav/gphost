@@ -119,6 +119,15 @@ flowchart TD
 - **Glassmorphic Modal System**: Minimalist frosted-glass modals with ambient lighting, keyboard escapes, and non-blocking background dismissals.
 - **Developer API Key Management**: Symmetric settings layout with instant keyword search, copy-to-clipboard badges, and pagination controls.
 
+### 8. Vercel Free Hobby Quota Optimization & Zero-Egress Architecture
+- **Zero Vercel Fast Origin Transfer**: Binary releases (`.exe`, `.msi`, `.dmg`, `.zip`, `.appimage`, `gpn-app`) and explicit downloads (`?download=true`) 307-redirect directly to Cloudflare R2 presigned URLs. Payload bytes bypass Vercel serverless functions completely, keeping Vercel egress strictly at **0 MB** for file downloads while taking advantage of Cloudflare R2's **$0 egress fees**.
+- **Fluid Active CPU Offloading**: Eliminates 30s+ long-running serverless streaming streams. Generating an R2 presigned redirect executes in **<50 milliseconds**, preserving the 4-hour Vercel Active CPU limit.
+- **Elimination of Redundant Function Invocations**:
+  - `FileManager` consumes server-rendered `initialFolderTree` and suppresses initial mount duplicate fetches (`/api/v1/folders`).
+  - `StorageProvider` consumes server-rendered `initialProfile` and throttles background re-verification to 5 minutes, backed by real-time WebSocket push updates from **Supabase Realtime**.
+  - `ApiKeysManager` consumes server-rendered `initialKeys` to eliminate client-side GET API calls on settings load.
+- **Authoritative Edge CDN Caching**: Static assets, favicon icons, OpenGraph previews, and immutable release installer redirects are cached at the Vercel Edge with `s-maxage=31536000`, eliminating function invocations on repeated downloads.
+
 ---
 
 ## 📦 Ephemeral Delivery Modes
