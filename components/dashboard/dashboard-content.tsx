@@ -11,7 +11,6 @@ import {
   Link as LinkIcon,
   Download,
   Plus,
-  Clock,
 } from "lucide-react";
 import { FileList, FileItem } from "@/components/dashboard/file-list";
 import {
@@ -66,6 +65,11 @@ export function DashboardContent({
     setOverrideStats(null);
   }
 
+  // Authoritatively sync state when Server Component re-renders (e.g. router.refresh())
+  useEffect(() => {
+    setFiles(initialFiles);
+  }, [initialFiles]);
+
   const dashboardStats = overrideStats || stats || {
     totalFiles: initialFiles.length,
     activeLinks: 0,
@@ -83,7 +87,10 @@ export function DashboardContent({
 
   const refreshData = useCallback(async () => {
     try {
-      const res = await fetch("/api/files", { cache: "no-store" });
+      const res = await fetch(`/api/files?_t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files || []);
@@ -322,19 +329,19 @@ export function DashboardContent({
         </Link>
 
         <Link
-          href="/expiring"
-          className="p-3 rounded-2xl bg-card border border-border hover:border-purple-500/40 shadow-2xs hover:shadow-xs transition group cursor-pointer flex items-center justify-between"
+          href="/files"
+          className="p-3 rounded-2xl bg-card border border-border hover:border-emerald-500/40 shadow-2xs hover:shadow-xs transition group cursor-pointer flex items-center justify-between"
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <Clock className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Files className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-bold text-foreground truncate">Expiring Files</div>
-              <p className="text-xs text-muted-foreground truncate">Review auto-destruct timers</p>
+              <div className="text-sm font-bold text-foreground truncate">All Files</div>
+              <p className="text-xs text-muted-foreground truncate">Browse, manage, and download</p>
             </div>
           </div>
-          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all shrink-0" />
         </Link>
       </div>
     </div>

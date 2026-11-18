@@ -123,29 +123,29 @@ export function GdprComplianceCard({
   };
 
   return (
-    <div className="p-4 sm:p-6 rounded-2xl bg-card border border-border/80 shadow-xs space-y-5">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/70 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/20 shadow-xs">
-            <ShieldCheck className="w-5 h-5" />
+    <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border/80 shadow-xs space-y-4 sm:space-y-5">
+      {/* Symmetrical Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3 sm:pb-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/20 shadow-2xs">
+            <ShieldCheck className="w-4 h-4" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-base sm:text-lg font-bold text-foreground">
+              <h3 className="text-sm sm:text-base font-bold text-foreground truncate">
                 Data Transparency &amp; Ownership
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider shrink-0">
                 GDPR Articles 15 &amp; 20
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-[11.5px] text-muted-foreground mt-0.5 truncate">
               You own 100% of your data. Full byte-level accounting of your stored files, active links, and audit history.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs self-start sm:self-auto shrink-0">
+        <div className="flex items-center gap-3 text-xs shrink-0 self-start sm:self-center">
           <a
             href="https://gauravpatil.site"
             target="_blank"

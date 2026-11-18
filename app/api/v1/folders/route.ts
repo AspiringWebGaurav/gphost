@@ -3,10 +3,12 @@ import { z } from "zod";
 import { authenticateRequest } from "@/lib/auth/api-keys";
 import {
   createFolder,
+  updateFolderMetadata,
   listFolderContents,
   getFolderTree,
   renameFolder,
   moveFolder,
+  relocateFolder,
   deleteFolder,
   normalizeFolderPath,
 } from "@/lib/storage/folders";
@@ -17,13 +19,25 @@ const createFolderSchema = z.object({
   path: z.string().trim().optional(),
   name: z.string().trim().optional(),
   parentPath: z.string().trim().optional().nullable(),
+  immutable: z.boolean().optional(),
+  isImmutable: z.boolean().optional(),
+  purpose: z.string().trim().max(100).optional().nullable(),
+  description: z.string().trim().max(500).optional().nullable(),
 });
 
 const patchFolderSchema = z.object({
   path: z.string().trim().min(1),
   newName: z.string().trim().min(1).optional(),
   destinationParent: z.string().trim().nullable().optional(),
+  newParent: z.string().trim().nullable().optional(),
+  parentPath: z.string().trim().nullable().optional(),
   newPath: z.string().trim().optional(),
+  immutable: z.boolean().optional(),
+  isImmutable: z.boolean().optional(),
+  purpose: z.string().trim().max(100).optional().nullable(),
+  description: z.string().trim().max(500).optional().nullable(),
+  force: z.boolean().optional(),
+  confirmImmutable: z.boolean().optional(),
 });
 
 /**
@@ -94,7 +108,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { path: rawPath, name, parentPath } = parseResult.data;
+    const {
+      path: rawPath,
+      name,
+      parentPath,
+      immutable,
+      isImmutable,
+      purpose,
+      description,
+    } = parseResult.data;
 
     let fullPath = "";
     if (rawPath) {
@@ -123,7 +145,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const folder = await createFolder(userId, normalized);
+    const folder = await createFolder(userId, normalized, {
+      isImmutable: isImmutable ?? immutable,
+      purpose,
+      description,
+    });
 
     return NextResponse.json(
       {
@@ -164,7 +190,25 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const { path: rawPath, newName, destinationParent, newPath: explicitNewPath } = parseResult.data;
+    const {
+      path: rawPath,
+      newName,
+      destinationParent,
+      newParent,
+      parentPath,
+      newPath: explicitNewPath,
+      immutable,
+      isImmutable,
+      purpose,
+      description,
+      force,
+      confirmImmutable,
+    } = parseResult.data;
+
+    const isForce = Boolean(force || confirmImmutable);
+    const hasMetadataUpdate =
+      immutable !== undefined || isImmutable !== undefined || purpose !== undefined || description !== undefined;
+    const targetImmutable = isImmutable !== undefined ? isImmutable : immutable;
 
     let currentNorm = "";
     try {
@@ -178,45 +222,84 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Cannot rename or move root folder" }, { status: 400 });
     }
 
-    // 1. Rename operation
+    // 1. If metadata updates are requested
+    let updatedMetadataFolder = null;
+    if (hasMetadataUpdate) {
+      updatedMetadataFolder = await updateFolderMetadata(userId, currentNorm, {
+        isImmutable: targetImmutable,
+        purpose,
+        description,
+      });
+    }
+
+    // 2. Rename operation (keeping parent)
     if (newName) {
-      const result = await renameFolder(userId, currentNorm, newName);
+      const result = await renameFolder(userId, currentNorm, newName, { force: isForce });
       return NextResponse.json({
         success: true,
         message: `Folder renamed from '${result.oldPath}' to '${result.newPath}'`,
         ...result,
+        folder: updatedMetadataFolder,
       });
     }
 
-    // 2. Move operation
-    if (destinationParent !== undefined) {
-      const result = await moveFolder(userId, currentNorm, destinationParent);
+    // 3. Move operation (changing parent)
+    const targetParent =
+      destinationParent !== undefined
+        ? destinationParent
+        : newParent !== undefined
+        ? newParent
+        : parentPath !== undefined
+        ? parentPath
+        : undefined;
+
+    if (targetParent !== undefined) {
+      const cleanParent =
+        targetParent && targetParent !== "root" && targetParent !== "/"
+          ? targetParent
+          : null;
+      const result = await moveFolder(userId, currentNorm, cleanParent, { force: isForce });
       return NextResponse.json({
         success: true,
         message: `Folder moved from '${result.oldPath}' to '${result.newPath}'`,
         ...result,
+        folder: updatedMetadataFolder,
       });
     }
 
-    // 3. Explicit new path
+    // 4. Explicit new path
     if (explicitNewPath) {
       const targetNorm = normalizeFolderPath(explicitNewPath);
-      const parent = targetNorm.includes("/") ? targetNorm.substring(0, targetNorm.lastIndexOf("/")) : null;
-      const targetName = targetNorm.split("/").pop() || "";
-      const result = await renameFolder(userId, currentNorm, targetName);
+      const result = await relocateFolder(userId, currentNorm, targetNorm, { force: isForce });
       return NextResponse.json({
         success: true,
         message: `Folder updated from '${result.oldPath}' to '${result.newPath}'`,
         ...result,
+        folder: updatedMetadataFolder,
+      });
+    }
+
+    // 5. Standalone metadata update (e.g. setting immutable: true / false, purpose, description)
+    if (hasMetadataUpdate) {
+      return NextResponse.json({
+        success: true,
+        message: `Folder '${currentNorm}' settings updated successfully`,
+        folder: updatedMetadataFolder,
       });
     }
 
     return NextResponse.json(
-      { error: "Must specify 'newName', 'destinationParent', or 'newPath'" },
+      { error: "Must specify 'newName', 'destinationParent', 'newPath', or folder settings ('immutable' / 'purpose')" },
       { status: 400 }
     );
   } catch (err: unknown) {
     const customErr = err as { code?: string; status?: number; message?: string };
+    if (customErr.code === "FOLDER_IMMUTABLE") {
+      return NextResponse.json(
+        { error: customErr.message, code: "FOLDER_IMMUTABLE" },
+        { status: 409 }
+      );
+    }
     if (customErr.code === "BASE_INSTALLER_PROTECTED") {
       return NextResponse.json(
         { error: customErr.message, code: "BASE_INSTALLER_PROTECTED" },
@@ -245,12 +328,14 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     let targetPath = searchParams.get("path") || "";
     let recursive = searchParams.get("recursive") !== "false";
+    let isForce = searchParams.get("force") === "true" || searchParams.get("confirmImmutable") === "true";
 
-    if (!targetPath && req.headers.get("content-type")?.includes("application/json")) {
+    if (req.headers.get("content-type")?.includes("application/json")) {
       try {
         const body = await req.json();
-        if (body?.path) targetPath = body.path;
+        if (body?.path && !targetPath) targetPath = body.path;
         if (body?.recursive !== undefined) recursive = Boolean(body.recursive);
+        if (body?.force === true || body?.confirmImmutable === true) isForce = true;
       } catch {}
     }
 
@@ -269,7 +354,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const result = await deleteFolder(userId, normalized, recursive);
+    const result = await deleteFolder(userId, normalized, recursive, { force: isForce });
 
     return NextResponse.json({
       success: true,
@@ -279,6 +364,12 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (err: unknown) {
     const customErr = err as { code?: string; status?: number; message?: string };
+    if (customErr.code === "FOLDER_IMMUTABLE") {
+      return NextResponse.json(
+        { error: customErr.message, code: "FOLDER_IMMUTABLE" },
+        { status: 409 }
+      );
+    }
     if (customErr.code === "BASE_INSTALLER_PROTECTED") {
       return NextResponse.json(
         { error: customErr.message, code: "BASE_INSTALLER_PROTECTED" },

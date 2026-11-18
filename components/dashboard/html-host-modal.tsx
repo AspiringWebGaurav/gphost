@@ -285,9 +285,9 @@ export function HtmlHostModal({
       setDeployProgress(100);
       setDeployPhase("Webpage deployed and live!");
 
-      storageEvents.emit("storage:updated", {
-        storageUsedBytes: 0,
-        source: "local_optimistic",
+      storageEvents.emit("share:lifecycle", {
+        action: "created",
+        shareLink: shareData.share || shareData,
       });
 
       const deployedFileName = file?.name || "index.html";
@@ -373,10 +373,13 @@ export function HtmlHostModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 overflow-y-auto">
-      <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto modal-scrollbar rounded-3xl bg-card border border-border/80 p-5 sm:p-7 shadow-2xl relative space-y-5 overscroll-contain">
+    <div className="fixed inset-0 z-50 bg-black/45 dark:bg-black/65 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 overflow-y-auto">
+      <div className="relative w-full max-w-2xl max-h-[88vh] overflow-y-auto modal-scrollbar rounded-3xl bg-card/95 dark:bg-card/90 backdrop-blur-2xl border border-white/30 dark:border-white/10 p-5 sm:p-7 shadow-2xl space-y-5 overscroll-contain ring-1 ring-black/5 dark:ring-white/5 overflow-hidden">
+        {/* Ambient Top Glow */}
+        <div className="absolute -top-24 -left-24 w-52 h-52 bg-cyan-500/10 dark:bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border/60 pb-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-4 relative z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0 shadow-xs">
               <Globe className="w-5 h-5" />

@@ -54,6 +54,8 @@ import {
   Edit2,
   Move,
   MoreVertical,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import {
   sanitizeFolderName,
@@ -191,6 +193,7 @@ interface FileManagerProps {
   initialFiles: SafeFileItem[];
   initialTotalCount: number;
   initialTotalPages: number;
+  initialCustomFolders?: string[];
   canCreatePermanent?: boolean;
   isPremium?: boolean;
   currentUserId?: string;
@@ -233,6 +236,79 @@ export function sortFiles(
     }
     return 0;
   });
+}
+
+export function filterByFileType(items: SafeFileItem[], type: string): SafeFileItem[] {
+  if (type === "all") return items;
+  if (type === "images") {
+    return items.filter(
+      (f) =>
+        f.mime_type?.startsWith("image/") ||
+        /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/i.test(f.sanitized_name || f.filename || "")
+    );
+  }
+  if (type === "documents") {
+    return items.filter(
+      (f) =>
+        [
+          "text/html",
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "text/plain",
+          "text/csv",
+          "text/markdown",
+        ].includes(f.mime_type) ||
+        /\.(pdf|doc|docx|txt|csv|md|json|xml|rtf|epub)$/i.test(f.sanitized_name || f.filename || "")
+    );
+  }
+  if (type === "media") {
+    return items.filter(
+      (f) =>
+        f.mime_type?.startsWith("video/") ||
+        f.mime_type?.startsWith("audio/") ||
+        /\.(mp4|mkv|webm|mov|avi|flv|wmv|mp3|wav|ogg|flac|aac|m4a)$/i.test(
+          f.sanitized_name || f.filename || ""
+        )
+    );
+  }
+  if (type === "archives") {
+    return items.filter(
+      (f) =>
+        [
+          "application/zip",
+          "application/x-tar",
+          "application/gzip",
+          "application/x-7z-compressed",
+          "application/vnd.rar",
+          "application/x-zip-compressed",
+        ].includes(f.mime_type) ||
+        /\.(zip|tar|gz|7z|rar|bz2|xz)$/i.test(f.sanitized_name || f.filename || "")
+    );
+  }
+  if (type === "websites") {
+    return items.filter(
+      (f) =>
+        f.is_site ||
+        f.mime_type === "text/html" ||
+        /\.(html|htm)$/i.test(f.sanitized_name || f.filename || "")
+    );
+  }
+  if (type === "executables") {
+    return items.filter(
+      (f) =>
+        [
+          "application/vnd.android.package-archive",
+          "application/x-msdownload",
+          "application/x-executable",
+          "application/octet-stream",
+        ].includes(f.mime_type) ||
+        /\.(exe|apk|dmg|pkg|msi|deb|rpm|bin|appimage|iso)$/i.test(
+          f.sanitized_name || f.filename || ""
+        )
+    );
+  }
+  return items;
 }
 
 export function mapDbToFileItem(
@@ -295,24 +371,12 @@ export function FileManager({
   initialFiles,
   initialTotalCount,
   initialTotalPages,
+  initialCustomFolders = [],
   isPremium = false,
   currentUserId,
 }: FileManagerProps) {
-  // Sort State: Defaults to "recent" (Google Drive style), remembering user's saved choice
-  const [sortBy, setSortBy] = useState<FileSortOption>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("gphost_file_sort_by");
-        if (
-          saved &&
-          ["recent", "created_at", "byte_size", "sanitized_name", "expires_at"].includes(saved)
-        ) {
-          return saved as FileSortOption;
-        }
-      } catch {}
-    }
-    return "recent";
-  });
+  // Sort State: Deterministic SSR default ("recent"), restored after hydration
+  const [sortBy, setSortBy] = useState<FileSortOption>("recent");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
 
   // Files state initialized with automatic recency sort
@@ -324,19 +388,94 @@ export function FileManager({
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [loading, setLoading] = useState(false);
-  const [customFolders, setCustomFolders] = useState<string[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("gphost_custom_folders");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed;
+  const [customFolders, setCustomFolders] = useState<string[]>(initialCustomFolders);
+
+  // Google Drive & Windows 11 View Mode: Deterministic SSR default ("grid"), restored after hydration
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  // Live real-time ticker for dynamic expiration countdowns (deterministic 0 on SSR)
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // Client mount effect: load persisted user preferences safely after hydration completes
+  useEffect(() => {
+    setCurrentTime(Date.now());
+
+    try {
+      const savedSort = localStorage.getItem("gphost_file_sort_by");
+      if (
+        savedSort &&
+        ["recent", "created_at", "byte_size", "sanitized_name", "expires_at"].includes(savedSort)
+      ) {
+        setSortBy(savedSort as FileSortOption);
+      }
+    } catch {}
+
+    try {
+      const savedView = localStorage.getItem("gphost_file_view_mode");
+      if (savedView === "grid" || savedView === "list") {
+        setViewMode(savedView);
+      }
+    } catch {}
+
+    try {
+      const savedFolders = localStorage.getItem("gphost_custom_folders");
+      if (savedFolders) {
+        const parsed = JSON.parse(savedFolders);
+        if (Array.isArray(parsed)) {
+          // Reconcile: Only retain folders confirmed by server OR actively containing files in initialFiles
+          const activeFileFolders = new Set<string>();
+          for (const f of initialFiles) {
+            if (f.folder) {
+              const top = f.folder.split("/")[0];
+              if (top) activeFileFolders.add(top);
+              activeFileFolders.add(f.folder);
+            }
+          }
+          const serverSet = new Set(initialCustomFolders || []);
+          const validFolders = parsed.filter(
+            (folderName: string) => serverSet.has(folderName) || activeFileFolders.has(folderName)
+          );
+          // Permanently purge deleted/ghost folders from localStorage
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(validFolders));
+          setCustomFolders(Array.from(new Set([...(initialCustomFolders || []), ...validFolders])));
         }
-      } catch {}
+      } else if (initialCustomFolders && initialCustomFolders.length > 0) {
+        localStorage.setItem("gphost_custom_folders", JSON.stringify(initialCustomFolders));
+        setCustomFolders(initialCustomFolders);
+      }
+    } catch {}
+  }, []);
+
+  // Sync custom folders when initialCustomFolders changes (e.g. from server refresh)
+  useEffect(() => {
+    if (initialCustomFolders) {
+      setCustomFolders((prev) => {
+        const activeFileFolders = new Set<string>();
+        for (const f of files) {
+          if (f.folder) {
+            activeFileFolders.add(f.folder.split("/")[0]);
+            activeFileFolders.add(f.folder);
+          }
+        }
+        const serverSet = new Set(initialCustomFolders);
+        const valid = prev.filter((f) => serverSet.has(f) || activeFileFolders.has(f));
+        const merged = Array.from(new Set([...initialCustomFolders, ...valid]));
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
     }
-    return [];
-  });
+  }, [initialCustomFolders, files]);
+
+  // Keep files, totalCount, and totalPages in sync when Server Component re-renders (e.g. router.refresh())
+  useEffect(() => {
+    setFiles(sortFiles(initialFiles, sortBy, sortOrder));
+    setTotalCount(initialTotalCount);
+    setTotalPages(initialTotalPages);
+  }, [initialFiles, initialTotalCount, initialTotalPages, sortBy, sortOrder]);
 
   // Real-time live dynamic update tracking
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
@@ -354,7 +493,7 @@ export function FileManager({
       setSortOrder("desc");
       setFiles((prev) => sortFiles(prev, "recent", "desc"));
       setLastLiveAction({
-        message: "Sorted by Recent • Auto-shuffle active",
+        message: "Sorted by Recent",
         timestamp: Date.now(),
       });
     } else {
@@ -362,28 +501,16 @@ export function FileManager({
     }
   };
 
-  // Google Drive & Windows 11 View Mode: "grid" (default) or "list"
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("gphost_file_view_mode");
-        if (saved === "grid" || saved === "list") {
-          return saved;
-        }
-      } catch {}
-    }
-    return "grid";
-  });
-
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
     try {
       localStorage.setItem("gphost_file_view_mode", mode);
     } catch {}
+    setLastLiveAction({
+      message: mode === "list" ? "List View" : "Grid View",
+      timestamp: Date.now(),
+    });
   };
-
-  // Live real-time ticker for dynamic expiration countdowns (35m -> 34m -> etc.)
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -402,6 +529,7 @@ export function FileManager({
   const [showHtmlHostModal, setShowHtmlHostModal] = useState<boolean>(false);
   const [openingZipId, setOpeningZipId] = useState<string | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [selectedFolderPaths, setSelectedFolderPaths] = useState<Set<string>>(new Set());
   const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -775,7 +903,7 @@ export function FileManager({
     }
   };
 
-  // Fetch paginated files with server-side query
+  // Fetch paginated files with server-side query (ultra-fresh, bypasses stale browser caches)
   const fetchFiles = useCallback(
     async (p: number, q: string, cat: string, sort: string, order: string) => {
       setLoading(true);
@@ -787,8 +915,14 @@ export function FileManager({
           category: cat,
           sortBy: sort,
           sortOrder: order,
+          _t: Date.now().toString(),
         });
-        const res = await fetch(`/api/files?${params.toString()}`);
+        const res = await fetch(`/api/files?${params.toString()}`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        });
         if (res.ok) {
           const data = await res.json();
           setFiles(sortFiles(data.files, sort as FileSortOption, order as "desc" | "asc"));
@@ -804,6 +938,74 @@ export function FileManager({
     },
     []
   );
+
+  // Hierarchical Folder Fetchers
+  const fetchFolderTree = useCallback(async () => {
+    try {
+      const res = await authFetch(`/api/v1/folders?tree=true&_t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.tree) {
+          setFolderTree(data.tree);
+        }
+      }
+    } catch (err) {
+      console.warn("Notice: failed to load folder tree:", err);
+    }
+  }, []);
+
+  const fetchFolderContents = useCallback(async (path: string) => {
+    const isSystemCategory = [
+      "all",
+      "gpn",
+      "api",
+      "websites",
+      "images",
+      "documents",
+      "media",
+      "archives",
+    ].includes(path);
+
+    if (isSystemCategory) {
+      try {
+        const res = await authFetch(`/api/v1/folders?_t=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentFolderData({
+            subfolders: data.subfolders || [],
+            breadcrumbs: [{ name: "Storage", path: "" }],
+            totalSubfolders: data.totalSubfolders || 0,
+            totalFiles: data.totalFiles || 0,
+          });
+        }
+      } catch {}
+      return;
+    }
+
+    setIsLoadingFolderContents(true);
+    try {
+      const res = await authFetch(`/api/v1/folders?path=${encodeURIComponent(path)}&_t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentFolderData({
+          subfolders: data.subfolders || [],
+          breadcrumbs: data.breadcrumbs || getBreadcrumbs(path),
+          totalSubfolders: data.totalSubfolders || 0,
+          totalFiles: data.totalFiles || 0,
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to fetch folder contents:", err);
+    } finally {
+      setIsLoadingFolderContents(false);
+    }
+  }, []);
 
   // Single-file enrich helper for live events with ID only
   const fetchSingleFileEnrich = useCallback(
@@ -1011,6 +1213,8 @@ export function FileManager({
     // 4. Listen to global navbar screen refresh trigger
     const unsubScreenRefresh = storageEvents.on("screen:refresh", () => {
       void fetchFiles(page, searchQuery, category, sortBy, sortOrder);
+      void fetchFolderTree();
+      void fetchFolderContents(category);
       setLastLiveAction({
         message: "Screen refreshed live",
         timestamp: Date.now(),
@@ -1025,72 +1229,10 @@ export function FileManager({
         supabase.removeChannel(directChannel);
       }
     };
-  }, [currentUserId, sortBy, sortOrder, fetchSingleFileEnrich, fetchFiles, page, searchQuery, category]);
+  }, [currentUserId, sortBy, sortOrder, fetchSingleFileEnrich, fetchFiles, page, searchQuery, category, fetchFolderTree, fetchFolderContents]);
 
   // Skip redundant initial fetch on mount (page 1 is already server-rendered in initialFiles)
   const isInitialMount = useRef(true);
-
-  // Hierarchical Folder Fetchers
-  const fetchFolderTree = useCallback(async () => {
-    try {
-      const res = await authFetch("/api/v1/folders?tree=true");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.tree) {
-          setFolderTree(data.tree);
-        }
-      }
-    } catch (err) {
-      console.warn("Notice: failed to load folder tree:", err);
-    }
-  }, []);
-
-  const fetchFolderContents = useCallback(async (path: string) => {
-    const isSystemCategory = [
-      "all",
-      "gpn",
-      "api",
-      "websites",
-      "images",
-      "documents",
-      "media",
-      "archives",
-    ].includes(path);
-
-    if (isSystemCategory) {
-      try {
-        const res = await authFetch("/api/v1/folders");
-        if (res.ok) {
-          const data = await res.json();
-          setCurrentFolderData({
-            subfolders: data.subfolders || [],
-            breadcrumbs: [{ name: "Storage", path: "" }],
-            totalSubfolders: data.totalSubfolders || 0,
-            totalFiles: data.totalFiles || 0,
-          });
-        }
-      } catch {}
-      return;
-    }
-
-    setIsLoadingFolderContents(true);
-    try {
-      const res = await authFetch(`/api/v1/folders?path=${encodeURIComponent(path)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentFolderData({
-          subfolders: data.subfolders || [],
-          breadcrumbs: data.breadcrumbs || getBreadcrumbs(path),
-          totalSubfolders: data.totalSubfolders || 0,
-          totalFiles: data.totalFiles || 0,
-        });
-      }
-    } catch (err) {
-      console.warn("Failed to fetch folder contents:", err);
-    } finally {
-      setIsLoadingFolderContents(false);
-    }
-  }, []);
 
   useEffect(() => {
     void fetchFolderTree();
@@ -1166,9 +1308,63 @@ export function FileManager({
     []
   );
 
+  // Strictly hierarchical files display matching Google Drive & Windows File Explorer:
+  // - Root ("Storage" / category === "all"): only files that are directly at the root (no folder).
+  // - Inside a folder (e.g. category === "gaurav"): only files directly in that folder.
+  // - Search mode: matches across all folders with location indicators.
+  const displayedFiles = React.useMemo(() => {
+    // 1. Search Query active: search across all files
+    if (searchQuery.trim().length > 0) {
+      const q = searchQuery.toLowerCase().trim();
+      let res = files.filter(
+        (f) =>
+          f.sanitized_name?.toLowerCase().includes(q) ||
+          f.filename?.toLowerCase().includes(q) ||
+          f.folder?.toLowerCase().includes(q)
+      );
+      if (typeFilter !== "all") {
+        res = filterByFileType(res, typeFilter);
+      }
+      return sortFiles(res, sortBy, sortOrder);
+    }
+
+    // 2. Base files strictly filtered by folder hierarchy
+    let baseFiles: SafeFileItem[] = [];
+
+    if (category === "gpn") {
+      baseFiles = files.filter(
+        (f) =>
+          f.folder === "gpn" ||
+          f.sanitized_name?.toLowerCase().includes("gpn") ||
+          f.share_slug === "gpn-app" ||
+          f.share_slug === "gpn-app-sig"
+      );
+    } else if (category === "api") {
+      baseFiles = files.filter(
+        (f) => f.is_api_upload || Boolean(f.sha256) || Boolean(f.is_release_locked)
+      );
+    } else if (category === "all" || !category) {
+      // Root folder: STRICTLY files with NO folder.
+      // Never show files that belong inside subfolders (e.g. cp-immutable-base, gaurav, etc.)
+      baseFiles = files.filter((f) => !f.folder || f.folder === "");
+    } else {
+      // Inside a specific folder: STRICTLY files directly inside this folder.
+      // Never show files from deeper nested subfolders!
+      baseFiles = files.filter((f) => f.folder === category);
+    }
+
+    // 3. Apply type filter if selected
+    if (typeFilter !== "all") {
+      baseFiles = filterByFileType(baseFiles, typeFilter);
+    }
+
+    // 4. Always sort reactively according to active sortBy & sortOrder
+    return sortFiles(baseFiles, sortBy, sortOrder);
+  }, [files, category, searchQuery, typeFilter, sortBy, sortOrder]);
+
   const selectedFiles = React.useMemo(
-    () => files.filter((f) => selectedFileIds.has(f.id)),
-    [files, selectedFileIds]
+    () => displayedFiles.filter((f) => selectedFileIds.has(f.id)),
+    [displayedFiles, selectedFileIds]
   );
 
   const protectedFiles = React.useMemo(
@@ -1182,17 +1378,64 @@ export function FileManager({
   );
 
   const handleBulkDeleteConfirm = async () => {
-    if (deletableFiles.length === 0) {
+    const totalItems = deletableFiles.length + selectedFolderPaths.size;
+    if (totalItems === 0) {
       setShowBulkDeleteModal(false);
       return;
     }
 
     setIsBulkDeleting(true);
-    setBulkDeleteProgress({ current: 0, total: deletableFiles.length });
+    setBulkDeleteProgress({ current: 0, total: totalItems });
+
+    let completed = 0;
+    const deletedFolderList: string[] = [];
+
+    // Purge selected folders recursively
+    for (const folderPath of Array.from(selectedFolderPaths)) {
+      try {
+        const res = await authFetch(
+          `/api/v1/folders?path=${encodeURIComponent(folderPath)}&recursive=true`,
+          { method: "DELETE" }
+        );
+        if (res.ok || res.status === 404) {
+          deletedFolderList.push(folderPath);
+        }
+      } catch (err) {
+        console.error(`Failed to delete folder ${folderPath}:`, err);
+      } finally {
+        completed++;
+        setBulkDeleteProgress({ current: completed, total: totalItems });
+      }
+    }
+
+    if (deletedFolderList.length > 0) {
+      setCustomFolders((prev) => {
+        const next = prev.filter((f) => !deletedFolderList.some((df) => f === df || f.startsWith(`${df}/`)));
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setFiles((prev) =>
+        prev.filter((f) => !deletedFolderList.some((df) => f.folder === df || f.folder?.startsWith(`${df}/`)))
+      );
+      setCurrentFolderData((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          subfolders: prev.subfolders.filter(
+            (sf) => !deletedFolderList.some((df) => sf.path === df || sf.path.startsWith(`${df}/`))
+          ),
+          totalSubfolders: Math.max(0, prev.totalSubfolders - deletedFolderList.length),
+        };
+      });
+      setFolderTree((prev) =>
+        prev.filter((node) => !deletedFolderList.some((df) => node.path === df || node.path.startsWith(`${df}/`)))
+      );
+      setSelectedFolderPaths(new Set());
+    }
 
     const deletedIds: string[] = [];
-    let completed = 0;
-
     for (const file of deletableFiles) {
       try {
         const forceParam = file.is_release_locked ? "?force=true" : "";
@@ -1213,7 +1456,7 @@ export function FileManager({
         console.error(`Failed to delete file ${file.id}:`, err);
       } finally {
         completed++;
-        setBulkDeleteProgress({ current: completed, total: deletableFiles.length });
+        setBulkDeleteProgress({ current: completed, total: totalItems });
       }
     }
 
@@ -1222,10 +1465,22 @@ export function FileManager({
       setFiles((prev) => prev.filter((f) => !deletedSet.has(f.id)));
       setTotalCount((c) => Math.max(0, c - deletedIds.length));
       setSelectedFileIds(new Set());
+    }
+
+    if (deletedFolderList.length > 0 || deletedIds.length > 0) {
+      const parts: string[] = [];
+      if (deletedFolderList.length > 0) {
+        parts.push(`${deletedFolderList.length} ${deletedFolderList.length === 1 ? "folder" : "folders"}`);
+      }
+      if (deletedIds.length > 0) {
+        parts.push(`${deletedIds.length} ${deletedIds.length === 1 ? "file" : "files"}`);
+      }
       setLastLiveAction({
-        message: `Deleted ${deletedIds.length} ${deletedIds.length === 1 ? "file" : "files"}`,
+        message: `Deleted ${parts.join(" and ")}`,
         timestamp: Date.now(),
       });
+      void fetchFolderTree();
+      void fetchFolderContents(category);
     }
 
     setIsBulkDeleting(false);
@@ -1324,14 +1579,14 @@ export function FileManager({
         return next;
       });
 
-      setCategory(normalized);
       setShowNewFolderModal(false);
       setNewFolderNameInput("");
       setNewFolderError(null);
       void fetchFolderTree();
-      void fetchFolderContents(normalized);
+      void fetchFolderContents(category);
+      void fetchFiles(page, searchQuery, category, sortBy, sortOrder);
       setLastLiveAction({
-        message: `Folder '${normalized}' created`,
+        message: `Folder '${getFolderNameFromPath(normalized)}' created`,
         timestamp: Date.now(),
       });
     } catch (err: unknown) {
@@ -1448,6 +1703,21 @@ export function FileManager({
         )
       );
 
+      setCurrentFolderData((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          subfolders: prev.subfolders.filter(
+            (sf) => sf.path !== deletedPath && !sf.path.startsWith(`${deletedPath}/`)
+          ),
+          totalSubfolders: Math.max(0, prev.totalSubfolders - 1),
+        };
+      });
+
+      setFolderTree((prev) =>
+        prev.filter((node) => node.path !== deletedPath && !node.path.startsWith(`${deletedPath}/`))
+      );
+
       if (category === deletedPath || category.startsWith(`${deletedPath}/`)) {
         const parent = getFolderParentPath(deletedPath);
         setCategory(parent || "all");
@@ -1488,6 +1758,30 @@ export function FileManager({
 
       const oldPath = folderToMove.path;
       const newPath = data.newPath as string;
+
+      setCustomFolders((prev) => {
+        const next = prev.map((f) => {
+          if (f === oldPath) return newPath;
+          if (f.startsWith(`${oldPath}/`)) return `${newPath}${f.substring(oldPath.length)}`;
+          return f;
+        });
+        try {
+          localStorage.setItem("gphost_custom_folders", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      setFiles((prev) =>
+        prev.map((f) => {
+          if (f.folder === oldPath) {
+            return { ...f, folder: newPath };
+          }
+          if (f.folder && f.folder.startsWith(`${oldPath}/`)) {
+            return { ...f, folder: `${newPath}${f.folder.substring(oldPath.length)}` };
+          }
+          return f;
+        })
+      );
 
       if (category === oldPath) {
         setCategory(newPath);
@@ -1603,9 +1897,9 @@ export function FileManager({
         is_premium: shareData.is_premium || data.is_premium,
         xurl: shareData.xurl || data.xurl,
       });
-      storageEvents.emit("storage:updated", {
-        storageUsedBytes: 0,
-        source: "local_optimistic",
+      storageEvents.emit("share:lifecycle", {
+        action: "created",
+        shareLink: shareData,
       });
     } catch (err) {
       console.error("Failed to create share link:", err);
@@ -1653,270 +1947,192 @@ export function FileManager({
     return Array.from(set);
   }, [customFolders, files, folderTree]);
 
-  const dynamicFolderItems = allDynamicFolders.map((fName) => ({
-    id: fName,
-    name: fName,
-    count: files.filter((f) => f.folder === fName || f.folder?.startsWith(`${fName}/`)).length,
-    icon: Folder,
-    isCustom: true,
-    color: "text-blue-600 dark:text-blue-400",
-    bg: "bg-blue-500/10 border-blue-500/20",
-  }));
+  const currentLevelFolders = React.useMemo(() => {
+    const isAtRoot = category === "all";
 
-  const FOLDERS = [
-    { id: "all", name: "All Files", count: totalCount, icon: Folder, color: "text-amber-500", bg: "bg-amber-500/10 border-amber-500/20" },
-    {
-      id: "gpn",
-      name: "📁 gpn (Releases)",
-      count: gpnCount,
-      icon: Package,
-      isSpecial: true,
-      color: "text-violet-600 dark:text-violet-400",
-      bg: "bg-violet-500/10 border-violet-500/30",
-    },
-    {
-      id: "api",
-      name: "⚡ API Uploads",
-      count: apiCount,
-      icon: Zap,
-      isSpecial: true,
-      color: "text-purple-600 dark:text-purple-400",
-      bg: "bg-purple-500/10 border-purple-500/30",
-    },
-    ...dynamicFolderItems,
-    {
-      id: "websites",
-      name: "GP-Sites",
-      count: files.filter(
-        (f) =>
-          f.mime_type === "text/html" ||
-          f.sanitized_name?.toLowerCase().endsWith(".html") ||
-          f.sanitized_name?.toLowerCase().endsWith(".htm") ||
-          Boolean(f.is_site)
-      ).length,
-      icon: Globe,
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-500/10 border-emerald-500/20",
-    },
-    {
-      id: "images",
-      name: "Images",
-      count: files.filter((f) => f.mime_type?.startsWith("image/")).length,
-      icon: ImageIcon,
-      color: "text-purple-600 dark:text-purple-400",
-      bg: "bg-purple-500/10 border-purple-500/20",
-    },
-    {
-      id: "documents",
-      name: "Documents",
-      count: files.filter(
-        (f) =>
-          (f.mime_type?.includes("pdf") ||
-            f.mime_type?.includes("text") ||
-            f.mime_type?.includes("document")) &&
-          f.mime_type !== "text/html"
-      ).length,
-      icon: FileText,
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-500/10 border-emerald-500/20",
-    },
-    {
-      id: "media",
-      name: "Media",
-      count: files.filter((f) => f.mime_type?.startsWith("video/") || f.mime_type?.startsWith("audio/")).length,
-      icon: Film,
-      color: "text-sky-600 dark:text-sky-400",
-      bg: "bg-sky-500/10 border-sky-500/20",
-    },
-    {
-      id: "archives",
-      name: "Archives",
-      count: files.filter(
-        (f) =>
-          f.mime_type?.includes("zip") ||
-          f.mime_type?.includes("tar") ||
-          f.mime_type?.includes("compressed")
-      ).length,
-      icon: Archive,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-500/10 border-amber-500/20",
-    },
-  ];
+    if (isAtRoot) {
+      const folderMap = new Map<
+        string,
+        {
+          id: string;
+          name: string;
+          path: string;
+          parentPath: string | null;
+          fileCount: number;
+          subfolderCount: number;
+          isSpecial?: boolean;
+          icon?: React.ElementType;
+          color?: string;
+          bg?: string;
+        }
+      >();
+
+      // Special highlighted system smart buckets (only if relevant files exist)
+      if (gpnCount > 0) {
+        folderMap.set("gpn", {
+          id: "gpn",
+          name: "📁 gpn (Releases)",
+          path: "gpn",
+          parentPath: null,
+          fileCount: gpnCount,
+          subfolderCount: 0,
+          isSpecial: true,
+          icon: Package,
+          color: "text-violet-600 dark:text-violet-400",
+          bg: "bg-violet-500/10 border-violet-500/30",
+        });
+      }
+
+      if (apiCount > 0) {
+        folderMap.set("api", {
+          id: "api",
+          name: "⚡ API Uploads",
+          path: "api",
+          parentPath: null,
+          fileCount: apiCount,
+          subfolderCount: 0,
+          isSpecial: true,
+          icon: Zap,
+          color: "text-purple-600 dark:text-purple-400",
+          bg: "bg-purple-500/10 border-purple-500/30",
+        });
+      }
+
+      // Add root subfolders returned from API
+      if (currentFolderData?.subfolders) {
+        for (const sf of currentFolderData.subfolders) {
+          const p = sf.path;
+          if (
+            !sf.parent_path &&
+            !["all", "gpn", "api", "websites", "images", "documents", "media", "archives"].includes(p)
+          ) {
+            folderMap.set(p, {
+              id: sf.id || p,
+              name: sf.name || p,
+              path: p,
+              parentPath: null,
+              fileCount: sf.totalFiles ?? sf.file_count ?? 0,
+              subfolderCount: sf.totalSubfolders ?? sf.subfolder_count ?? 0,
+            });
+          }
+        }
+      }
+
+      // Add root dynamic folders discovered from files or customFolders
+      for (const f of allDynamicFolders) {
+        if (
+          !folderMap.has(f) &&
+          !["all", "gpn", "api", "websites", "images", "documents", "media", "archives"].includes(f)
+        ) {
+          const matchingFiles = files.filter(
+            (file) => file.folder === f || file.folder?.startsWith(`${f}/`)
+          );
+          folderMap.set(f, {
+            id: f,
+            name: f,
+            path: f,
+            parentPath: null,
+            fileCount: matchingFiles.length,
+            subfolderCount: 0,
+          });
+        }
+      }
+
+      const all = Array.from(folderMap.values());
+      const filtered = searchQuery.trim()
+        ? all.filter(
+            (folder) =>
+              folder.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+              folder.path.toLowerCase().includes(searchQuery.toLowerCase().trim())
+          )
+        : all;
+
+      return [...filtered].sort((a, b) => {
+        if (sortBy === "sanitized_name") {
+          return sortOrder === "asc"
+            ? a.name.localeCompare(b.name, undefined, { numeric: true })
+            : b.name.localeCompare(a.name, undefined, { numeric: true });
+        }
+        if (sortBy === "byte_size") {
+          return sortOrder === "asc" ? a.fileCount - b.fileCount : b.fileCount - a.fileCount;
+        }
+        return sortOrder === "asc"
+          ? a.name.localeCompare(b.name, undefined, { numeric: true })
+          : b.name.localeCompare(a.name, undefined, { numeric: true });
+      });
+    }
+
+    // Inside a specific subfolder (e.g. downex-dynamic-binaries or releases)
+    if (currentFolderData?.subfolders && currentFolderData.subfolders.length > 0) {
+      const subMap = new Map<
+        string,
+        {
+          id: string;
+          name: string;
+          path: string;
+          parentPath: string | null;
+          fileCount: number;
+          subfolderCount: number;
+          isSpecial?: boolean;
+          icon?: React.ElementType;
+          color?: string;
+          bg?: string;
+        }
+      >();
+
+      for (const sf of currentFolderData.subfolders) {
+        const p = sf.path;
+        if (!p || subMap.has(p)) continue;
+        subMap.set(p, {
+          id: sf.id || p,
+          name: sf.name || getFolderNameFromPath(p),
+          path: p,
+          parentPath: sf.parent_path || sf.parentPath || category,
+          fileCount:
+            sf.totalFiles ??
+            sf.file_count ??
+            files.filter((f) => f.folder === p || f.folder?.startsWith(`${p}/`)).length,
+          subfolderCount: sf.totalSubfolders ?? sf.subfolder_count ?? 0,
+          isSpecial: false,
+          icon: Folder,
+          color: "text-amber-500",
+          bg: "bg-amber-500/10 border-amber-500/20",
+        });
+      }
+
+      const subs = Array.from(subMap.values());
+      const filtered = searchQuery.trim()
+        ? subs.filter(
+            (folder) =>
+              folder.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+              folder.path.toLowerCase().includes(searchQuery.toLowerCase().trim())
+          )
+        : subs;
+
+      return [...filtered].sort((a, b) => {
+        if (sortBy === "sanitized_name") {
+          return sortOrder === "asc"
+            ? a.name.localeCompare(b.name, undefined, { numeric: true })
+            : b.name.localeCompare(a.name, undefined, { numeric: true });
+        }
+        if (sortBy === "byte_size") {
+          return sortOrder === "asc" ? a.fileCount - b.fileCount : b.fileCount - a.fileCount;
+        }
+        return sortOrder === "asc"
+          ? a.name.localeCompare(b.name, undefined, { numeric: true })
+          : b.name.localeCompare(a.name, undefined, { numeric: true });
+      });
+    }
+
+    return [];
+  }, [category, currentFolderData, allDynamicFolders, files, gpnCount, apiCount, searchQuery, sortBy, sortOrder]);
 
   return (
     <div className="space-y-3 sm:space-y-5">
-      {/* 1. Suggested Folders or Subfolder Grid */}
-      {category === "all" ? (
-        <div className="space-y-1.5 sm:space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
-            <span className="flex items-center gap-1.5 font-semibold text-foreground">
-              <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
-              <span>Suggested folders</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setNewFolderNameInput("");
-                  setNewFolderError(null);
-                  setShowNewFolderModal(true);
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
-                title="Create new custom dynamic folder (e.g. GPN, Projects)"
-              >
-                <FolderPlus className="w-3.5 h-3.5" />
-                <span>New Folder</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar sm:grid sm:grid-cols-4 lg:grid-cols-8 sm:overflow-visible">
-            {FOLDERS.map((f) => {
-              const isSelected = category === f.id;
-              const FolderIcon = f.icon || Folder;
-              const isCustom = "isCustom" in f && Boolean(f.isCustom);
-              return (
-                <div
-                  key={f.id}
-                  onClick={() => setCategory(f.id)}
-                  className={`relative shrink-0 p-2 sm:p-2.5 rounded-xl border text-left transition-all duration-150 flex items-center gap-2 cursor-pointer group select-none min-w-[130px] sm:min-w-0 ${
-                    isSelected
-                      ? f.id === "gpn"
-                        ? "bg-violet-500/15 border-violet-500/50 text-violet-600 dark:text-violet-300 shadow-2xs font-semibold ring-1 ring-violet-500/40"
-                        : f.id === "api"
-                        ? "bg-purple-500/15 border-purple-500/50 text-purple-600 dark:text-purple-300 shadow-2xs font-semibold ring-1 ring-purple-500/40"
-                        : "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold ring-1 ring-blue-500/30"
-                      : "bg-card hover:bg-muted/40 border-border text-foreground hover:border-border/80 shadow-2xs"
-                  }`}
-                >
-                  <div
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 border ${
-                      isSelected
-                        ? f.id === "gpn"
-                          ? "bg-violet-600 text-white border-violet-600 shadow-xs"
-                          : f.id === "api"
-                          ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                          : "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : `${f.bg} ${f.color}`
-                    }`}
-                  >
-                    <FolderIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold truncate">{f.name}</div>
-                    <div className="text-[10px] text-muted-foreground truncate">
-                      {f.id === "all" ? `${totalCount} total` : `${f.count} shown`}
-                    </div>
-                  </div>
-                  {isCustom && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteCustomFolder(f.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 hover:text-rose-600 rounded-md transition text-muted-foreground cursor-pointer shrink-0"
-                      title={`Delete folder '${f.id}'`}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        /* Subfolders Grid if inside a folder and subfolders exist */
-        currentFolderData && currentFolderData.subfolders.length > 0 && (
-          <div className="space-y-1.5 sm:space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
-              <span className="flex items-center gap-1.5 font-semibold text-foreground">
-                <FolderOpen className="w-3.5 h-3.5 text-blue-500 fill-blue-500/20" />
-                <span>Subfolders ({currentFolderData.subfolders.length})</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewFolderNameInput("");
-                  setNewFolderError(null);
-                  setShowNewFolderModal(true);
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] transition shadow-xs cursor-pointer active:scale-95"
-              >
-                <FolderPlus className="w-3.5 h-3.5" />
-                <span>New Subfolder</span>
-              </button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-2.5">
-              {currentFolderData.subfolders.map((sub) => (
-                <div
-                  key={sub.path}
-                  onClick={() => setCategory(sub.path)}
-                  className="group relative p-2.5 rounded-xl border border-border bg-card hover:bg-muted/40 hover:border-blue-500/40 text-foreground transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-2"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <Folder className="w-4 h-4 fill-blue-500/20" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                        {sub.name}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground truncate">
-                        {(sub.totalFiles ?? sub.file_count ?? 0)} {(sub.totalFiles ?? sub.file_count ?? 0) === 1 ? "file" : "files"}
-                        {((sub.totalSubfolders ?? sub.subfolder_count ?? 0) > 0) ? ` • ${sub.totalSubfolders ?? sub.subfolder_count} folders` : ""}
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFolderToRename(sub);
-                        setRenameFolderNameInput(sub.name);
-                        setRenameFolderError(null);
-                      }}
-                      className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
-                      title="Rename folder"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFolderToMove(sub);
-                        setFolderMoveTarget(sub.parentPath || sub.parent_path || "");
-                      }}
-                      className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition cursor-pointer"
-                      title="Move folder"
-                    >
-                      <Move className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFolderToDelete(sub);
-                        setDeleteFolderError(null);
-                      }}
-                      className="p-1 hover:bg-rose-500/20 text-muted-foreground hover:text-rose-600 rounded-md transition cursor-pointer"
-                      title="Delete folder"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      )}
-
-      {/* 2. Windows 11 Breadcrumb & Search / View Switcher Bar */}
+      {/* 1. Windows 11 & Google Drive Navigation Bar with Breadcrumbs & Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        {/* Windows 11 Breadcrumb / Address Bar with Up Button & Google Drive Live Sync Indicator */}
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {/* Back / Up to Parent Folder Button */}
+        {/* Navigation / Address Bar with Up Button & Breadcrumbs */}
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           {category !== "all" && (
             <button
               type="button"
@@ -1945,18 +2161,22 @@ export function FileManager({
           )}
 
           {/* Interactive Clickable Breadcrumbs */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/40 border border-border text-sm text-muted-foreground font-mono select-none overflow-x-auto no-scrollbar max-w-full">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card border border-border text-sm text-muted-foreground select-none overflow-x-auto no-scrollbar max-w-full shadow-2xs">
             <button
               type="button"
               onClick={() => setCategory("all")}
-              className="flex items-center gap-1 text-foreground hover:text-blue-500 hover:underline cursor-pointer font-medium shrink-0"
+              className={`flex items-center gap-1.5 cursor-pointer font-medium shrink-0 transition-colors ${
+                category === "all"
+                  ? "text-foreground font-semibold"
+                  : "hover:text-blue-500 hover:underline"
+              }`}
             >
               <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
               <span>Storage</span>
             </button>
             {category !== "all" && (
               <>
-                <span>/</span>
+                <span className="text-muted-foreground/60">/</span>
                 {[
                   "gpn",
                   "api",
@@ -1981,8 +2201,8 @@ export function FileManager({
                     return crumbs.map((crumb, idx) => {
                       const isLast = idx === crumbs.length - 1;
                       return (
-                        <React.Fragment key={crumb.path}>
-                          {idx > 0 && <span>/</span>}
+                        <React.Fragment key={`crumb-${crumb.path || idx}-${idx}`}>
+                          {idx > 0 && <span className="text-muted-foreground/60">/</span>}
                           {isLast ? (
                             <span className="text-blue-600 dark:text-blue-400 font-bold shrink-0">
                               {crumb.name}
@@ -2005,7 +2225,26 @@ export function FileManager({
             )}
           </div>
 
-          {/* Folder Action Buttons for Custom Hierarchical Folders */}
+          {/* Primary '+ New Folder' Action Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewFolderNameInput("");
+              setNewFolderError(null);
+              setShowNewFolderModal(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition shadow-xs cursor-pointer active:scale-95 shrink-0"
+            title={
+              category === "all"
+                ? "Create a new folder in Storage"
+                : `Create a new subfolder inside ${category}`
+            }
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            <span>New Folder</span>
+          </button>
+
+          {/* Folder Action Buttons for current custom folder */}
           {category !== "all" &&
             ![
               "gpn",
@@ -2017,19 +2256,6 @@ export function FileManager({
               "archives",
             ].includes(category) && (
               <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewFolderNameInput("");
-                    setNewFolderError(null);
-                    setShowNewFolderModal(true);
-                  }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition shadow-2xs cursor-pointer active:scale-95"
-                  title="Create subfolder inside current folder"
-                >
-                  <FolderPlus className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">New Subfolder</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2048,7 +2274,7 @@ export function FileManager({
                     setRenameFolderNameInput(getFolderNameFromPath(category));
                     setRenameFolderError(null);
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
                   title="Rename current folder"
                 >
                   <Edit2 className="w-3 h-3 text-muted-foreground" />
@@ -2071,7 +2297,7 @@ export function FileManager({
                     });
                     setFolderMoveTarget(getFolderParentPath(category) || "");
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition shadow-2xs cursor-pointer"
                   title="Move current folder to another parent"
                 >
                   <Move className="w-3 h-3 text-muted-foreground" />
@@ -2094,7 +2320,7 @@ export function FileManager({
                     });
                     setDeleteFolderError(null);
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-medium text-xs transition shadow-2xs cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-medium text-xs transition shadow-2xs cursor-pointer"
                   title="Delete current folder and all contents"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -2102,15 +2328,16 @@ export function FileManager({
                 </button>
               </div>
             )}
+        </div>
 
-          {/* Google Drive-style Dynamic Real-time Live Status Badge */}
+        {/* Dynamic Real-time Live Status Badge with ? InfoTooltip */}
+        <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
           <div
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border transition-all duration-300 shadow-2xs select-none ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border transition-all duration-300 shadow-2xs select-none shrink-0 ${
               lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
                 ? "bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-300 ring-1 ring-blue-500/30 scale-102"
                 : "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
             }`}
-            title="Real-time live push updates active (WebSocket + BroadcastChannel • Zero polling)"
           >
             <span className="relative flex h-2 w-2 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -2121,97 +2348,130 @@ export function FileManager({
                 ? lastLiveAction.message
                 : "Live Sync"}
             </span>
-            {sortBy === "recent" && (
-              <span className="text-[10px] text-muted-foreground hidden xl:inline border-l border-border/60 pl-1.5">
-                Auto-shuffle active
-              </span>
-            )}
           </div>
+          <InfoTooltip
+            title="Real-time Live Sync"
+            content="Real-time WebSocket connection is active. Any uploaded, renamed, moved, or deleted files update instantly on your screen without reloading."
+            variant="emerald"
+            side="bottom"
+            align="end"
+          />
+        </div>
+      </div>
+
+      {/* 2. Search, Filter, Sort, View & Specialized Tools Toolbar */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+        {/* Search Input (Full width on mobile, responsive width on desktop) */}
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search files & folders..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-7 py-1.5 rounded-xl bg-background border border-border text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+              aria-label="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
-        {/* Search, Sort, and View Switcher */}
-        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-between sm:justify-end min-w-0">
-          {/* Search Input */}
-          <div className="relative flex-1 sm:w-44 md:w-52 lg:w-64 min-w-[120px]">
-            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search files..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-7 py-1.5 rounded-xl bg-background border border-border text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                aria-label="Clear search"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+        {/* Action Controls Toolbar: Scrollable / wrapping on small screens */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0 shrink-0">
+          {/* Type Filter Dropdown */}
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium shadow-2xs shrink-0"
+            aria-label="Filter by file type"
+            title="Filter by file type"
+          >
+            <option value="all">All Types</option>
+            <option value="images">Images</option>
+            <option value="documents">Documents</option>
+            <option value="media">Media</option>
+            <option value="archives">Archives</option>
+            <option value="websites">Websites</option>
+            <option value="executables">Apps &amp; Executables</option>
+          </select>
+
+          {/* Sort Dropdown & Order Toggle */}
+          <div className="flex items-center gap-1 shrink-0">
+            <select
+              value={sortBy}
+              onChange={(e) => handleSortChange(e.target.value as FileSortOption)}
+              className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium shadow-2xs shrink-0"
+              aria-label="Sort files"
+              title="Sort files"
+            >
+              <option value="recent">Recent</option>
+              <option value="created_at">Date</option>
+              <option value="byte_size">Size</option>
+              <option value="sanitized_name">Name</option>
+              <option value="expires_at">Expiry</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() => {
+                const nextOrder = sortOrder === "desc" ? "asc" : "desc";
+                setSortOrder(nextOrder);
+                setFiles((prev) => sortFiles(prev, sortBy, nextOrder));
+              }}
+              className="p-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground hover:border-blue-500/40 transition cursor-pointer shadow-2xs shrink-0 flex items-center justify-center"
+              aria-label={`Sort direction: ${sortOrder === "desc" ? "Descending (newest/largest first)" : "Ascending (oldest/smallest first)"}`}
+              title={sortOrder === "desc" ? "Descending (newest first - click for ascending)" : "Ascending (oldest first - click for descending)"}
+            >
+              {sortOrder === "desc" ? (
+                <ArrowDown className="w-3.5 h-3.5 text-blue-500" />
+              ) : (
+                <ArrowUp className="w-3.5 h-3.5 text-blue-500" />
+              )}
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Sort Dropdown & Order Toggle */}
-            <div className="flex items-center gap-1 shrink-0">
-              <select
-                value={sortBy}
-                onChange={(e) => handleSortChange(e.target.value as FileSortOption)}
-                className="px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs text-foreground focus:outline-none focus:border-blue-500 cursor-pointer font-medium shadow-2xs shrink-0"
-                title="Sort files (Recent automatically shuffles latest to top)"
-              >
-                <option value="recent">Recent</option>
-                <option value="created_at">Date</option>
-                <option value="byte_size">Size</option>
-                <option value="sanitized_name">Name</option>
-                <option value="expires_at">Expiry</option>
-              </select>
+          {/* View Mode Switcher [ ≡ List | ⊞ Grid ] */}
+          <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border shrink-0 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("list")}
+              aria-label="List view"
+              title="List view (Google Drive & Windows 11 style)"
+              className={`p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center ${
+                viewMode === "list"
+                  ? "bg-background text-foreground shadow-2xs font-semibold ring-1 ring-border/50"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+              }`}
+            >
+              <ListIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("grid")}
+              aria-label="Grid view"
+              title="Grid view (Google Drive & Windows 11 style)"
+              className={`p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center ${
+                viewMode === "grid"
+                  ? "bg-background text-foreground shadow-2xs font-semibold ring-1 ring-border/50"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const nextOrder = sortOrder === "desc" ? "asc" : "desc";
-                  setSortOrder(nextOrder);
-                  setFiles((prev) => sortFiles(prev, sortBy, nextOrder));
-                }}
-                className="px-2 py-1.5 rounded-xl bg-background border border-border text-xs text-muted-foreground hover:text-foreground transition font-mono uppercase cursor-pointer shadow-2xs shrink-0"
-                title="Toggle sort order"
-              >
-                {sortOrder}
-              </button>
-            </div>
+          {/* Divider */}
+          <div className="h-5 w-px bg-border/80 shrink-0 mx-0.5" />
 
-            {/* Google Drive View Mode Switcher [ ≡ List | ⊞ Grid ] */}
-            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-xl border border-border shrink-0 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => handleViewModeChange("list")}
-                title="List view"
-                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                  viewMode === "list"
-                    ? "bg-background text-foreground shadow-2xs font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ListIcon className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewModeChange("grid")}
-                title="Grid view"
-                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                  viewMode === "grid"
-                    ? "bg-background text-foreground shadow-2xs font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Host HTML Webpage Button */}
+          {/* Host HTML Webpage Button with ? InfoTooltip */}
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={() => setShowHtmlHostModal(true)}
@@ -2221,20 +2481,333 @@ export function FileManager({
               <Globe className="w-3.5 h-3.5" />
               <span className="hidden sm:inline text-[11px] font-semibold">Host Webpage</span>
             </button>
+            <InfoTooltip
+              title="Host Static Webpage"
+              content="Deploy standalone HTML webpages, single-page sites, or portfolios with high-speed CDN delivery and custom public share links."
+              variant="info"
+              side="bottom"
+              align="end"
+            />
+          </div>
 
-            {/* Terminal Upload cURL Quick Launcher */}
+          {/* Terminal Upload cURL Quick Launcher with ? InfoTooltip */}
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={() => setShowTerminalModal(true)}
-              className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-2xs"
+              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-2xs"
               title="Upload via Terminal (cURL / PowerShell)"
             >
               <Terminal className="w-3.5 h-3.5 text-blue-500" />
               <span className="hidden md:inline font-mono text-[11px]">cURL</span>
             </button>
+            <InfoTooltip
+              title="Terminal / cURL Upload"
+              content="Generate command-line cURL and PowerShell scripts to upload files straight from your terminal or CI/CD pipelines."
+              side="bottom"
+              align="end"
+            />
           </div>
         </div>
       </div>
+
+      {/* 2. Google Drive / Windows Explorer Style Folders Section */}
+      {currentLevelFolders.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 font-semibold text-foreground text-xs sm:text-sm">
+                <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20" />
+                <span>Folders</span>
+                <span className="text-xs text-muted-foreground font-normal">
+                  ({currentLevelFolders.length})
+                </span>
+              </span>
+
+              {/* Dynamic Batch Select All Checkbox for Folders */}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none ml-2 group">
+                <input
+                  type="checkbox"
+                  checked={
+                    currentLevelFolders.length > 0 &&
+                    currentLevelFolders.every((f) => selectedFolderPaths.has(f.path))
+                  }
+                  ref={(el) => {
+                    if (el) {
+                      const allSelected =
+                        currentLevelFolders.length > 0 &&
+                        currentLevelFolders.every((f) => selectedFolderPaths.has(f.path));
+                      const someSelected = currentLevelFolders.some((f) =>
+                        selectedFolderPaths.has(f.path)
+                      );
+                      el.indeterminate = !allSelected && someSelected;
+                    }
+                  }}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      const next = new Set(selectedFolderPaths);
+                      currentLevelFolders.forEach((f) => next.add(f.path));
+                      setSelectedFolderPaths(next);
+                    } else {
+                      const next = new Set(selectedFolderPaths);
+                      currentLevelFolders.forEach((f) => next.delete(f.path));
+                      setSelectedFolderPaths(next);
+                    }
+                  }}
+                  className="w-3.5 h-3.5 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer transition accent-blue-600"
+                />
+                <span className="text-[11px] font-medium text-muted-foreground group-hover:text-foreground transition">
+                  {selectedFolderPaths.size > 0 &&
+                  currentLevelFolders.every((f) => selectedFolderPaths.has(f.path))
+                    ? "Deselect all"
+                    : "Select all"}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {viewMode === "grid" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
+              {currentLevelFolders.map((folder, idx) => {
+                const FolderIcon = folder.icon || Folder;
+                const isSelected = selectedFolderPaths.has(folder.path);
+                return (
+                  <div
+                    key={`folder-${folder.path}-${idx}`}
+                    onClick={() => setCategory(folder.path)}
+                    className={`group relative p-2.5 sm:p-3 rounded-2xl border transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-2.5 ${
+                      isSelected
+                        ? "border-blue-500 ring-2 ring-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10 shadow-md"
+                        : "border-border bg-card hover:bg-muted/40 hover:border-blue-500/40 text-foreground"
+                    }`}
+                    title={folder.path}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      {/* Checkbox for dynamic batch select */}
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const next = new Set(selectedFolderPaths);
+                          if (next.has(folder.path)) next.delete(folder.path);
+                          else next.add(folder.path);
+                          setSelectedFolderPaths(next);
+                        }}
+                        className={`w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0 transition-opacity ${
+                          isSelected || selectedFolderPaths.size > 0
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        }`}
+                        title={`Select folder '${folder.name}'`}
+                        aria-label={`Select folder '${folder.name}'`}
+                      />
+
+                      <div
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 border transition-transform group-hover:scale-105 ${
+                          folder.bg && folder.color
+                            ? `${folder.bg} ${folder.color}`
+                            : "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                        }`}
+                      >
+                        <FolderIcon className="w-4 h-4 sm:w-5 sm:h-5 fill-current/20" />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs sm:text-sm font-semibold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                          {folder.name}
+                        </div>
+                        <div className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
+                          {folder.fileCount === 0 && folder.subfolderCount === 0
+                            ? "Empty"
+                            : `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
+                                folder.subfolderCount > 0 ? ` • ${folder.subfolderCount} folders` : ""
+                              }`}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right side actions in standard flex flow - NEVER covers folder name - NO DELETE ON HOVER */}
+                    {!folder.isSpecial && (
+                      <div
+                        className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFolderToRename({
+                              id: folder.id,
+                              name: folder.name,
+                              path: folder.path,
+                              parentPath: folder.parentPath,
+                              depth: folder.path.split("/").length,
+                              createdAt: new Date().toISOString(),
+                              updatedAt: new Date().toISOString(),
+                              totalFiles: folder.fileCount,
+                              totalBytes: 0,
+                              totalSubfolders: folder.subfolderCount,
+                            });
+                            setRenameFolderNameInput(folder.name);
+                            setRenameFolderError(null);
+                          }}
+                          className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition cursor-pointer"
+                          title={`Rename folder '${folder.name}'`}
+                          aria-label={`Rename folder '${folder.name}'`}
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFolderToMove({
+                              id: folder.id,
+                              name: folder.name,
+                              path: folder.path,
+                              parentPath: folder.parentPath,
+                              depth: folder.path.split("/").length,
+                              createdAt: new Date().toISOString(),
+                              updatedAt: new Date().toISOString(),
+                              totalFiles: folder.fileCount,
+                              totalBytes: 0,
+                              totalSubfolders: folder.subfolderCount,
+                            });
+                            setFolderMoveTarget(folder.parentPath || "");
+                          }}
+                          className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition cursor-pointer"
+                          title={`Move folder '${folder.name}'`}
+                          aria-label={`Move folder '${folder.name}'`}
+                        >
+                          <Move className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* LIST VIEW FOR FOLDERS (Google Drive & Windows 11 style) */
+            <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden divide-y divide-border/60">
+              {currentLevelFolders.map((folder, idx) => {
+                const FolderIcon = folder.icon || Folder;
+                const isSelected = selectedFolderPaths.has(folder.path);
+                return (
+                  <div
+                    key={`folder-list-${folder.path}-${idx}`}
+                    onClick={() => setCategory(folder.path)}
+                    className={`group p-3 sm:px-4 flex items-center justify-between gap-3 hover:bg-muted/40 transition-all duration-150 cursor-pointer select-none ${
+                      isSelected ? "bg-blue-500/5 dark:bg-blue-500/10" : "text-foreground"
+                    }`}
+                    title={`Open folder '${folder.name}'`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Checkbox for dynamic batch select */}
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const next = new Set(selectedFolderPaths);
+                          if (next.has(folder.path)) next.delete(folder.path);
+                          else next.add(folder.path);
+                          setSelectedFolderPaths(next);
+                        }}
+                        className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                        title={`Select folder '${folder.name}'`}
+                        aria-label={`Select folder '${folder.name}'`}
+                      />
+
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border transition-transform group-hover:scale-105 ${
+                          folder.bg && folder.color
+                            ? `${folder.bg} ${folder.color}`
+                            : "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                        }`}
+                      >
+                        <FolderIcon className="w-4 h-4 fill-current/20" />
+                      </div>
+                      <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs sm:text-sm font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                          {folder.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-muted text-muted-foreground border border-border/60">
+                          Folder
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                      <span className="font-mono text-[11px]">
+                        {folder.fileCount === 0 && folder.subfolderCount === 0
+                          ? "Empty"
+                          : `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
+                              folder.subfolderCount > 0 ? ` • ${folder.subfolderCount} folders` : ""
+                            }`}
+                      </span>
+
+                      {!folder.isSpecial && (
+                        <div
+                          className="flex items-center gap-1 shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFolderToRename({
+                                id: folder.id,
+                                name: folder.name,
+                                path: folder.path,
+                                parentPath: folder.parentPath,
+                                depth: folder.path.split("/").length,
+                                createdAt: new Date().toISOString(),
+                                updatedAt: new Date().toISOString(),
+                                totalFiles: folder.fileCount,
+                                totalBytes: 0,
+                                totalSubfolders: folder.subfolderCount,
+                              });
+                              setRenameFolderNameInput(folder.name);
+                              setRenameFolderError(null);
+                            }}
+                            className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition cursor-pointer"
+                            title={`Rename folder '${folder.name}'`}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFolderToMove({
+                                id: folder.id,
+                                name: folder.name,
+                                path: folder.path,
+                                parentPath: folder.parentPath,
+                                depth: folder.path.split("/").length,
+                                createdAt: new Date().toISOString(),
+                                updatedAt: new Date().toISOString(),
+                                totalFiles: folder.fileCount,
+                                totalBytes: 0,
+                                totalSubfolders: folder.subfolderCount,
+                              });
+                              setFolderMoveTarget(folder.parentPath || "");
+                            }}
+                            className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition cursor-pointer"
+                            title={`Move folder '${folder.name}'`}
+                          >
+                            <Move className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Dedicated Category Banners: gpn Release Bucket & API Uploads */}
       {category === "gpn" && (
@@ -2306,23 +2879,23 @@ export function FileManager({
       )}
 
       {/* 3. Section Title & Master Select All Checkbox */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5 pt-1">
-        <div className="flex items-center gap-2.5">
-          {files.length > 0 && (
+      {displayedFiles.length > 0 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5 pt-1">
+          <div className="flex items-center gap-2.5">
             <label className="flex items-center gap-2 cursor-pointer select-none group">
               <input
                 type="checkbox"
-                checked={files.length > 0 && files.every((f) => selectedFileIds.has(f.id))}
+                checked={displayedFiles.length > 0 && displayedFiles.every((f) => selectedFileIds.has(f.id))}
                 ref={(el) => {
                   if (el) {
-                    const allSelected = files.length > 0 && files.every((f) => selectedFileIds.has(f.id));
-                    const someSelected = files.some((f) => selectedFileIds.has(f.id));
+                    const allSelected = displayedFiles.length > 0 && displayedFiles.every((f) => selectedFileIds.has(f.id));
+                    const someSelected = displayedFiles.some((f) => selectedFileIds.has(f.id));
                     el.indeterminate = !allSelected && someSelected;
                   }
                 }}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    setSelectedFileIds(new Set(files.map((f) => f.id)));
+                    setSelectedFileIds(new Set(displayedFiles.map((f) => f.id)));
                   } else {
                     setSelectedFileIds(new Set());
                   }
@@ -2330,33 +2903,44 @@ export function FileManager({
                 className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer transition accent-blue-600"
               />
               <span className="text-xs font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
-                {selectedFileIds.size > 0 && selectedFileIds.size === files.length
+                {selectedFileIds.size > 0 && selectedFileIds.size === displayedFiles.length
                   ? "Deselect all"
-                  : `Select all (${files.length})`}
+                  : `Select all (${displayedFiles.length})`}
               </span>
             </label>
-          )}
-          <span className="text-muted-foreground hidden sm:inline">
-            •{" "}
-            {category === "all"
-              ? "Suggested files"
-              : category === "gpn"
-              ? "📁 gpn Binary Release Distribution"
-              : category === "api"
-              ? "⚡ Owner API Uploads"
-              : `📁 ${category} files`}
-          </span>
+            <span className="text-muted-foreground hidden sm:inline">
+              •{" "}
+              {category === "all"
+                ? "Storage files"
+                : category === "gpn"
+                ? "📁 gpn Binary Release Distribution"
+                : category === "api"
+                ? "⚡ Owner API Uploads"
+                : `📁 ${category} files`}
+            </span>
+          </div>
+          <span>{displayedFiles.length} {displayedFiles.length === 1 ? "file" : "files"}</span>
         </div>
-        <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
-      </div>
+      )}
 
       {/* Batch Selection Toolbar */}
-      {selectedFileIds.size > 0 && (
+      {(selectedFileIds.size > 0 || selectedFolderPaths.size > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs text-foreground shadow-sm animate-in fade-in duration-150">
           <div className="flex items-center gap-2 flex-wrap">
             <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" />
             <span className="font-semibold text-blue-600 dark:text-blue-400">
-              {selectedFileIds.size} {selectedFileIds.size === 1 ? "file" : "files"} selected
+              {selectedFolderPaths.size > 0 && (
+                <span>
+                  {selectedFolderPaths.size} {selectedFolderPaths.size === 1 ? "folder" : "folders"}
+                </span>
+              )}
+              {selectedFolderPaths.size > 0 && selectedFileIds.size > 0 && <span>, </span>}
+              {selectedFileIds.size > 0 && (
+                <span>
+                  {selectedFileIds.size} {selectedFileIds.size === 1 ? "file" : "files"}
+                </span>
+              )}
+              {" selected"}
             </span>
             {protectedFiles.length > 0 && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
@@ -2366,50 +2950,57 @@ export function FileManager({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => {
-                setTargetMoveFolder("");
-                setShowMoveFolderModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium transition cursor-pointer shadow-xs active:scale-[0.98]"
-              title="Move selected files to a folder"
-            >
-              <FolderInput className="w-3.5 h-3.5 text-blue-500" />
-              <span>Move to Folder</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleBatchZipDownload}
-              disabled={zippingProgress !== null}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              {zippingProgress ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>
-                    Zipping {zippingProgress.current}/{zippingProgress.total}...
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Archive className="w-3.5 h-3.5" />
-                  <span>Download ZIP ({selectedFileIds.size})</span>
-                </>
-              )}
-            </button>
+            {selectedFileIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTargetMoveFolder("");
+                  setShowMoveFolderModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium transition cursor-pointer shadow-xs active:scale-[0.98]"
+                title="Move selected files to a folder"
+              >
+                <FolderInput className="w-3.5 h-3.5 text-blue-500" />
+                <span>Move to Folder</span>
+              </button>
+            )}
+            {selectedFileIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleBatchZipDownload}
+                disabled={zippingProgress !== null}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {zippingProgress ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>
+                      Zipping {zippingProgress.current}/{zippingProgress.total}...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Download ZIP ({selectedFileIds.size})</span>
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowBulkDeleteModal(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-semibold transition cursor-pointer shadow-xs"
-              title="Delete selected files"
+              title="Delete selected items"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Selected ({selectedFileIds.size})</span>
+              <span>Delete Selected ({selectedFolderPaths.size + selectedFileIds.size})</span>
             </button>
             <button
               type="button"
-              onClick={() => setSelectedFileIds(new Set())}
+              onClick={() => {
+                setSelectedFileIds(new Set());
+                setSelectedFolderPaths(new Set());
+              }}
               className="px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
             >
               Clear
@@ -2424,36 +3015,85 @@ export function FileManager({
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           <span className="text-xs">Loading files...</span>
         </div>
-      ) : files.length === 0 ? (
-        <div className="p-12 text-center rounded-2xl border border-border bg-card shadow-2xs text-muted-foreground">
-          <FileIcon className="w-9 h-9 mx-auto mb-2.5 opacity-30" />
-          <p className="text-sm font-medium text-foreground">No files found</p>
-          <p className="text-xs mt-0.5">
-            {category !== "all"
-              ? category === "gpn"
-                ? "No gpn releases found in this bucket. Push binary updates via API key using /api/v1/upload or staged replacement."
-                : category === "api"
-                ? "No API uploads recorded yet. Upload files programmatically using your Owner API Key."
-                : `No ${category} found in this category.`
-              : "Upload files or try another search."}
-          </p>
-          {category !== "all" && (
-            <button
-              onClick={() => setCategory("all")}
-              className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium cursor-pointer"
-            >
-              Back to All Files
-            </button>
-          )}
-        </div>
+      ) : displayedFiles.length === 0 ? (
+        currentLevelFolders.length > 0 ? (
+          /* When there are folders present and 0 direct files at this level */
+          <div className="py-6 px-4 text-center rounded-2xl border border-dashed border-border/70 bg-card/30 shadow-2xs text-muted-foreground space-y-1.5">
+            <FolderOpen className="w-7 h-7 mx-auto opacity-30 text-amber-500" />
+            <p className="text-xs font-medium text-foreground">
+              {category === "all"
+                ? "Files are organized inside the folders above"
+                : `No direct files inside '${getFolderNameFromPath(category)}'`}
+            </p>
+            <p className="text-[11px] text-muted-foreground max-w-sm mx-auto">
+              {category === "all"
+                ? "Click any folder above to open it and view its contents."
+                : "Browse subfolders above or upload files directly into this folder."}
+            </p>
+          </div>
+        ) : (
+          <div className="p-10 text-center rounded-2xl border border-dashed border-border bg-card/60 shadow-2xs text-muted-foreground space-y-3">
+            <FileIcon className="w-9 h-9 mx-auto opacity-30 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                This folder is empty
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-md mx-auto">
+                {category !== "all"
+                  ? `No files or subfolders found inside ${category}.`
+                  : "Upload files or create your first folder to get started."}
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewFolderNameInput("");
+                  setNewFolderError(null);
+                  setShowNewFolderModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition shadow-xs cursor-pointer active:scale-95"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>New Folder</span>
+              </button>
+              {category !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const isSys = [
+                      "gpn",
+                      "api",
+                      "websites",
+                      "images",
+                      "documents",
+                      "media",
+                      "archives",
+                    ].includes(category);
+                    if (isSys) {
+                      setCategory("all");
+                    } else {
+                      const parent = getFolderParentPath(category);
+                      setCategory(parent || "all");
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition cursor-pointer"
+                >
+                  <CornerLeftUp className="w-3.5 h-3.5" />
+                  <span>Go Up</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )
       ) : viewMode === "grid" ? (
         /* GRID / CARD VIEW (Google Drive & Windows 11 style) */
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
-            {files.map((file) => {
+            {displayedFiles.map((file) => {
               const isExpired =
                 file.status === "EXPIRED" ||
-                (file.expires_at !== null && new Date(file.expires_at).getTime() <= currentTime);
+                (file.expires_at !== null && currentTime > 0 && new Date(file.expires_at).getTime() <= currentTime);
               const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
               const FileTypeIcon = fileType.icon;
               return (
@@ -2893,10 +3533,10 @@ export function FileManager({
         /* LIST VIEW */
         <div className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
           <div className="divide-y divide-border">
-            {files.map((file) => {
+            {displayedFiles.map((file) => {
               const isExpired =
                 file.status === "EXPIRED" ||
-                (file.expires_at !== null && new Date(file.expires_at).getTime() <= currentTime);
+                (file.expires_at !== null && currentTime > 0 && new Date(file.expires_at).getTime() <= currentTime);
               const fileType = getFileTypeDetails(file.mime_type, file.sanitized_name);
               const FileTypeIcon = fileType.icon;
               return (
@@ -3187,16 +3827,34 @@ export function FileManager({
 
       {/* FILE DETAILS MODAL */}
       {selectedFileForDetails && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl bg-card border border-border p-5 sm:p-6 shadow-2xl relative space-y-5">
-            <div className="flex items-center justify-between border-b border-border pb-4">
-              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                <Info className="w-4 h-4 text-blue-500" />
-                <span>File Details</span>
-              </h3>
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/45 dark:bg-black/65 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedFileForDetails(null)}
+        >
+          <div
+            className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto modal-scrollbar rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl space-y-5 ring-1 ring-black/5 dark:ring-white/5 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 dark:bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between border-b border-border/80 pb-3.5 relative z-10">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 shadow-2xs">
+                  <Info className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">File Details</h3>
+                  <p className="text-[11px] text-muted-foreground">Detailed metadata and storage attributes</p>
+                </div>
+              </div>
               <button
+                type="button"
                 onClick={() => setSelectedFileForDetails(null)}
-                className="text-muted-foreground hover:text-foreground transition"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3341,8 +3999,9 @@ export function FileManager({
               </div>
 
               <button
+                type="button"
                 onClick={() => setSelectedFileForDetails(null)}
-                className="px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-semibold text-foreground transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/40 hover:bg-muted/80 border border-border/80 transition cursor-pointer active:scale-98"
               >
                 Close
               </button>
@@ -3411,12 +4070,15 @@ export function FileManager({
         const preferredShareUrl = formattedXurl || displayShareUrl;
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-            <div className="w-full max-w-4xl xl:max-w-5xl rounded-2xl bg-card border border-border p-3.5 sm:p-4.5 shadow-2xl relative space-y-2.5 sm:space-y-3 max-h-[88vh] overflow-y-auto modal-scrollbar overscroll-contain transition-all">
-              <div className="flex items-center justify-between border-b border-border pb-2">
+          <div className="fixed inset-0 z-50 bg-black/45 dark:bg-black/65 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="relative w-full max-w-4xl xl:max-w-5xl rounded-3xl bg-card/95 dark:bg-card/90 backdrop-blur-2xl border border-white/30 dark:border-white/10 p-4 sm:p-5 shadow-2xl space-y-3 max-h-[88vh] overflow-y-auto modal-scrollbar overscroll-contain transition-all ring-1 ring-black/5 dark:ring-white/5 overflow-hidden">
+              {/* Ambient Top Glow */}
+              <div className="absolute -top-24 -left-24 w-52 h-52 bg-blue-500/10 dark:bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex items-center justify-between border-b border-border/80 pb-2.5 relative z-10">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                    <Share2 className="w-3.5 h-3.5" />
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 shadow-2xs">
+                    <Share2 className="w-4 h-4" />
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-foreground leading-tight">Create Share Link</h3>
@@ -3424,8 +4086,10 @@ export function FileManager({
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setSelectedFileForShare(null)}
-                  className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                  className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                  aria-label="Close"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -4782,11 +5446,22 @@ export function FileManager({
 
       {/* EXTEND EXPIRY MODAL */}
       {selectedFileForExtend && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-5 md:p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/45 dark:bg-black/65 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => !isExtending && setSelectedFileForExtend(null)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-amber-500/10 dark:bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between border-b border-border/80 pb-3 relative z-10">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/10">
                   <RotateCw className="w-4 h-4" />
                 </div>
                 <div>
@@ -4795,16 +5470,19 @@ export function FileManager({
                 </div>
               </div>
               <button
-                onClick={() => setSelectedFileForExtend(null)}
-                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                type="button"
+                onClick={() => !isExtending && setSelectedFileForExtend(null)}
+                disabled={isExtending}
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Target File Info */}
-            <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-background border border-border/80 text-amber-500 flex items-center justify-center shrink-0">
+            <div className="p-3.5 rounded-2xl bg-muted/30 dark:bg-muted/20 border border-border/80 backdrop-blur-sm flex items-center gap-3 relative z-10">
+              <div className="w-8 h-8 rounded-xl bg-background border border-border/80 text-amber-500 flex items-center justify-center shrink-0 shadow-2xs">
                 <FileIcon className="w-4 h-4" />
               </div>
               <div className="min-w-0 flex-1">
@@ -4814,23 +5492,23 @@ export function FileManager({
             </div>
 
             {/* Explanatory Callout */}
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+            <div className="p-3.5 rounded-2xl bg-amber-500/[0.06] border border-amber-500/20 backdrop-blur-sm text-xs text-amber-800 dark:text-amber-300 space-y-1 relative z-10">
               <div className="flex items-center gap-1.5 font-semibold">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>What happens when you extend?</span>
               </div>
-              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+              <p className="text-[11px] leading-relaxed text-amber-700/90 dark:text-amber-400/90">
                 This file is currently expired and locked from public access. Extending it restores status to <strong className="text-amber-800 dark:text-amber-200">ACTIVE</strong>, recalculates its countdown, and allows sharing once again.
               </p>
             </div>
 
             {/* Preset Selection */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 relative z-10">
               <label className="text-xs font-semibold text-foreground">New Expiration Duration</label>
               <select
                 value={extendPreset}
                 onChange={(e) => setExtendPreset(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-xs focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-border/80 bg-background/80 text-foreground text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition cursor-pointer"
               >
                 <option value="1h">1 Hour from now</option>
                 <option value="2h">2 Hours from now</option>
@@ -4845,18 +5523,19 @@ export function FileManager({
             </div>
 
             {extendError && (
-              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs">
-                {extendError}
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 relative z-10 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{extendError}</span>
               </div>
             )}
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
               <button
                 type="button"
                 onClick={() => setSelectedFileForExtend(null)}
                 disabled={isExtending}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
               >
                 Cancel
               </button>
@@ -4864,7 +5543,7 @@ export function FileManager({
                 type="button"
                 onClick={handleExtendConfirm}
                 disabled={isExtending}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold text-xs transition-all shadow-md shadow-amber-600/30 hover:shadow-amber-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
               >
                 {isExtending ? (
                   <>
@@ -4996,63 +5675,81 @@ export function FileManager({
 
       {/* Create New Dynamic Folder Modal */}
       {showNewFolderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowNewFolderModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 dark:bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 shadow-sm shadow-blue-500/10">
                   <FolderPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
                     Create New Folder
                   </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {category === "all" ||
-                    [
-                      "gpn",
-                      "api",
-                      "websites",
-                      "images",
-                      "documents",
-                      "media",
-                      "archives",
-                    ].includes(category)
-                      ? "Creating at root storage level"
-                      : `Creating inside: ${category}`}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">Location:</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-mono font-semibold text-foreground truncate max-w-[220px]">
+                      <Folder className="w-3 h-3 text-amber-500 shrink-0" />
+                      <span>
+                        {category === "all" ||
+                        [
+                          "gpn",
+                          "api",
+                          "websites",
+                          "images",
+                          "documents",
+                          "media",
+                          "archives",
+                        ].includes(category)
+                          ? "Root (Storage)"
+                          : category}
+                      </span>
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowNewFolderModal(false)}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateNewFolder} className="space-y-4">
+            <form onSubmit={handleCreateNewFolder} className="space-y-4 relative z-10">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-foreground">
                   Folder Name or Nested Path
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. GPN or subfolder or 1/2"
+                  placeholder="e.g. Projects or 2026/Assets"
                   value={newFolderNameInput}
                   onChange={(e) => {
                     setNewFolderNameInput(e.target.value);
                     setNewFolderError(null);
                   }}
                   autoFocus
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-mono"
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Alphanumeric, underscores, hyphens, and slashes. Intermediate parent folders are created automatically.
                 </p>
                 {newFolderNameInput.trim() && (
-                  <div className="p-2 rounded-lg bg-muted/40 border border-border text-[11px] font-mono text-muted-foreground truncate">
+                  <div className="p-2.5 rounded-xl bg-muted/40 border border-border/80 backdrop-blur-sm text-[11px] font-mono text-muted-foreground truncate">
                     Resolved path:{" "}
                     <span className="font-semibold text-blue-600 dark:text-blue-400">
                       {category === "all" ||
@@ -5072,21 +5769,25 @@ export function FileManager({
                   </div>
                 )}
                 {newFolderError && (
-                  <p className="text-xs text-rose-500 font-medium">{newFolderError}</p>
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{newFolderError}</span>
+                  </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80">
                 <button
                   type="button"
                   onClick={() => setShowNewFolderModal(false)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95"
+                  disabled={!newFolderNameInput.trim()}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
                 >
                   <FolderPlus className="w-3.5 h-3.5" />
                   <span>Create Folder</span>
@@ -5099,33 +5800,49 @@ export function FileManager({
 
       {/* Rename Folder Modal */}
       {folderToRename && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => !isRenamingFolder && setFolderToRename(null)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-amber-500/10 dark:bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0 shadow-sm shadow-amber-500/10">
                   <Edit2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
                     Rename Folder
                   </h3>
-                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
-                    {folderToRename.path}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">Current:</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-mono font-semibold text-foreground truncate max-w-[220px]">
+                      <Folder className="w-3 h-3 text-amber-500 shrink-0" />
+                      <span>{folderToRename.path}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => !isRenamingFolder && setFolderToRename(null)}
                 disabled={isRenamingFolder}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleRenameFolderConfirm} className="space-y-4">
+            <form onSubmit={handleRenameFolderConfirm} className="space-y-4 relative z-10">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-foreground">
                   New Folder Name
@@ -5139,29 +5856,32 @@ export function FileManager({
                     setRenameFolderError(null);
                   }}
                   autoFocus
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition shadow-2xs font-mono"
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Renaming cascades across all nested child folders and files in storage.
                 </p>
                 {renameFolderError && (
-                  <p className="text-xs text-rose-500 font-medium">{renameFolderError}</p>
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{renameFolderError}</span>
+                  </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80">
                 <button
                   type="button"
                   onClick={() => setFolderToRename(null)}
                   disabled={isRenamingFolder}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isRenamingFolder || !renameFolderNameInput.trim()}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold text-xs transition-all shadow-md shadow-amber-600/30 hover:shadow-amber-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
                 >
                   {isRenamingFolder ? (
                     <>
@@ -5183,27 +5903,44 @@ export function FileManager({
 
       {/* Delete Folder Modal */}
       {folderToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => !isDeletingFolder && setFolderToDelete(null)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Red Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-rose-500/10 dark:bg-rose-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex items-start justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 shadow-sm shadow-rose-500/10">
                   <Trash2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
                     Delete Folder?
                   </h3>
-                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
-                    {folderToDelete.path}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">Target:</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-mono font-semibold text-foreground truncate max-w-[220px]">
+                      <Folder className="w-3 h-3 text-amber-500 shrink-0" />
+                      <span>{folderToDelete.path}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => !isDeletingFolder && setFolderToDelete(null)}
                 disabled={isDeletingFolder}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -5217,36 +5954,48 @@ export function FileManager({
                   f.folder?.startsWith(`${folderToDelete.path}/`)) &&
                 (f.is_release_locked || f.share_slug === "gpn-app")
             ) ? (
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400">
+              <div className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5 backdrop-blur-sm flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300 relative z-10">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
                 <div>
-                  <p className="font-semibold">Base Installer Permanently Protected</p>
-                  <p className="text-[11px] mt-0.5 text-amber-700/80 dark:text-amber-400/80">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Base Installer Permanently Protected</p>
+                  <p className="text-[11px] mt-0.5 text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
                     Gaurav Personal Notes v0.0.0 Base Installer is protected for public website downloads. Folders containing protected release binaries cannot be deleted.
                   </p>
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-400">
-                  <p className="font-semibold">Permanent Deletion Warning</p>
-                  <p className="text-[11px] mt-0.5 text-rose-700/80 dark:text-rose-400/80">
-                    This will permanently delete this folder, all nested subfolders, and purge physical files from Cloudflare R2 storage. Storage quota will be reclaimed immediately.
+              <div className="space-y-3 relative z-10">
+                {/* Modern Minimalist Glass Warning Box */}
+                <div className="relative overflow-hidden rounded-2xl border border-rose-500/20 dark:border-rose-500/30 bg-rose-500/[0.04] dark:bg-rose-500/[0.08] p-3.5 backdrop-blur-sm space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-md bg-rose-500/15 flex items-center justify-center shrink-0 text-rose-600 dark:text-rose-400">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 tracking-tight">
+                      Permanent Deletion Warning
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed pl-7">
+                    This will permanently delete <strong className="text-foreground font-semibold font-mono">{folderToDelete.path}</strong>, all nested subfolders, and purge physical files from Cloudflare R2 storage. Storage quota will be reclaimed immediately.
                   </p>
                 </div>
 
                 {deleteFolderError && (
-                  <p className="text-xs text-rose-500 font-medium">{deleteFolderError}</p>
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{deleteFolderError}</span>
+                  </div>
                 )}
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
               <button
                 type="button"
                 onClick={() => setFolderToDelete(null)}
                 disabled={isDeletingFolder}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
               >
                 Cancel
               </button>
@@ -5263,7 +6012,7 @@ export function FileManager({
                       (f.is_release_locked || f.share_slug === "gpn-app")
                   )
                 }
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-semibold text-xs transition-all shadow-md shadow-rose-600/30 hover:shadow-rose-600/50 cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isDeletingFolder ? (
                   <>
@@ -5284,33 +6033,49 @@ export function FileManager({
 
       {/* Move Folder Modal */}
       {folderToMove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => !isMovingFolder && setFolderToMove(null)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 dark:bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 shadow-sm shadow-blue-500/10">
                   <Move className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
                     Move Folder
                   </h3>
-                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[240px]">
-                    {folderToMove.path}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">Moving:</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-mono font-semibold text-foreground truncate max-w-[220px]">
+                      <Folder className="w-3 h-3 text-amber-500 shrink-0" />
+                      <span>{folderToMove.path}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => !isMovingFolder && setFolderToMove(null)}
                 disabled={isMovingFolder}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 relative z-10">
               <label className="text-xs font-semibold text-foreground">
                 Destination Parent Folder (leave empty to move to root)
               </label>
@@ -5319,10 +6084,10 @@ export function FileManager({
                 <button
                   type="button"
                   onClick={() => setFolderMoveTarget("")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5 ${
                     folderMoveTarget === ""
-                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                      : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-600/20 font-semibold"
+                      : "bg-muted/30 hover:bg-muted/70 border-border/70 text-foreground"
                   }`}
                 >
                   <Folder className="w-3 h-3" />
@@ -5330,15 +6095,15 @@ export function FileManager({
                 </button>
                 {allDynamicFolders
                   .filter((f) => f !== folderToMove.path && !f.startsWith(`${folderToMove.path}/`))
-                  .map((fName) => (
+                  .map((fName, idx) => (
                     <button
-                      key={fName}
+                      key={`move-dest-${fName}-${idx}`}
                       type="button"
                       onClick={() => setFolderMoveTarget(fName)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5 ${
                         folderMoveTarget === fName
-                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                          : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-600/20 font-semibold"
+                          : "bg-muted/30 hover:bg-muted/70 border-border/70 text-foreground"
                       }`}
                     >
                       <Folder className="w-3 h-3" />
@@ -5349,19 +6114,19 @@ export function FileManager({
 
               <input
                 type="text"
-                placeholder="Or type destination parent path (e.g. GPN/1)"
+                placeholder="Or type destination parent path (e.g. Projects/2026)"
                 value={folderMoveTarget}
                 onChange={(e) => setFolderMoveTarget(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-mono"
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
               <button
                 type="button"
                 onClick={() => setFolderToMove(null)}
                 disabled={isMovingFolder}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
               >
                 Cancel
               </button>
@@ -5369,7 +6134,7 @@ export function FileManager({
                 type="button"
                 onClick={() => handleMoveFolderConfirm(folderMoveTarget)}
                 disabled={isMovingFolder}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
               >
                 {isMovingFolder ? (
                   <>
@@ -5390,19 +6155,30 @@ export function FileManager({
 
       {/* Move Files to Folder Modal */}
       {showMoveFolderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => !isMovingFiles && setShowMoveFolderModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 dark:bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 shadow-sm shadow-blue-500/10">
                   <FolderInput className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
                     Move Files to Folder
                   </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Move {selectedFiles.length} {selectedFiles.length === 1 ? "file" : "files"} to a target folder
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Relocate {selectedFiles.length} {selectedFiles.length === 1 ? "file" : "files"} to a folder
                   </p>
                 </div>
               </div>
@@ -5410,28 +6186,29 @@ export function FileManager({
                 type="button"
                 onClick={() => setShowMoveFolderModal(false)}
                 disabled={isMovingFiles}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 relative z-10">
               <label className="text-xs font-semibold text-foreground">
                 Select Existing Folder or Enter New Name
               </label>
 
               {allDynamicFolders.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {allDynamicFolders.map((fName) => (
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {allDynamicFolders.map((fName, idx) => (
                     <button
-                      key={fName}
+                      key={`target-folder-${fName}-${idx}`}
                       type="button"
                       onClick={() => setTargetMoveFolder(fName)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5 ${
                         targetMoveFolder === fName
-                          ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                          : "bg-muted/40 hover:bg-muted border-border text-foreground"
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-600/20 font-semibold"
+                          : "bg-muted/30 hover:bg-muted/70 border-border/70 text-foreground"
                       }`}
                     >
                       <Folder className="w-3 h-3" />
@@ -5446,16 +6223,16 @@ export function FileManager({
                 placeholder="Or enter custom folder (e.g. gpn-dynamic-update)"
                 value={targetMoveFolder}
                 onChange={(e) => setTargetMoveFolder(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500 transition shadow-2xs font-mono"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-mono"
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
               <button
                 type="button"
                 onClick={() => setShowMoveFolderModal(false)}
                 disabled={isMovingFiles}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
               >
                 Cancel
               </button>
@@ -5463,7 +6240,7 @@ export function FileManager({
                 type="button"
                 onClick={() => handleMoveFilesToFolder(targetMoveFolder)}
                 disabled={isMovingFiles || !targetMoveFolder.trim()}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
               >
                 {isMovingFiles ? (
                   <>
@@ -5484,18 +6261,29 @@ export function FileManager({
 
       {/* Bulk Delete Confirmation Modal */}
       {showBulkDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => !isBulkDeleting && setShowBulkDeleteModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Top Glow */}
+            <div className="absolute -top-24 -left-24 w-48 h-48 bg-rose-500/10 dark:bg-rose-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center justify-between pb-3.5 border-b border-border/80 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 shadow-sm shadow-rose-500/10">
                   <Trash2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">
-                    Delete {deletableFiles.length} Selected {deletableFiles.length === 1 ? "File" : "Files"}?
+                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
+                    Delete Selected Items?
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Storage will be reclaimed permanently
                   </p>
                 </div>
@@ -5504,7 +6292,8 @@ export function FileManager({
                 type="button"
                 onClick={() => !isBulkDeleting && setShowBulkDeleteModal(false)}
                 disabled={isBulkDeleting}
-                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -5512,51 +6301,73 @@ export function FileManager({
 
             {/* Base Installer Protection Notice */}
             {protectedFiles.length > 0 && (
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400">
+              <div className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5 backdrop-blur-sm flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300 relative z-10">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
                 <div>
-                  <p className="font-semibold">Base Installer Permanently Protected</p>
-                  <p className="text-[11px] mt-0.5 text-amber-700/80 dark:text-amber-400/80">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Base Installer Permanently Protected</p>
+                  <p className="text-[11px] mt-0.5 text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
                     Gaurav Personal Notes v0.0.0 Base Installer is protected for public website downloads and will NOT be deleted.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Storage Reclamation Summary */}
-            <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
-              <div className="flex items-center justify-between font-medium">
-                <span className="text-muted-foreground">Files to be purged:</span>
-                <span className="font-semibold text-foreground">{deletableFiles.length}</span>
+            {/* Selected Folders Section */}
+            {selectedFolderPaths.size > 0 && (
+              <div className="p-3.5 rounded-2xl bg-rose-500/[0.04] dark:bg-rose-500/[0.08] border border-rose-500/20 backdrop-blur-sm space-y-1.5 relative z-10">
+                <div className="flex items-center gap-1.5 font-semibold text-rose-600 dark:text-rose-400 text-xs">
+                  <Folder className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{selectedFolderPaths.size} {selectedFolderPaths.size === 1 ? "Folder" : "Folders"} to be permanently deleted:</span>
+                </div>
+                <div className="max-h-24 overflow-y-auto space-y-1 pl-5">
+                  {Array.from(selectedFolderPaths).map((fPath) => (
+                    <div key={fPath} className="text-[11px] font-mono text-foreground font-semibold truncate">
+                      📁 {fPath}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  All nested files and subfolders will be recursively purged from storage.
+                </p>
               </div>
-              <div className="flex items-center justify-between font-medium">
-                <span className="text-muted-foreground">Reclaimed storage:</span>
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
-                  {formatBytes(deletableFiles.reduce((acc, f) => acc + f.byte_size, 0))}
-                </span>
+            )}
+
+            {/* Storage Reclamation Summary for Files */}
+            {deletableFiles.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-muted/30 dark:bg-muted/20 border border-border/80 backdrop-blur-sm space-y-2 text-xs relative z-10">
+                <div className="flex items-center justify-between font-medium">
+                  <span className="text-muted-foreground">Files to be purged:</span>
+                  <span className="font-semibold text-foreground">{deletableFiles.length}</span>
+                </div>
+                <div className="flex items-center justify-between font-medium">
+                  <span className="text-muted-foreground">Reclaimed storage:</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
+                    {formatBytes(deletableFiles.reduce((acc, f) => acc + f.byte_size, 0))}
+                  </span>
+                </div>
+                <div className="max-h-28 overflow-y-auto space-y-1 pt-2 border-t border-border/60">
+                  {deletableFiles.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="truncate max-w-[240px]">{f.sanitized_name}</span>
+                      <span className="font-mono text-[10px] shrink-0">{formatBytes(f.byte_size)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="max-h-32 overflow-y-auto space-y-1 pt-1.5 border-t border-border/60">
-                {deletableFiles.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span className="truncate max-w-[240px]">{f.sanitized_name}</span>
-                    <span className="font-mono text-[10px] shrink-0">{formatBytes(f.byte_size)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
 
             {/* Bulk Delete Progress Bar */}
             {bulkDeleteProgress && (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 relative z-10">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Purging files from Cloudflare R2...</span>
-                  <span className="font-mono font-semibold">
+                  <span>Purging from storage...</span>
+                  <span className="font-mono font-semibold text-foreground">
                     {bulkDeleteProgress.current} / {bulkDeleteProgress.total}
                   </span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-muted/60 overflow-hidden">
                   <div
-                    className="h-full bg-rose-500 transition-all duration-200"
+                    className="h-full bg-rose-600 transition-all duration-200"
                     style={{
                       width: `${Math.round((bulkDeleteProgress.current / bulkDeleteProgress.total) * 100)}%`,
                     }}
@@ -5566,20 +6377,20 @@ export function FileManager({
             )}
 
             {/* Modal Buttons */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
               <button
                 type="button"
                 onClick={() => setShowBulkDeleteModal(false)}
                 disabled={isBulkDeleting}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleBulkDeleteConfirm}
-                disabled={isBulkDeleting || deletableFiles.length === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-semibold text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+                disabled={isBulkDeleting || (deletableFiles.length === 0 && selectedFolderPaths.size === 0)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 active:scale-[0.98] text-white font-semibold text-xs transition-all shadow-md shadow-rose-600/30 hover:shadow-rose-600/50 cursor-pointer disabled:opacity-50"
               >
                 {isBulkDeleting ? (
                   <>
@@ -5589,7 +6400,9 @@ export function FileManager({
                 ) : (
                   <>
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete {deletableFiles.length} Files</span>
+                    <span>
+                      Delete {selectedFolderPaths.size + deletableFiles.length} Selected Item{selectedFolderPaths.size + deletableFiles.length === 1 ? "" : "s"}
+                    </span>
                   </>
                 )}
               </button>

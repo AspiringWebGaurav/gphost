@@ -582,9 +582,9 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
             const shareData = await shareRes.json();
             const finalSlug = shareData.share?.slug || shareData.slug || sanitizedSlug;
             setDeployedSiteSlug(finalSlug);
-            storageEvents.emit("storage:updated", {
-              storageUsedBytes: 0,
-              source: "local_optimistic",
+            storageEvents.emit("share:lifecycle", {
+              action: "created",
+              shareLink: shareData?.share || shareData,
             });
           }
         } catch (shareErr) {

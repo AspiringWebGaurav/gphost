@@ -27,10 +27,13 @@ export function RefreshButton({ className = "" }: RefreshButtonProps) {
     setJustRefreshed(false);
 
     try {
-      // 1. Trigger background storage state check
-      if (storageContext) {
-        void storageContext.refreshStorageState();
-      }
+      // 1. Instantly trigger live R2 storage reconciliation and storage state sync concurrently
+      const storageSyncPromise = storageContext
+        ? Promise.allSettled([
+            storageContext.syncWithR2(true),
+            storageContext.refreshStorageState(),
+          ])
+        : Promise.resolve();
 
       // 2. Broadcast screen refresh across all active in-window and cross-tab components
       storageEvents.emit("screen:refresh", {
@@ -41,8 +44,8 @@ export function RefreshButton({ className = "" }: RefreshButtonProps) {
       // 3. Next.js App Router Server Component Refresh (re-fetches server data smoothly)
       router.refresh();
 
-      // 4. Smooth minimum animation duration so the user perceives the fast, responsive spin
-      await new Promise((resolve) => setTimeout(resolve, 450));
+      // 4. Await storage sync concurrently without artificial delays
+      await storageSyncPromise;
 
       setJustRefreshed(true);
       setTimeout(() => {

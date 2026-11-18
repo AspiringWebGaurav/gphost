@@ -104,7 +104,7 @@ export function InfoTooltip({
         <div
           role="tooltip"
           className={cn(
-            "absolute z-50 w-64 sm:w-72 p-3 rounded-xl bg-popover/98 dark:bg-popover/95 backdrop-blur-xl border text-popover-foreground text-xs shadow-xl animate-in fade-in zoom-in-95 duration-150 pointer-events-none",
+            "absolute z-50 w-64 sm:w-72 max-w-[calc(100vw-2rem)] p-3 rounded-xl bg-popover/98 dark:bg-popover/95 backdrop-blur-xl border text-popover-foreground text-xs shadow-xl animate-in fade-in zoom-in-95 duration-150 pointer-events-none",
             sideClasses[side],
             alignClasses[align],
             variantBorder[variant]

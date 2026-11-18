@@ -1,7 +1,7 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { requireApprovedUser, checkUserActivePin, getActiveStorageBytes } from "@/lib/auth/session";
+import { requireApprovedUser, checkUserActivePin, getActiveStorageStats } from "@/lib/auth/session";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { QuotaWidget } from "@/components/dashboard/quota-widget";
 import { StorageProvider } from "@/components/storage/storage-provider";
@@ -44,13 +44,13 @@ export default async function DashboardLayout({
   }
 
   // Authoritative active storage check & self-healing (memoized per-request, shared with DashboardPage)
-  const trueActiveBytes = await getActiveStorageBytes(user.id, profile.storage_used_bytes);
+  const { storageBytes: trueActiveBytes, activeFilesCount } = await getActiveStorageStats(user.id, profile.storage_used_bytes);
   profile.storage_used_bytes = trueActiveBytes;
 
   const isAdmin = profile.role === "admin";
 
   return (
-    <StorageProvider initialProfile={profile} initialUserId={user.id}>
+    <StorageProvider initialProfile={profile} initialUserId={user.id} initialActiveFilesCount={activeFilesCount}>
       <div className="min-h-screen md:h-screen md:overflow-hidden bg-background text-foreground flex flex-col md:flex-row antialiased transition-colors duration-200">
         <IdleSessionMonitor />
       {/* Desktop Sidebar */}

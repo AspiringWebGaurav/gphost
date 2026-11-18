@@ -31,7 +31,6 @@ export function SwitchyyFastSync({ projectId, publicKey }: SwitchyyFastSyncProps
 
         const res = await fetch(url, {
           cache: "no-store",
-          headers: { "Cache-Control": "no-cache, no-store, must-revalidate" },
           signal: AbortSignal.timeout(5000),
         });
 

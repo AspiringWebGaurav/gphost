@@ -8,7 +8,6 @@ import {
   Upload,
   Files,
   Link as LinkIcon,
-  Clock,
   Settings,
   ShieldAlert,
 } from "lucide-react";
@@ -31,7 +30,6 @@ export function DashboardNav({ isAdmin = false, onNavigate }: DashboardNavProps)
     { label: "Upload", href: "/upload", icon: Upload },
     { label: "Files", href: "/files", icon: Files },
     { label: "Links", href: "/links", icon: LinkIcon },
-    { label: "Expiring", href: "/expiring", icon: Clock },
     { label: "Settings", href: "/settings", icon: Settings },
   ];
 

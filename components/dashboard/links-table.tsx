@@ -86,6 +86,11 @@ function formatBytes(bytes: number): string {
 
 export function LinksTable({ initialLinks }: LinksTableProps) {
   const [links, setLinks] = useState<ShareLinkItem[]>(initialLinks);
+
+  // Keep links synchronized when Server Component re-renders (e.g. router.refresh())
+  useEffect(() => {
+    setLinks(initialLinks);
+  }, [initialLinks]);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [linkToDelete, setLinkToDelete] = useState<ShareLinkItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -164,9 +169,9 @@ export function LinksTable({ initialLinks }: LinksTableProps) {
 
       if (res.ok) {
         setLinks((prev) => prev.filter((l) => l.id !== linkToDelete.id));
-        storageEvents.emit("storage:updated", {
-          storageUsedBytes: 0,
-          source: "local_optimistic",
+        storageEvents.emit("share:lifecycle", {
+          action: "deleted",
+          oldShareLink: linkToDelete as unknown as Record<string, unknown>,
         });
         setLinkToDelete(null);
       } else {

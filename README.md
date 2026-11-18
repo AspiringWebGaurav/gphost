@@ -112,6 +112,13 @@ flowchart TD
 - **Sandboxed Delivery**: Strict Content Security Policy (CSP), anti-executable MIME sniffing guards, and isolated attachment headers.
 - **Invite-Gated Access**: Controlled registration gated by cryptographic onboarding PINs and admin review queues.
 
+### 7. Modern Hierarchical Workspace & Glassmorphic UI
+- **Dual Grid & Dense List Views**: Google Drive and Windows 11 Explorer inspired interfaces with persistent view mode memory.
+- **Dynamic Batch Selection**: Multi-folder and multi-file selection checkboxes with responsive floating action bars.
+- **Robust Multi-Store Synchronization**: Bidirectional server-side reconciliation purges deleted/ghost folders across React state, `localStorage`, Upstash Redis (`folders:store:${userId}`), and Supabase PostgreSQL with zero resurrection on hard browser reloads.
+- **Glassmorphic Modal System**: Minimalist frosted-glass modals with ambient lighting, keyboard escapes, and non-blocking background dismissals.
+- **Developer API Key Management**: Symmetric settings layout with instant keyword search, copy-to-clipboard badges, and pagination controls.
+
 ---
 
 ## 📦 Ephemeral Delivery Modes
@@ -443,12 +450,17 @@ npm run start        # Launch production server locally
 npm run typecheck    # Validate TypeScript types (tsc --noEmit)
 npm run lint         # Run ESLint validation
 npm run test:e2e     # Run Playwright end-to-end test suite
+npm run test:folders # Validate hierarchical folder management APIs
+npm run test:live    # Test live storage APIs and quota accounting
+npm run test:releases # Test Tauri v2 auto-updater release pipelines
 npm run test:cors    # Validate Cloudflare R2 CORS headers & S3 presigner
 npm run benchmark    # Benchmark API presigning latency and throughput
 
-# Maintenance & Clean
-npm run clean        # Clean Next.js build cache and temporary artifacts
-npm run total-clean  # Deep clean including node_modules and lockfiles
+# Storage Maintenance & Purge
+npm run verify:storage # Reconcile database records with Cloudflare R2
+npm run purge          # Purge expired and non-permanent assets
+npm run clean          # Clean Next.js build cache and temporary artifacts
+npm run total-clean    # Deep clean including node_modules and lockfiles
 ```
 
 ---

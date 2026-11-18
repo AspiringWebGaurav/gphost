@@ -11,6 +11,10 @@ export interface FolderItem {
   parent_path?: string | null;
   parentPath?: string | null;
   depth: number;
+  is_immutable?: boolean;
+  isImmutable?: boolean;
+  purpose?: string | null;
+  description?: string | null;
   created_at?: string;
   createdAt?: string;
   updated_at?: string;
@@ -159,5 +163,12 @@ export function extractFolderFromR2Key(key?: string | null): string | null {
   if (lastSlash === -1) return null;
 
   const folderPath = cleanKey.substring(0, lastSlash);
-  return folderPath || null;
+  if (!folderPath) return null;
+
+  // Filter out internal default date partitions like '2026/10' or '2025/11'
+  if (/^\d{4}\/\d{2}$/.test(folderPath)) {
+    return null;
+  }
+
+  return folderPath;
 }

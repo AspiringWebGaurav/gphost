@@ -7,7 +7,7 @@
  */
 
 export interface StorageUpdatedPayload {
-  storageUsedBytes: number;
+  storageUsedBytes?: number;
   quotaBytes?: number;
   reservedBytes?: number;
   deltaBytes?: number;

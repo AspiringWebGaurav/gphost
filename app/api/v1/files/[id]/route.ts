@@ -8,7 +8,7 @@ import { purgeShareLinkRedisData } from "@/lib/storage/lifecycle";
 import { deleteXurlLink } from "@/lib/xurl/client";
 import { redis } from "@/lib/redis/client";
 import { calculateExpiryDate, EXPIRY_PRESET_VALUES } from "@/lib/storage/expiry";
-import { createFolder, normalizeFolderPath } from "@/lib/storage/folders";
+import { createFolder, normalizeFolderPath, extractFolderFromR2Key, getAllUserFolders } from "@/lib/storage/folders";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,9 @@ const patchSchema = z.object({
   isReleaseLocked: z.boolean().optional(),
   expiryPreset: z.enum(EXPIRY_PRESET_VALUES).optional(),
   customKey: z.string().trim().min(1).optional(),
-  folder: z.string().trim().min(1).optional(),
-  moveFolder: z.string().trim().min(1).optional(),
+  folder: z.string().trim().nullable().optional(),
+  moveFolder: z.string().trim().nullable().optional(),
+  force: z.boolean().optional(),
 });
 
 /**
@@ -115,6 +116,8 @@ export async function GET(
         is_permanent: file.expires_at === null,
         sha256: file.sha256 || null,
         is_release_locked: Boolean(file.is_release_locked),
+        folder: extractFolderFromR2Key(file.r2_key),
+        r2_key: file.r2_key || null,
         slug,
         raw_url: rawUrl,
         permanent_raw_url: rawUrl,
@@ -204,20 +207,43 @@ export async function PATCH(
       updatePayload.expires_at = newExpiry ? newExpiry.toISOString() : null;
     }
 
-    const targetFolder = parseBody.data.moveFolder || parseBody.data.folder;
+    const currentFileFolder = extractFolderFromR2Key(file.r2_key);
+    const hasFolderChange = parseBody.data.moveFolder !== undefined || parseBody.data.folder !== undefined;
+    const isForceMove = Boolean(parseBody.data.force);
+
+    if (currentFileFolder && hasFolderChange && !isForceMove) {
+      const allFolders = await getAllUserFolders(userId);
+      const isFolderImmutable = allFolders.some(
+        (f) => f.is_immutable && (f.path === currentFileFolder || currentFileFolder.startsWith(`${f.path}/`))
+      );
+      if (isFolderImmutable) {
+        return NextResponse.json(
+          {
+            error: `Cannot move file out of immutable folder '${currentFileFolder}'.`,
+            code: "FOLDER_IMMUTABLE",
+            hint: "Pass 'force: true' to override immutable folder protection.",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const targetFolder = parseBody.data.moveFolder !== undefined ? parseBody.data.moveFolder : parseBody.data.folder;
     let newR2Key = parseBody.data.customKey ? parseBody.data.customKey.trim().replace(/^\/+/, "").replace(/\.\.+/g, "") : null;
 
-    if (!newR2Key && targetFolder) {
+    if (!newR2Key && hasFolderChange) {
       let cleanFolder = "";
-      try {
-        cleanFolder = normalizeFolderPath(targetFolder);
-      } catch {
-        cleanFolder = targetFolder.trim().replace(/^\/+|\/+$/g, "").replace(/\.\.+/g, "");
-      }
-      if (cleanFolder) {
+      if (targetFolder && targetFolder !== "root" && targetFolder !== "/") {
         try {
-          await createFolder(userId, cleanFolder);
-        } catch {}
+          cleanFolder = normalizeFolderPath(targetFolder);
+        } catch {
+          cleanFolder = targetFolder.trim().replace(/^\/+|\/+$/g, "").replace(/\.\.+/g, "");
+        }
+        if (cleanFolder) {
+          try {
+            await createFolder(userId, cleanFolder);
+          } catch {}
+        }
       }
       const fileNameOnly = (file.r2_key || "").split("/").pop() || file.sanitized_name;
       newR2Key = cleanFolder ? `${cleanFolder}/${fileNameOnly}` : fileNameOnly;
@@ -270,7 +296,10 @@ export async function PATCH(
 
     return NextResponse.json({
       success: true,
-      file: updateRes.data,
+      file: {
+        ...updateRes.data,
+        folder: extractFolderFromR2Key(updateRes.data.r2_key),
+      },
     });
   } catch (err: unknown) {
     console.error("[v1 Files ID PATCH] Error:", err);
@@ -364,6 +393,25 @@ export async function DELETE(
         },
         { status: 409 }
       );
+    }
+
+    // Immutable special-purpose folder protection
+    const fileFolder = extractFolderFromR2Key(file.r2_key);
+    if (fileFolder && !isForce) {
+      const allFolders = await getAllUserFolders(userId);
+      const isFolderImmutable = allFolders.some(
+        (f) => f.is_immutable && (f.path === fileFolder || fileFolder.startsWith(`${f.path}/`))
+      );
+      if (isFolderImmutable) {
+        return NextResponse.json(
+          {
+            error: `File is located inside immutable special-purpose folder '${fileFolder}'. Accidental deletion blocked.`,
+            code: "FOLDER_IMMUTABLE",
+            hint: "To permanently delete this file, pass '?force=true' or 'confirmReleaseDeletion: true'.",
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // 1. Quota Reclamation

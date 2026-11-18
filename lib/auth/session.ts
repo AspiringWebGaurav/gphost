@@ -260,28 +260,42 @@ export const checkUserActivePin = cache(async (userEmail: string): Promise<boole
 });
 
 /**
- * Authoritatively computes active storage used bytes from non-purged files.
+ * Authoritatively computes active storage used bytes and file count from non-purged files.
  * Memoized per-request via React cache() so layout and page share the single result.
  * Automatically syncs profile storage_used_bytes in PostgreSQL if desynchronized.
  */
-export const getActiveStorageBytes = cache(async (userId: string, currentProfileBytes?: number): Promise<number> => {
-  if (!userId) return 0;
-  const adminClient = createAdminClient();
-  const { data: activeFiles } = await adminClient
-    .from("files")
-    .select("byte_size")
-    .eq("user_id", userId)
-    .in("status", ["ACTIVE", "EXPIRING"]);
+export interface ActiveStorageStats {
+  storageBytes: number;
+  activeFilesCount: number;
+}
 
-  const trueActiveBytes = (activeFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+export const getActiveStorageStats = cache(
+  async (userId: string, currentProfileBytes?: number): Promise<ActiveStorageStats> => {
+    if (!userId) return { storageBytes: 0, activeFilesCount: 0 };
+    const adminClient = createAdminClient();
+    const { data: activeFiles } = await adminClient
+      .from("files")
+      .select("byte_size")
+      .eq("user_id", userId)
+      .in("status", ["ACTIVE", "EXPIRING"]);
 
-  if (currentProfileBytes !== undefined && currentProfileBytes !== trueActiveBytes) {
-    void adminClient
-      .from("profiles")
-      .update({ storage_used_bytes: trueActiveBytes, updated_at: new Date().toISOString() })
-      .eq("id", userId);
+    const fileList = activeFiles || [];
+    const trueActiveBytes = fileList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+    const activeCount = fileList.length;
+
+    if (currentProfileBytes !== undefined && currentProfileBytes !== trueActiveBytes) {
+      void adminClient
+        .from("profiles")
+        .update({ storage_used_bytes: trueActiveBytes, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+    }
+
+    return { storageBytes: trueActiveBytes, activeFilesCount: activeCount };
   }
+);
 
-  return trueActiveBytes;
+export const getActiveStorageBytes = cache(async (userId: string, currentProfileBytes?: number): Promise<number> => {
+  const stats = await getActiveStorageStats(userId, currentProfileBytes);
+  return stats.storageBytes;
 });
 

@@ -62,23 +62,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Anti-DDoS & Flood Protection: Rate Limit per API Key / User
-    const { success: rateLimitOk } = await cliUploadRatelimit.limit(`cli:${userId}`);
-    if (!rateLimitOk) {
-      return NextResponse.json(
-        {
-          error: "Too Many Requests",
-          message: "CLI upload rate limit reached (maximum 60 uploads per minute). Please slow down.",
-          retryAfter: 60,
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": "60",
-            ...getSecurityHeaders(),
+    // 2. Anti-DDoS & Flood Protection: Rate Limit per API Key / User (Authorized owner API keys possess unrestricted upload freedom)
+    const isOwnerKey = permissions.includes("*") || profile.role === "admin" || profile.can_create_permanent;
+    if (!isOwnerKey) {
+      const { success: rateLimitOk } = await cliUploadRatelimit.limit(`cli:${userId}`);
+      if (!rateLimitOk) {
+        return NextResponse.json(
+          {
+            error: "Too Many Requests",
+            message: "CLI upload rate limit reached (maximum 60 uploads per minute). Please slow down.",
+            retryAfter: 60,
           },
-        }
-      );
+          {
+            status: 429,
+            headers: {
+              "Retry-After": "60",
+              ...getSecurityHeaders(),
+            },
+          }
+        );
+      }
     }
 
     const adminClient = createAdminClient();

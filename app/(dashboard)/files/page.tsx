@@ -3,6 +3,7 @@ import { requireApprovedUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getApiManagedFileIds } from "@/lib/auth/api-keys";
 import { extractFolderFromR2Key } from "@/lib/storage/folder-utils";
+import { getAllUserFolders } from "@/lib/storage/folders";
 import { FileManager, SafeFileItem } from "@/components/dashboard/file-manager";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,11 @@ export default async function FilesPage() {
     profile.quota_bytes === -1 ||
     profile.quota_bytes > 5368709120;
   const adminClient = createAdminClient();
-  const apiManagedFileIds = await getApiManagedFileIds(user.id);
+  const [apiManagedFileIds, userFolders] = await Promise.all([
+    getApiManagedFileIds(user.id),
+    getAllUserFolders(user.id).catch(() => []),
+  ]);
+  const initialCustomFolders = userFolders.map((f) => f.path);
 
   // Initial Server-Side Query (Page 1, pageSize 20) with schema fallback
   // STRICT PRIVACY: r2_key is used server-side only to extract folder prefix and never passed to client
@@ -54,7 +59,7 @@ export default async function FilesPage() {
     .eq("user_id", user.id)
     .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
     .order("created_at", { ascending: false })
-    .range(0, 19);
+    .range(0, 99);
 
   if (primaryRes.error && (primaryRes.error.code === "42703" || primaryRes.error.message?.includes("column"))) {
     const fallbackRes = await adminClient
@@ -76,7 +81,7 @@ export default async function FilesPage() {
       .eq("user_id", user.id)
       .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
       .order("created_at", { ascending: false })
-      .range(0, 19);
+      .range(0, 99);
     initialFilesRaw = fallbackRes.data;
     count = fallbackRes.count;
   } else {
@@ -175,6 +180,7 @@ export default async function FilesPage() {
         initialFiles={initialFiles}
         initialTotalCount={totalCount}
         initialTotalPages={totalPages}
+        initialCustomFolders={initialCustomFolders}
         canCreatePermanent={profile.can_create_permanent || isAdmin}
         isPremium={isPremium}
         currentUserId={user.id}

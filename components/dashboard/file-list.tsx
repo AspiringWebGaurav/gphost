@@ -498,9 +498,9 @@ export function FileList({
 
       const shareData = data.share || data;
       setShareResult(shareData);
-      storageEvents.emit("storage:updated", {
-        storageUsedBytes: 0,
-        source: "local_optimistic",
+      storageEvents.emit("share:lifecycle", {
+        action: "created",
+        shareLink: shareData,
       });
     } catch (err) {
       setShareError(err instanceof Error ? err.message : "Error creating share link");

@@ -24,10 +24,12 @@ export async function GET(req: NextRequest) {
       .eq("user_id", userId)
       .in("status", ["ACTIVE", "EXPIRING"]);
 
-    const trueStorageUsedBytes = (activeFiles || []).reduce(
+    const activeFilesList = activeFiles || [];
+    const trueStorageUsedBytes = activeFilesList.reduce(
       (sum, f) => sum + (f.byte_size || 0),
       0
     );
+    const activeFilesCount = activeFilesList.length;
 
     // Self-heal profile if storage_used_bytes drifted or was out of sync
     let storageUsedBytes = profile.storage_used_bytes;
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
     const updatedAt = profile.updated_at || new Date().toISOString();
 
     // Compute smart checksum ETag
-    const signatureRaw = `${userId}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${updatedAt}`;
+    const signatureRaw = `${userId}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${activeFilesCount}:${updatedAt}`;
     const etag = `"${crypto.createHash("md5").update(signatureRaw).digest("hex")}"`;
 
     // Check If-None-Match header
@@ -69,6 +71,7 @@ export async function GET(req: NextRequest) {
         storageUsedBytes,
         quotaBytes,
         reservedBytes,
+        activeFilesCount,
         updatedAt,
       },
       {

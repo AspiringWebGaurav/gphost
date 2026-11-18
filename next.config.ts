@@ -71,6 +71,15 @@ const nextConfig: NextConfig = {
       "tailwind-merge",
     ],
   },
+  async redirects() {
+    return [
+      {
+        source: "/expiring",
+        destination: "/files",
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {

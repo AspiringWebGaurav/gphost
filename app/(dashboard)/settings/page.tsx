@@ -21,10 +21,10 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-3 sm:space-y-4 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
+    <div className="space-y-4 sm:space-y-5 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/60">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/20 shadow-2xs">
             <Settings className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -32,7 +32,7 @@ export default async function SettingsPage() {
               Account &amp; Developer Settings
             </h1>
             <p className="text-xs text-muted-foreground truncate">
-              Manage your profile, data transparency, and developer API keys.
+              Manage your profile identity, GDPR data transparency, and developer API keys.
             </p>
           </div>
         </div>

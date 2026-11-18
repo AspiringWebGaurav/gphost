@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/auth/api-keys";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserMaxFiles } from "@/lib/storage/user-limits";
+import { extractFolderFromR2Key, normalizeFolderPath } from "@/lib/storage/folder-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10) || 20));
     const searchQuery = searchParams.get("q")?.trim() || "";
     const category = searchParams.get("category")?.toLowerCase() || "all";
+    const folderParam = searchParams.get("folder") ?? searchParams.get("directory") ?? null;
     const sortByRaw = searchParams.get("sortBy")?.toLowerCase() || "";
     const sortBy = ["recent", "created_at", "updated_at", "byte_size", "sanitized_name"].includes(
       sortByRaw
@@ -38,7 +40,7 @@ export async function GET(req: NextRequest) {
       .from("files")
       .select(
         `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, updated_at,
-         sha256, is_release_locked,
+         sha256, is_release_locked, r2_key,
          share_links (
            id,
            slug,
@@ -49,6 +51,20 @@ export async function GET(req: NextRequest) {
       )
       .eq("user_id", userId)
       .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"]);
+
+    // Folder filter at database query level
+    let normFolder: string | null = null;
+    if (folderParam !== null && folderParam !== undefined) {
+      const trimmed = folderParam.trim();
+      if (trimmed && trimmed !== "root" && trimmed !== "/") {
+        try {
+          normFolder = normalizeFolderPath(trimmed);
+          query = query.or(`r2_key.ilike.${normFolder}/%,r2_key.ilike.u/${userId}/${normFolder}/%`);
+        } catch {
+          normFolder = trimmed;
+        }
+      }
+    }
 
     // Search filter
     if (searchQuery) {
@@ -75,12 +91,12 @@ export async function GET(req: NextRequest) {
     let count = primaryRes.count;
     let queryError = primaryRes.error;
 
-    // Schema fallback if sha256 or is_release_locked column not yet applied in DB
-    if (queryError && (queryError.code === "42703" || queryError.message?.includes("sha256") || queryError.message?.includes("is_release_locked"))) {
+    // Schema fallback if sha256, is_release_locked, or r2_key column query needs adjustment
+    if (queryError && (queryError.code === "42703" || queryError.message?.includes("sha256") || queryError.message?.includes("is_release_locked") || queryError.message?.includes("r2_key"))) {
       let fallbackQuery = adminClient
         .from("files")
         .select(
-          `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, updated_at,
+          `id, filename, sanitized_name, byte_size, mime_type, status, expiry_preset, expires_at, created_at, updated_at, r2_key,
            share_links (
              id,
              slug,
@@ -126,12 +142,13 @@ export async function GET(req: NextRequest) {
       updated_at: string;
       sha256?: string | null;
       is_release_locked?: boolean;
+      r2_key?: string | null;
       share_links?: DbShareLink | DbShareLink[] | null;
     }
 
     const rawFiles = (data || []) as unknown as DbFileRecord[];
 
-    const files = rawFiles.map((f) => {
+    let files = rawFiles.map((f) => {
       const shareList: DbShareLink[] = Array.isArray(f.share_links)
         ? f.share_links
         : f.share_links
@@ -142,6 +159,7 @@ export async function GET(req: NextRequest) {
 
       const rawUrl = slug ? `${origin}/raw/${slug}` : `${origin}/raw/${f.id}`;
       const downloadUrl = slug ? `${origin}/f/${slug}` : `${origin}/f/${f.id}`;
+      const fileFolder = extractFolderFromR2Key(f.r2_key);
 
       return {
         id: f.id,
@@ -155,6 +173,8 @@ export async function GET(req: NextRequest) {
         is_permanent: f.expires_at === null,
         sha256: f.sha256 || null,
         is_release_locked: Boolean(f.is_release_locked),
+        folder: fileFolder,
+        r2_key: f.r2_key || null,
         slug,
         raw_url: rawUrl,
         permanent_raw_url: rawUrl,
@@ -163,6 +183,16 @@ export async function GET(req: NextRequest) {
         updated_at: f.updated_at,
       };
     });
+
+    // If root folder specifically requested (folder="" or folder="root" or folder="/")
+    if (folderParam !== null && folderParam !== undefined) {
+      const trimmed = folderParam.trim();
+      if (!trimmed || trimmed === "root" || trimmed === "/") {
+        files = files.filter((f) => !f.folder);
+      } else if (normFolder) {
+        files = files.filter((f) => f.folder === normFolder || f.folder?.startsWith(`${normFolder}/`));
+      }
+    }
 
     const totalCount = count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);

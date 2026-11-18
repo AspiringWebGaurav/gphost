@@ -48,17 +48,30 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
     if (redis) {
       const allEntries = await redis.hgetall<Record<string, string>>(getRedisFolderKey(userId));
       if (allEntries && Object.keys(allEntries).length > 0) {
-        const items = Object.values(allEntries)
-          .map((str) => {
-            try {
-              return typeof str === "string" ? (JSON.parse(str) as FolderItem) : (str as FolderItem);
-            } catch {
-              return null;
+        const pathMap = new Map<string, FolderItem>();
+        for (const [hashKey, val] of Object.entries(allEntries)) {
+          try {
+            const item = typeof val === "string" ? (JSON.parse(val) as FolderItem) : (val as FolderItem);
+            if (item) {
+              const itemPath = normalizeFolderPath(item.path || hashKey);
+              if (itemPath && !pathMap.has(itemPath)) {
+                const isImm = Boolean(item.is_immutable ?? item.isImmutable);
+                pathMap.set(itemPath, {
+                  ...item,
+                  path: itemPath,
+                  name: item.name || getFolderNameFromPath(itemPath),
+                  parent_path: item.parent_path ?? getFolderParentPath(itemPath),
+                  is_immutable: isImm,
+                  isImmutable: isImm,
+                  purpose: item.purpose || (isImm ? "immutable" : null),
+                  description: item.description || null,
+                });
+              }
             }
-          })
-          .filter(Boolean) as FolderItem[];
+          } catch {}
+        }
 
-        return items.sort((a, b) => a.path.localeCompare(b.path));
+        return Array.from(pathMap.values()).sort((a, b) => a.path.localeCompare(b.path));
       }
     }
   } catch {}
@@ -66,16 +79,31 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
   return [];
 }
 
+export interface CreateFolderOptions {
+  isImmutable?: boolean;
+  immutable?: boolean;
+  purpose?: string | null;
+  description?: string | null;
+}
+
 /**
  * Creates or retrieves a folder, ensuring all ancestor parent folders exist automatically.
+ * Supports special-purpose and immutable folder creation for authorized API key owners.
  */
-export async function createFolder(userId: string, rawPath: string): Promise<FolderItem> {
+export async function createFolder(
+  userId: string,
+  rawPath: string,
+  options?: CreateFolderOptions
+): Promise<FolderItem> {
   const norm = normalizeFolderPath(rawPath);
   if (!norm) {
     throw new Error("Folder path cannot be empty");
   }
 
   const adminClient = createAdminClient();
+  const allExisting = await getAllUserFolders(userId);
+  const existingMap = new Map(allExisting.map((f) => [f.path, f]));
+
   const parts = norm.split("/");
   let currentAccumulated = "";
   let lastFolderItem: FolderItem | null = null;
@@ -84,17 +112,59 @@ export async function createFolder(userId: string, rawPath: string): Promise<Fol
     const segName = parts[i];
     const segParent = currentAccumulated || null;
     currentAccumulated = currentAccumulated ? `${currentAccumulated}/${segName}` : segName;
-    const depth = i;
+    const depth = getFolderDepth(currentAccumulated);
     const now = new Date().toISOString();
 
+    const existing = existingMap.get(currentAccumulated);
+    const isTarget = i === parts.length - 1;
+
+    let isImmutable = false;
+    if (isTarget) {
+      if (options?.isImmutable !== undefined || options?.immutable !== undefined) {
+        isImmutable = Boolean(options?.isImmutable ?? options?.immutable);
+      } else if (existing) {
+        isImmutable = Boolean(existing.is_immutable ?? existing.isImmutable);
+      }
+    } else if (existing) {
+      isImmutable = Boolean(existing.is_immutable ?? existing.isImmutable);
+    }
+
+    let purpose: string | null = null;
+    if (isTarget) {
+      if (options?.purpose !== undefined) {
+        purpose = options.purpose;
+      } else if (existing?.purpose) {
+        purpose = existing.purpose;
+      } else if (isImmutable) {
+        purpose = "immutable";
+      }
+    } else if (existing?.purpose) {
+      purpose = existing.purpose;
+    }
+
+    let description: string | null = null;
+    if (isTarget) {
+      if (options?.description !== undefined) {
+        description = options.description;
+      } else if (existing?.description) {
+        description = existing.description;
+      }
+    } else if (existing?.description) {
+      description = existing.description;
+    }
+
     const candidate: FolderItem = {
-      id: crypto.randomUUID(),
+      id: existing?.id || crypto.randomUUID(),
       user_id: userId,
       name: segName,
       path: currentAccumulated,
       parent_path: segParent,
       depth,
-      created_at: now,
+      is_immutable: isImmutable,
+      isImmutable,
+      purpose,
+      description,
+      created_at: existing?.created_at || now,
       updated_at: now,
     };
 
@@ -102,24 +172,38 @@ export async function createFolder(userId: string, rawPath: string): Promise<Fol
 
     // 1. Try Supabase
     try {
+      const upsertPayload: Record<string, any> = {
+        user_id: userId,
+        name: segName,
+        path: currentAccumulated,
+        parent_path: segParent,
+        depth,
+        updated_at: now,
+      };
+      if (isImmutable) {
+        upsertPayload.is_immutable = isImmutable;
+      }
+      if (purpose) {
+        upsertPayload.purpose = purpose;
+      }
+      if (description) {
+        upsertPayload.description = description;
+      }
+
       const { data, error } = await adminClient
         .from("folders")
-        .upsert(
-          {
-            user_id: userId,
-            name: segName,
-            path: currentAccumulated,
-            parent_path: segParent,
-            depth,
-            updated_at: now,
-          },
-          { onConflict: "user_id,path" }
-        )
+        .upsert(upsertPayload, { onConflict: "user_id,path" })
         .select("*")
         .single();
 
       if (!error && data) {
-        thisFolderItem = data as FolderItem;
+        thisFolderItem = {
+          ...data,
+          is_immutable: isImmutable || Boolean(data.is_immutable),
+          isImmutable: isImmutable || Boolean(data.is_immutable),
+          purpose: purpose || data.purpose || null,
+          description: description || data.description || null,
+        } as FolderItem;
       }
     } catch {}
 
@@ -132,10 +216,78 @@ export async function createFolder(userId: string, rawPath: string): Promise<Fol
       } catch {}
     }
 
+    existingMap.set(currentAccumulated, thisFolderItem);
     lastFolderItem = thisFolderItem;
   }
 
   return lastFolderItem!;
+}
+
+/**
+ * Updates folder metadata: immutability flag, special purpose, or description.
+ */
+export async function updateFolderMetadata(
+  userId: string,
+  rawPath: string,
+  updates: { isImmutable?: boolean; immutable?: boolean; purpose?: string | null; description?: string | null }
+): Promise<FolderItem> {
+  const norm = normalizeFolderPath(rawPath);
+  if (!norm) throw new Error("Root folder cannot be updated");
+
+  const allFolders = await getAllUserFolders(userId);
+  const folder = allFolders.find((f) => f.path === norm);
+
+  const isImm =
+    updates.isImmutable !== undefined
+      ? updates.isImmutable
+      : updates.immutable !== undefined
+      ? updates.immutable
+      : undefined;
+
+  if (!folder) {
+    return createFolder(userId, norm, {
+      isImmutable: isImm,
+      purpose: updates.purpose,
+      description: updates.description,
+    });
+  }
+
+  const adminClient = createAdminClient();
+  const now = new Date().toISOString();
+
+  const finalImmutable = isImm !== undefined ? isImm : Boolean(folder.is_immutable);
+  const finalPurpose = updates.purpose !== undefined ? updates.purpose : folder.purpose;
+  const finalDescription = updates.description !== undefined ? updates.description : folder.description;
+
+  const updatedItem: FolderItem = {
+    ...folder,
+    is_immutable: finalImmutable,
+    isImmutable: finalImmutable,
+    purpose: finalPurpose,
+    description: finalDescription,
+    updated_at: now,
+  };
+
+  try {
+    const payload: Record<string, any> = {
+      updated_at: now,
+    };
+    if (isImm !== undefined) payload.is_immutable = isImm;
+    if (updates.purpose !== undefined) payload.purpose = updates.purpose;
+    if (updates.description !== undefined) payload.description = updates.description;
+
+    await adminClient.from("folders").update(payload).eq("id", folder.id);
+  } catch {}
+
+  if (redis) {
+    try {
+      await redis.hset(getRedisFolderKey(userId), {
+        [norm]: JSON.stringify(updatedItem),
+      });
+    } catch {}
+  }
+
+  return updatedItem;
 }
 
 /**
@@ -216,6 +368,14 @@ export async function listFolderContents(
     };
   });
 
+  // Strictly deduplicate subfolders by path
+  const seenPaths = new Set<string>();
+  subfolders = subfolders.filter((sf) => {
+    if (seenPaths.has(sf.path)) return false;
+    seenPaths.add(sf.path);
+    return true;
+  });
+
   const totalFiles = files.length;
   const totalBytes = files.reduce((acc, f) => acc + (f.byte_size || 0), 0);
 
@@ -264,10 +424,23 @@ export async function getFolderTree(userId: string): Promise<FolderTreeNode[]> {
 export async function relocateFolder(
   userId: string,
   oldNorm: string,
-  newNorm: string
+  newNorm: string,
+  options?: { force?: boolean }
 ): Promise<{ oldPath: string; newPath: string; updatedFolders: number; updatedFiles: number }> {
   if (oldNorm === newNorm) {
     return { oldPath: oldNorm, newPath: newNorm, updatedFolders: 0, updatedFiles: 0 };
+  }
+
+  // Guard: Immutable folder check
+  const allUserFolders = await getAllUserFolders(userId);
+  const sourceFolder = allUserFolders.find((f) => f.path === oldNorm);
+  if (sourceFolder?.is_immutable && !options?.force) {
+    const err = new Error(
+      `FOLDER_IMMUTABLE: Folder '${oldNorm}' is marked IMMUTABLE (special purpose: ${sourceFolder.purpose || "locked"}). Pass 'force: true' to rename or move.`
+    );
+    (err as any).code = "FOLDER_IMMUTABLE";
+    (err as any).status = 409;
+    throw err;
   }
 
   const adminClient = createAdminClient();
@@ -278,7 +451,7 @@ export async function relocateFolder(
     .select("id, sanitized_name, share_links(slug)")
     .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/%/${oldNorm}/%`);
 
-  if (baseCheck) {
+  if (baseCheck && !options?.force) {
     for (const f of baseCheck) {
       const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
       if (
@@ -286,7 +459,7 @@ export async function relocateFolder(
         f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
         (f.sanitized_name || "").includes("0.0.0")
       ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently isolated and cannot be moved or renamed.");
+        const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently isolated and cannot be moved or renamed without force.");
         (err as any).code = "BASE_INSTALLER_PROTECTED";
         (err as any).status = 403;
         throw err;
@@ -391,7 +564,8 @@ export async function relocateFolder(
 export async function renameFolder(
   userId: string,
   currentPath: string,
-  newName: string
+  newName: string,
+  options?: { force?: boolean }
 ): Promise<{ oldPath: string; newPath: string; updatedFolders: number; updatedFiles: number }> {
   const oldNorm = normalizeFolderPath(currentPath);
   const cleanNewName = newName.trim().replace(/[^\w.\- ]/g, "-").replace(/-+/g, "-");
@@ -402,7 +576,7 @@ export async function renameFolder(
   const parent = getFolderParentPath(oldNorm);
   const newNorm = parent ? `${parent}/${cleanNewName}` : cleanNewName;
 
-  return relocateFolder(userId, oldNorm, newNorm);
+  return relocateFolder(userId, oldNorm, newNorm, options);
 }
 
 /**
@@ -411,7 +585,8 @@ export async function renameFolder(
 export async function moveFolder(
   userId: string,
   sourcePath: string,
-  destinationParentPath: string | null
+  destinationParentPath: string | null,
+  options?: { force?: boolean }
 ): Promise<{ oldPath: string; newPath: string; updatedFolders: number; updatedFiles: number }> {
   const srcNorm = normalizeFolderPath(sourcePath);
   const destParentNorm = destinationParentPath ? normalizeFolderPath(destinationParentPath) : null;
@@ -426,20 +601,35 @@ export async function moveFolder(
   const folderName = getFolderNameFromPath(srcNorm);
   const newNorm = destParentNorm ? `${destParentNorm}/${folderName}` : folderName;
 
-  return relocateFolder(userId, srcNorm, newNorm);
+  return relocateFolder(userId, srcNorm, newNorm, options);
 }
 
 /**
  * Deletes a folder and all its subfolders and files safely.
- * Safeguard: Rejects deletion if Base v0.0.0 installer is located anywhere within.
+ * Safeguard: Rejects deletion if Base v0.0.0 installer is located anywhere within unless forced.
  */
 export async function deleteFolder(
   userId: string,
   path: string,
-  recursive: boolean = true
+  recursive: boolean = true,
+  options?: { force?: boolean }
 ): Promise<{ deletedFolders: number; deletedFiles: number; reclaimedBytes: number }> {
   const norm = normalizeFolderPath(path);
   if (!norm) throw new Error("Root folder cannot be deleted");
+
+  // Check if target folder or any nested descendant is marked immutable
+  const allFolders = await getAllUserFolders(userId);
+  const targetFolders = allFolders.filter((f) => f.path === norm || (recursive && f.path.startsWith(`${norm}/`)));
+  const immutableFolder = targetFolders.find((f) => f.is_immutable);
+
+  if (immutableFolder && !options?.force) {
+    const err = new Error(
+      `FOLDER_IMMUTABLE: Folder '${immutableFolder.path}' is marked as IMMUTABLE (special purpose: ${immutableFolder.purpose || "locked"}). Pass '?force=true' or 'confirmImmutable: true' to force deletion.`
+    );
+    (err as any).code = "FOLDER_IMMUTABLE";
+    (err as any).status = 409;
+    throw err;
+  }
 
   const adminClient = createAdminClient();
 
@@ -449,7 +639,7 @@ export async function deleteFolder(
     .select("id, sanitized_name, share_links(slug)")
     .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/%/${norm}/%`);
 
-  if (baseCheck) {
+  if (baseCheck && !options?.force) {
     for (const f of baseCheck) {
       const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
       if (
@@ -457,7 +647,7 @@ export async function deleteFolder(
         f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
         (f.sanitized_name || "").includes("0.0.0")
       ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected.");
+        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected. Pass '?force=true' to override.");
         (err as any).code = "BASE_INSTALLER_PROTECTED";
         (err as any).status = 403;
         throw err;
@@ -471,7 +661,7 @@ export async function deleteFolder(
     .eq("user_id", userId)
     .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%`);
 
-  if (candidateFiles) {
+  if (candidateFiles && !options?.force) {
     for (const f of candidateFiles) {
       const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
       if (
@@ -479,7 +669,7 @@ export async function deleteFolder(
         f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
         (f.sanitized_name || "").includes("0.0.0")
       ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected.");
+        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected. Pass '?force=true' to override.");
         (err as any).code = "BASE_INSTALLER_PROTECTED";
         (err as any).status = 403;
         throw err;
@@ -548,28 +738,45 @@ export async function deleteFolder(
   }
 
   // 3. Delete folders in batch
-  const allFolders = await getAllUserFolders(userId);
-  const targetFolders = allFolders.filter((f) => f.path === norm || (recursive && f.path.startsWith(`${norm}/`)));
-
   let deletedFoldersCount = 0;
-  if (targetFolders.length > 0) {
-    const targetFolderIds = targetFolders.map((f) => f.id).filter(Boolean);
-    const targetFolderPaths = targetFolders.map((f) => f.path);
+  const targetFolderIds = targetFolders.map((f) => f.id).filter(Boolean);
+  const targetFolderPaths = targetFolders.map((f) => f.path);
 
+  // Supabase delete
+  try {
     if (targetFolderIds.length > 0) {
-      try {
-        await adminClient.from("folders").delete().in("id", targetFolderIds);
-      } catch {}
+      await adminClient.from("folders").delete().in("id", targetFolderIds);
     }
-
-    if (redis && targetFolderPaths.length > 0) {
-      try {
-        await redis.hdel(getRedisFolderKey(userId), ...targetFolderPaths);
-      } catch {}
+    await adminClient.from("folders").delete().eq("user_id", userId).eq("path", norm);
+    if (recursive) {
+      await adminClient.from("folders").delete().eq("user_id", userId).like("path", `${norm}/%`);
     }
+  } catch {}
 
-    deletedFoldersCount = targetFolders.length;
+  // Redis fallback & cache delete - ALWAYS purge norm and all matching paths
+  if (redis) {
+    try {
+      const redisKey = getRedisFolderKey(userId);
+      const allEntries = await redis.hgetall<Record<string, string>>(redisKey);
+      const keysToDelete: string[] = [norm];
+      if (allEntries) {
+        for (const k of Object.keys(allEntries)) {
+          if (k === norm || (recursive && k.startsWith(`${norm}/`))) {
+            keysToDelete.push(k);
+          }
+        }
+      }
+      for (const tf of targetFolderPaths) {
+        keysToDelete.push(tf);
+      }
+      const uniqueKeys = Array.from(new Set(keysToDelete));
+      if (uniqueKeys.length > 0) {
+        await redis.hdel(redisKey, ...uniqueKeys);
+      }
+    } catch {}
   }
+
+  deletedFoldersCount = Math.max(targetFolders.length, 1);
 
   return {
     deletedFolders: deletedFoldersCount,

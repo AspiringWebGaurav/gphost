@@ -21,12 +21,14 @@ interface StorageProviderProps {
     role: "user" | "admin";
   };
   initialUserId: string;
+  initialActiveFilesCount?: number;
 }
 
 export function StorageProvider({
   children,
   initialProfile,
   initialUserId,
+  initialActiveFilesCount = 0,
 }: StorageProviderProps) {
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(
     initialProfile.storage_used_bytes || 0
@@ -37,24 +39,33 @@ export function StorageProvider({
   const [reservedBytes, setReservedBytes] = useState<number>(
     initialProfile.reserved_bytes || 0
   );
-  const [activeFilesCount, setActiveFilesCount] = useState<number>(0);
+  const [activeFilesCount, setActiveFilesCount] = useState<number>(
+    initialActiveFilesCount
+  );
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState<boolean>(false);
 
-  const isAdmin = initialProfile.role === "admin";
-
-  // Self-healing guard: if there are 0 active files, storageUsedBytes cannot be > 0
+  // Instantly reflect updated server component props from layout.tsx (e.g. on router.refresh())
   useEffect(() => {
-    if (activeFilesCount === 0 && storageUsedBytes > 0) {
-      setStorageUsedBytes(0);
-      storageEvents.emit("storage:updated", {
-        storageUsedBytes: 0,
-        activeFilesCount: 0,
-        source: "local_optimistic",
-      });
+    if (typeof initialProfile.storage_used_bytes === "number") {
+      setStorageUsedBytes(initialProfile.storage_used_bytes);
     }
-  }, [activeFilesCount, storageUsedBytes]);
+    if (typeof initialProfile.quota_bytes === "number") {
+      setQuotaBytes(initialProfile.quota_bytes);
+    }
+    if (typeof initialProfile.reserved_bytes === "number") {
+      setReservedBytes(initialProfile.reserved_bytes);
+    }
+    setActiveFilesCount(initialActiveFilesCount);
+  }, [
+    initialProfile.storage_used_bytes,
+    initialProfile.quota_bytes,
+    initialProfile.reserved_bytes,
+    initialActiveFilesCount,
+  ]);
+
+  const isAdmin = initialProfile.role === "admin";
   const isUnlimited = quotaBytes === -1 || isAdmin;
 
   const realtimeConnectedRef = useRef<boolean>(false);
@@ -120,9 +131,18 @@ export function StorageProvider({
         const etag = res.headers.get("etag");
         if (etag) lastEtagRef.current = etag;
         const data = await res.json();
-        setStorageUsedBytes(data.storageUsedBytes);
-        setQuotaBytes(data.quotaBytes);
-        setReservedBytes(data.reservedBytes);
+        if (typeof data.storageUsedBytes === "number") {
+          setStorageUsedBytes(data.storageUsedBytes);
+        }
+        if (typeof data.quotaBytes === "number") {
+          setQuotaBytes(data.quotaBytes);
+        }
+        if (typeof data.reservedBytes === "number") {
+          setReservedBytes(data.reservedBytes);
+        }
+        if (typeof data.activeFilesCount === "number") {
+          setActiveFilesCount(data.activeFilesCount);
+        }
         setLastSyncedAt(new Date());
       }
     } catch (err) {
@@ -162,11 +182,16 @@ export function StorageProvider({
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Subscribe to typed StorageEventBus (In-tab & Cross-tab)
+    // 1. Initial smart signature check on client mount
+    void refreshStorageState();
+
+    // 2. Subscribe to typed StorageEventBus (In-tab & Cross-tab)
     const unsubEvents = storageEvents.on("storage:updated", (payload: StorageUpdatedPayload) => {
       if (!isMountedRef.current) return;
       if (typeof payload.storageUsedBytes === "number") {
         setStorageUsedBytes(payload.storageUsedBytes);
+      } else if (typeof payload.deltaBytes === "number") {
+        setStorageUsedBytes((prev) => Math.max(0, prev + payload.deltaBytes!));
       }
       if (typeof payload.quotaBytes === "number") {
         setQuotaBytes(payload.quotaBytes);
@@ -179,22 +204,45 @@ export function StorageProvider({
       }
     });
 
-    // 2. Smart Conditional Tracker: Supabase Realtime WebSocket handles live push updates.
-    // Fallback network sync only runs if the tab was dormant for > 30 minutes and Realtime dropped.
+    // 3. Subscribe to File Lifecycle events for 0ms optimistic storage reflection
+    const unsubFileLifecycle = storageEvents.on("file:lifecycle", (payload) => {
+      if (!isMountedRef.current) return;
+      if (payload.action === "created") {
+        setActiveFilesCount((c) => c + 1);
+        if (payload.size) {
+          setStorageUsedBytes((b) => b + payload.size);
+        }
+        void refreshStorageState();
+      } else if (payload.action === "deleted" || payload.action === "burned") {
+        setActiveFilesCount((c) => Math.max(0, c - 1));
+        if (payload.size) {
+          setStorageUsedBytes((b) => Math.max(0, b - payload.size));
+        }
+        void refreshStorageState();
+      }
+    });
+
+    // 4. Global screen refresh listener
+    const unsubScreenRefresh = storageEvents.on("screen:refresh", () => {
+      if (!isMountedRef.current) return;
+      void refreshStorageState();
+    });
+
+    // 5. Smart Conditional Tracker: Re-verify signature if user returns to tab after > 10s
     let lastFocusSync = Date.now();
     const onFocus = () => {
       if (document.visibilityState === "visible") {
         const now = Date.now();
-        if (now - lastFocusSync > 30 * 60 * 1000 && !realtimeConnectedRef.current) {
+        if (now - lastFocusSync > 10 * 1000) {
           lastFocusSync = now;
-          refreshStorageState();
+          void refreshStorageState();
         }
       }
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
 
-    // 3. Supabase Realtime WebSocket Connection (Pure push, zero polling)
+    // 5. Supabase Realtime WebSocket Connection (Pure push, zero polling)
     const supabase = createClient();
     const channelName = `storage-realtime-${initialUserId}`;
     const existingChannel = supabase.getChannels().find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
@@ -250,6 +298,10 @@ export function StorageProvider({
           if (!isMountedRef.current) return;
           if (payload.eventType === "INSERT" && payload.new) {
             setActiveFilesCount((c) => c + 1);
+            if (payload.new.byte_size) {
+              setStorageUsedBytes((b) => b + Number(payload.new!.byte_size));
+            }
+            void refreshStorageState();
             storageEvents.emit("file:lifecycle", {
               fileId: (payload.new.id as string) || "",
               filename: (payload.new.sanitized_name || payload.new.filename) as string,
@@ -258,6 +310,7 @@ export function StorageProvider({
               rawRecord: payload.new,
             });
           } else if (payload.eventType === "UPDATE" && payload.new) {
+            void refreshStorageState();
             storageEvents.emit("file:lifecycle", {
               fileId: (payload.new.id as string) || "",
               filename: (payload.new.sanitized_name || payload.new.filename) as string,
@@ -267,9 +320,13 @@ export function StorageProvider({
             });
           } else if (payload.eventType === "DELETE" && payload.old) {
             setActiveFilesCount((c) => Math.max(0, c - 1));
+            if (payload.old.byte_size) {
+              setStorageUsedBytes((b) => Math.max(0, b - Number(payload.old!.byte_size)));
+            }
+            void refreshStorageState();
             storageEvents.emit("file:lifecycle", {
               fileId: (payload.old.id as string) || "",
-              size: 0,
+              size: Number(payload.old.byte_size || 0),
               action: "deleted",
               rawRecord: payload.old,
             });
@@ -314,6 +371,8 @@ export function StorageProvider({
     return () => {
       isMountedRef.current = false;
       unsubEvents();
+      unsubFileLifecycle();
+      unsubScreenRefresh();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
       if (realtimeChannelRef.current) {
