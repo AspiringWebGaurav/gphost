@@ -1240,6 +1240,7 @@ export function FileManager({
   );
 
   const handleNavBack = useCallback(() => {
+    if (category === "all" || !category || category === "/" || category === "root") return;
     if (navIndexRef.current > 0) {
       window.history.back();
     } else if (category !== "all") {
@@ -1735,6 +1736,16 @@ export function FileManager({
       setFiles((prev) =>
         prev.filter((f) => !deletedFolderList.some((df) => f.folder === df || f.folder?.startsWith(`${df}/`)))
       );
+      for (const [id, f] of masterFilesMapRef.current.entries()) {
+        if (deletedFolderList.some((df) => f.folder === df || (f.folder && f.folder.startsWith(`${df}/`)))) {
+          masterFilesMapRef.current.delete(id);
+        }
+      }
+      for (const key of folderDataCacheRef.current.keys()) {
+        if (deletedFolderList.some((df) => key === df || key.startsWith(`${df}/`))) {
+          folderDataCacheRef.current.delete(key);
+        }
+      }
       setCurrentFolderData((prev) => {
         if (!prev) return null;
         return {
@@ -2049,6 +2060,18 @@ export function FileManager({
         )
       );
 
+      for (const [id, f] of masterFilesMapRef.current.entries()) {
+        if (f.folder === deletedPath || (f.folder && f.folder.startsWith(`${deletedPath}/`))) {
+          masterFilesMapRef.current.delete(id);
+        }
+      }
+
+      for (const key of folderDataCacheRef.current.keys()) {
+        if (key === deletedPath || key.startsWith(`${deletedPath}/`)) {
+          folderDataCacheRef.current.delete(key);
+        }
+      }
+
       setCurrentFolderData((prev) => {
         if (!prev) return null;
         return {
@@ -2072,7 +2095,7 @@ export function FileManager({
 
       if (category === deletedPath || category.startsWith(`${deletedPath}/`)) {
         const parent = getFolderParentPath(deletedPath);
-        setCategory(parent || "all");
+        navigateToFolder(parent || "all");
       }
 
       setFolderToDelete(null);
@@ -2545,6 +2568,11 @@ export function FileManager({
     });
   }, [category, currentFolderData, allDynamicFolders, files, searchQuery, sortBy, sortOrder]);
 
+  const isAtRoot = category === "all" || !category || category === "/" || category === "root";
+  const isBackDisabled = isAtRoot || !canGoBack;
+  const isForwardDisabled = !canGoForward || navIndexRef.current >= navHistoryRef.current.length - 1;
+  const isUpDisabled = isAtRoot;
+
   return (
     <div className="space-y-3 sm:space-y-5">
       {/* 1. Windows 11 & Google Drive Navigation Bar with Breadcrumbs & Actions */}
@@ -2555,28 +2583,37 @@ export function FileManager({
           <div className="flex items-center gap-0.5 p-1 rounded-xl bg-card border border-border shadow-2xs shrink-0">
             <button
               type="button"
-              disabled={!canGoBack}
+              disabled={isBackDisabled}
               onClick={handleNavBack}
-              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
-              title="Go back (Alt+Left or Browser Back)"
+              className={`p-1.5 rounded-lg transition-all duration-150 ${
+                isBackDisabled
+                  ? "text-muted-foreground/30 opacity-30 cursor-not-allowed pointer-events-none"
+                  : "text-foreground hover:bg-muted hover:text-blue-500 cursor-pointer active:scale-90"
+              }`}
+              title={isBackDisabled ? "Cannot go back (already at top)" : "Go back (Alt+Left or Browser Back)"}
               aria-label="Go back"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               type="button"
-              disabled={!canGoForward}
+              disabled={isForwardDisabled}
               onClick={handleNavForward}
-              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
-              title="Go forward (Alt+Right or Browser Forward)"
+              className={`p-1.5 rounded-lg transition-all duration-150 ${
+                isForwardDisabled
+                  ? "text-muted-foreground/30 opacity-30 cursor-not-allowed pointer-events-none"
+                  : "text-foreground hover:bg-muted hover:text-blue-500 cursor-pointer active:scale-90"
+              }`}
+              title={isForwardDisabled ? "Cannot go forward" : "Go forward (Alt+Right or Browser Forward)"}
               aria-label="Go forward"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
             <button
               type="button"
-              disabled={category === "all"}
+              disabled={isUpDisabled}
               onClick={() => {
+                if (isUpDisabled) return;
                 const isSys = [
                   "websites",
                   "images",
@@ -2591,8 +2628,12 @@ export function FileManager({
                   navigateToFolder(parent || "all");
                 }
               }}
-              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
-              title={category === "all" ? "Already at root" : "Up to parent folder (Alt+Up)"}
+              className={`p-1.5 rounded-lg transition-all duration-150 ${
+                isUpDisabled
+                  ? "text-muted-foreground/30 opacity-30 cursor-not-allowed pointer-events-none"
+                  : "text-foreground hover:bg-muted hover:text-blue-500 cursor-pointer active:scale-90"
+              }`}
+              title={isUpDisabled ? "Already at top root storage" : "Up to parent folder (Alt+Up)"}
               aria-label="Up to parent folder"
             >
               <CornerLeftUp className="w-4 h-4" />
@@ -2765,17 +2806,27 @@ export function FileManager({
         <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
           <div
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border transition-all duration-300 shadow-2xs select-none shrink-0 ${
-              lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
+              isRevalidating
+                ? "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400"
+                : lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
                 ? "bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-300 ring-1 ring-blue-500/30 scale-102"
                 : "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
             }`}
           >
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+              {isRevalidating ? (
+                <RotateCw className="w-2.5 h-2.5 text-blue-500 animate-spin shrink-0" />
+              ) : (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </>
+              )}
             </span>
             <span className="font-semibold text-[11px]">
-              {lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
+              {isRevalidating
+                ? "Refreshing live..."
+                : lastLiveAction && Date.now() - lastLiveAction.timestamp < 3500
                 ? lastLiveAction.message
                 : "Live Sync"}
             </span>
@@ -2942,8 +2993,9 @@ export function FileManager({
         </div>
       </div>
 
-      {/* 2. Google Drive / Windows Explorer Style Folders Section */}
-      {currentLevelFolders.length > 0 && (
+      {/* 2. Google Drive & Windows 11 Content Workspace (Folders + Files) */}
+      <div className={`space-y-4 sm:space-y-5 transition-opacity duration-200 ${isRevalidating ? "opacity-75" : "opacity-100"}`}>
+        {currentLevelFolders.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground font-medium px-0.5">
             <div className="flex items-center gap-2">
@@ -3443,11 +3495,6 @@ export function FileManager({
       )}
 
       {/* 4. Files Container (Grid or List View) */}
-      {isRevalidating && (
-        <div className="h-0.5 w-full bg-blue-500/10 rounded-full overflow-hidden mb-2">
-          <div className="h-full bg-blue-500 animate-pulse w-full rounded-full" />
-        </div>
-      )}
       {loading ? (
         <div className="p-12 flex flex-col items-center justify-center gap-3 text-muted-foreground rounded-2xl border border-border bg-card shadow-2xs">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -4278,6 +4325,7 @@ export function FileManager({
           )}
         </div>
       )}
+      </div>
 
       {/* FILE DETAILS MODAL */}
       {selectedFileForDetails && (

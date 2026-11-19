@@ -57,7 +57,7 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
         }
       }
     }
-  } catch {}
+  } catch { }
 
   // Redis fallback / merge
   try {
@@ -83,11 +83,11 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
                 });
               }
             }
-          } catch {}
+          } catch { }
         }
       }
     }
-  } catch {}
+  } catch { }
 
   // Discovery merge: automatically discover all active folders and ancestor paths directly from storage files
   try {
@@ -127,7 +127,7 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
         }
       }
     }
-  } catch {}
+  } catch { }
 
   return Array.from(pathMap.values()).sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -258,7 +258,7 @@ export async function createFolder(
           description: description || data.description || null,
         } as FolderItem;
       }
-    } catch {}
+    } catch { }
 
     // 2. Redis fallback / sync
     if (redis) {
@@ -266,7 +266,7 @@ export async function createFolder(
         await redis.hset(getRedisFolderKey(userId), {
           [currentAccumulated]: JSON.stringify(thisFolderItem),
         });
-      } catch {}
+      } catch { }
     }
 
     existingMap.set(currentAccumulated, thisFolderItem);
@@ -294,8 +294,8 @@ export async function updateFolderMetadata(
     updates.isImmutable !== undefined
       ? updates.isImmutable
       : updates.immutable !== undefined
-      ? updates.immutable
-      : undefined;
+        ? updates.immutable
+        : undefined;
 
   if (!folder) {
     return createFolder(userId, norm, {
@@ -330,14 +330,14 @@ export async function updateFolderMetadata(
     if (updates.description !== undefined) payload.description = updates.description;
 
     await adminClient.from("folders").update(payload).eq("id", folder.id);
-  } catch {}
+  } catch { }
 
   if (redis) {
     try {
       await redis.hset(getRedisFolderKey(userId), {
         [norm]: JSON.stringify(updatedItem),
       });
-    } catch {}
+    } catch { }
   }
 
   return updatedItem;
@@ -691,17 +691,39 @@ export async function deleteFolder(
 
   const adminClient = createAdminClient();
 
-  const { data: candidateFiles } = await adminClient
+  const { data: candidateFiles, error: fetchFilesErr } = await adminClient
     .from("files")
-    .select("id, sanitized_name, byte_size, r2_key, is_release_locked, share_links(id, slug)")
+    .select("id, sanitized_name, filename, byte_size, r2_key, status, share_links(id, slug)")
     .eq("user_id", userId)
+    .in("status", ["ACTIVE", "EXPIRING"])
     .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%,filename.ilike.${norm}/%`);
 
-  if (candidateFiles && !options?.force) {
-    const lockedFile = candidateFiles.find((f: any) => f.is_release_locked);
+  if (fetchFilesErr) {
+    console.error("[deleteFolder] Error fetching candidate files:", fetchFilesErr.message);
+  }
+
+  if (candidateFiles && candidateFiles.length > 0 && !options?.force) {
+    const candidateFileIds = candidateFiles.map((f) => f.id);
+    let lockedFile: any = null;
+    try {
+      const { data: lockedReleases } = await adminClient
+        .from("app_releases")
+        .select("id, version, binary_file_id, signature_file_id, is_locked")
+        .eq("is_locked", true)
+        .or(`binary_file_id.in.(${candidateFileIds.join(",")}),signature_file_id.in.(${candidateFileIds.join(",")})`);
+
+      if (lockedReleases && lockedReleases.length > 0) {
+        lockedFile = candidateFiles.find(
+          (f) => f.id === lockedReleases[0].binary_file_id || f.id === lockedReleases[0].signature_file_id
+        ) || { sanitized_name: `Release v${lockedReleases[0].version}` };
+      }
+    } catch (relErr: any) {
+      console.warn("[deleteFolder] Release lock check warning:", relErr?.message);
+    }
+
     if (lockedFile) {
       const err = new Error(
-        `RELEASE_LOCKED: Folder contains release-locked binary '${lockedFile.sanitized_name}'. Pass '?force=true' to override.`
+        `RELEASE_LOCKED: Folder contains release-locked binary '${lockedFile.sanitized_name || lockedFile.filename}'. Pass '?force=true' to override.`
       );
       (err as any).code = "RELEASE_LOCKED";
       (err as any).status = 409;
@@ -726,8 +748,8 @@ export async function deleteFolder(
         const shares = Array.isArray(file.share_links)
           ? file.share_links
           : file.share_links
-          ? [file.share_links]
-          : [];
+            ? [file.share_links]
+            : [];
         for (const s of shares) {
           if (s.slug) {
             slugsToPurge.push(s.slug);
@@ -742,10 +764,19 @@ export async function deleteFolder(
     }
 
     // Batch database update to PURGED status
+    const now = new Date().toISOString();
     await adminClient
       .from("files")
-      .update({ status: "PURGED", updated_at: new Date().toISOString() })
+      .update({ status: "PURGED", deleted_at: now, updated_at: now })
       .in("id", fileIds);
+
+    // Deactivate releases referencing these files
+    try {
+      await adminClient
+        .from("app_releases")
+        .update({ is_active: false, is_locked: false, updated_at: now })
+        .in("binary_file_id", fileIds);
+    } catch {}
 
     deletedFilesCount = candidateFiles.length;
     reclaimedBytes = candidateFiles.reduce((sum, f) => sum + (f.byte_size || 0), 0);
@@ -763,17 +794,15 @@ export async function deleteFolder(
     const activeList = remainingFiles || [];
     updatedStorageBytes = activeList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
     remainingActiveCount = activeList.length;
-    if (deletedFilesCount > 0) {
-      await adminClient
-        .from("profiles")
-        .update({
-          storage_used_bytes: updatedStorageBytes,
-          reserved_bytes: 0,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", userId);
-    }
-  } catch {}
+    await adminClient
+      .from("profiles")
+      .update({
+        storage_used_bytes: updatedStorageBytes,
+        reserved_bytes: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+  } catch { }
 
   // 3. Delete folders in batch
   let deletedFoldersCount = 0;
@@ -789,7 +818,7 @@ export async function deleteFolder(
     if (recursive) {
       await adminClient.from("folders").delete().eq("user_id", userId).like("path", `${norm}/%`);
     }
-  } catch {}
+  } catch { }
 
   // Redis fallback & cache delete - ALWAYS purge norm and all matching paths
   if (redis) {
@@ -811,7 +840,7 @@ export async function deleteFolder(
       if (uniqueKeys.length > 0) {
         await redis.hdel(redisKey, ...uniqueKeys);
       }
-    } catch {}
+    } catch { }
   }
 
   deletedFoldersCount = Math.max(targetFolders.length, 1);
