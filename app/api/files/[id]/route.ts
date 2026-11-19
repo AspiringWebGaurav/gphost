@@ -221,13 +221,33 @@ export async function DELETE(
     // 5. Authoritative Physical Deletion from Cloudflare R2
     const r2Deleted = file.r2_key ? await deleteR2Object(file.r2_key) : true;
 
-    await adminClient
-      .from("files")
-      .update({
-        status: r2Deleted ? "PURGED" : "DELETE_FAILED",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", fileId);
+    if (r2Deleted) {
+      try {
+        await adminClient
+          .from("app_releases")
+          .delete()
+          .or(`binary_file_id.eq.${fileId},signature_file_id.eq.${fileId}`);
+      } catch {}
+      const delDbRes = await adminClient.from("files").delete().eq("id", fileId);
+      if (delDbRes.error) {
+        await adminClient
+          .from("files")
+          .update({
+            status: "PURGED",
+            r2_key: `purged_${Date.now()}_${file.r2_key}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", fileId);
+      }
+    } else {
+      await adminClient
+        .from("files")
+        .update({
+          status: "DELETE_FAILED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", fileId);
+    }
 
     // 5.1. Authoritatively sync profile storage_used_bytes to actual remaining active files
     let updatedStorageBytes = 0;

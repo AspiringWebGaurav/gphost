@@ -267,8 +267,26 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
 
         if (existingSameKeyFile) {
+          try {
+            await adminClient
+              .from("app_releases")
+              .delete()
+              .or(`binary_file_id.eq.${existingSameKeyFile.id},signature_file_id.eq.${existingSameKeyFile.id}`);
+          } catch (relErr) {
+            console.warn("Release cleanup warning:", relErr);
+          }
           await adminClient.from("share_links").delete().eq("file_id", existingSameKeyFile.id);
-          await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+          const delRes = await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+          if (delRes.error) {
+            await adminClient
+              .from("files")
+              .update({
+                status: "PURGED",
+                r2_key: `purged_${Date.now()}_${r2Key}`,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", existingSameKeyFile.id);
+          }
         }
       }
 
@@ -553,7 +571,17 @@ export async function POST(req: NextRequest) {
           console.warn("Release cleanup warning:", relErr);
         }
         await adminClient.from("share_links").delete().eq("file_id", existingSameKeyFile.id);
-        await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+        const delRes = await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
+        if (delRes.error) {
+          await adminClient
+            .from("files")
+            .update({
+              status: "PURGED",
+              r2_key: `purged_${Date.now()}_${r2Key}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingSameKeyFile.id);
+        }
       }
     }
 

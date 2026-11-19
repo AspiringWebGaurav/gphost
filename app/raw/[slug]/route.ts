@@ -150,6 +150,23 @@ export async function GET(
         return NextResponse.json({ error: "Asset not found" }, { status: 404, headers: CORS_HEADERS });
       }
 
+      // Global Guard: In-process OTA binary containers are never delivered through web raw CDN links
+      const fn = (file.sanitized_name || "").toLowerCase();
+      const rk = (file.r2_key || "").toLowerCase();
+      if (
+        fn.endsWith(".bin") ||
+        rk.includes(".dynamic.ota/new") ||
+        rk.includes(".dynamic.ota/old")
+      ) {
+        return NextResponse.json(
+          {
+            error: "Binary container downloads are disabled in web UI. This OTA artifact is strictly consumed in-process by the application updater daemon.",
+            code: "BINARY_DOWNLOAD_DISABLED",
+          },
+          { status: 403, headers: CORS_HEADERS }
+        );
+      }
+
       meta = {
         shareId: share.id,
         fileId: file.id,

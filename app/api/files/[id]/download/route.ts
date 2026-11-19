@@ -69,6 +69,24 @@ export async function GET(
       );
     }
 
+    // In-Process OTA Binary Guard: OTA binary containers cannot be downloaded via web UI
+    const filenameLower = (file.sanitized_name || "").toLowerCase();
+    const r2KeyLower = (file.r2_key || "").toLowerCase();
+    const isBinaryContainer =
+      filenameLower.endsWith(".bin") ||
+      r2KeyLower.includes(".dynamic.ota/new") ||
+      r2KeyLower.includes(".dynamic.ota/old");
+
+    if (isBinaryContainer) {
+      return NextResponse.json(
+        {
+          error: "Binary container downloads are disabled in the web UI. This OTA artifact is strictly consumed in-process by the application updater daemon.",
+          code: "BINARY_DOWNLOAD_DISABLED",
+        },
+        { status: 403 }
+      );
+    }
+
     // Check if a specific historical version is requested
     const versionParam = req.nextUrl.searchParams.get("version");
     if (versionParam) {

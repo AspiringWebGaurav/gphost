@@ -43,6 +43,8 @@ import {
   Terminal,
   Shield,
   ShieldCheck,
+  ShieldAlert,
+  Ban,
   Users,
   Flame,
   RotateCcw,
@@ -188,6 +190,7 @@ export interface SafeFileItem {
   folder?: string | null;
   sha256?: string | null;
   is_release_locked?: boolean;
+  r2_key?: string | null;
 }
 
 interface FileManagerProps {
@@ -313,6 +316,20 @@ export function filterByFileType(items: SafeFileItem[], type: string): SafeFileI
   return items;
 }
 
+export function isBinaryContainer(file: SafeFileItem | null | undefined): boolean {
+  if (!file) return false;
+  const name = (file.sanitized_name || file.filename || "").toLowerCase();
+  const folder = (file.folder || "").toLowerCase();
+  const r2Key = (file.r2_key || "").toLowerCase();
+  return (
+    name.endsWith(".bin") ||
+    folder.includes(".dynamic.ota/new") ||
+    folder.includes(".dynamic.ota/old") ||
+    r2Key.includes(".dynamic.ota/new") ||
+    r2Key.includes(".dynamic.ota/old")
+  );
+}
+
 export function mapDbToFileItem(
   raw: Record<string, unknown>,
   existingShareSlug?: string | null
@@ -349,6 +366,7 @@ export function mapDbToFileItem(
     folder: (raw.folder as string | null) || null,
     sha256: (raw.sha256 as string | null) || null,
     is_release_locked: Boolean(raw.is_release_locked),
+    r2_key: (raw.r2_key as string | null) || null,
   };
 }
 
@@ -376,6 +394,25 @@ export function FileManager({
 }: FileManagerProps) {
   const router = useRouter();
   const deletedFolderPathsRef = useRef<Set<string>>(new Set());
+
+  // Master pool storing all known files in local memory across all folders and navigations
+  const masterFilesMapRef = useRef<Map<string, SafeFileItem>>(
+    new Map(initialFiles.map((f) => [f.id, f]))
+  );
+  const folderDataCacheRef = useRef<
+    Map<
+      string,
+      {
+        subfolders: FolderItem[];
+        breadcrumbs: { name: string; path: string }[];
+        totalSubfolders: number;
+        totalFiles: number;
+      }
+    >
+  >(new Map());
+
+  // Non-blocking silent revalidation indicator (zero layout shift, zero spinner)
+  const [isRevalidating, setIsRevalidating] = useState(false);
 
   // Sort State: Deterministic SSR default ("recent"), restored after hydration
   const [sortBy, setSortBy] = useState<FileSortOption>("recent");
@@ -478,11 +515,16 @@ export function FileManager({
     }
   }, [initialCustomFolders]);
 
-  // Keep files, totalCount, and totalPages in sync when Server Component re-renders (e.g. router.refresh())
+  // Keep master pool, files, totalCount, and totalPages in sync when Server Component re-renders
   useEffect(() => {
-    setFiles(sortFiles(initialFiles, sortBy, sortOrder));
-    setTotalCount(initialTotalCount);
-    setTotalPages(initialTotalPages);
+    if (initialFiles && initialFiles.length > 0) {
+      for (const f of initialFiles) {
+        masterFilesMapRef.current.set(f.id, f);
+      }
+      setFiles(sortFiles(Array.from(masterFilesMapRef.current.values()), sortBy, sortOrder));
+      setTotalCount(initialTotalCount);
+      setTotalPages(initialTotalPages);
+    }
   }, [initialFiles, initialTotalCount, initialTotalPages, sortBy, sortOrder]);
 
   // Real-time live dynamic update tracking
@@ -541,6 +583,37 @@ export function FileManager({
   const [zippingProgress, setZippingProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+
+  const handleToggleFileStatus = async (file: SafeFileItem, newStatus: "ACTIVE" | "DISABLED") => {
+    setIsTogglingStatus(true);
+    try {
+      const res = await authFetch(`/api/v1/files/${file.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === file.id ? { ...f, status: newStatus } : f))
+        );
+        if (selectedFileForDetails && selectedFileForDetails.id === file.id) {
+          setSelectedFileForDetails((prev) => (prev ? { ...prev, status: newStatus } : null));
+        }
+        setLastLiveAction({
+          message: `Binary status changed to ${newStatus}`,
+          timestamp: Date.now(),
+        });
+      } else {
+        alert(data.error || "Failed to update binary status");
+      }
+    } catch {
+      alert("Network error updating status");
+    } finally {
+      setIsTogglingStatus(false);
+    }
+  };
 
   // Hierarchical Folder Management State
   const [folderTree, setFolderTree] = useState<FolderTreeNode[]>(initialFolderTree);
@@ -630,6 +703,10 @@ export function FileManager({
   const shareSlugValidation = useSlugValidation(shareCustomSlug, Boolean(selectedFileForShare));
 
   const handleOpenShare = (file: SafeFileItem) => {
+    if (isBinaryContainer(file)) {
+      alert("Public share links cannot be created for in-process OTA binary containers.");
+      return;
+    }
     setSelectedFileForShare(file);
     setShareResult(null);
     setShareError(null);
@@ -784,6 +861,10 @@ export function FileManager({
   } | null>(null);
 
   const handleDirectDownload = async (file: SafeFileItem) => {
+    if (isBinaryContainer(file)) {
+      alert("Binary container downloads are disabled in the web UI. This OTA artifact is strictly consumed in-process by the application updater daemon.");
+      return;
+    }
     if (downloadingId === file.id || downloadCooldownIds.has(file.id)) {
       return;
     }
@@ -892,9 +973,15 @@ export function FileManager({
     const selectedFiles = files.filter((f) => selectedFileIds.has(f.id));
     if (selectedFiles.length === 0) return;
 
+    const eligibleFiles = selectedFiles.filter((f) => !isBinaryContainer(f));
+    if (eligibleFiles.length === 0) {
+      alert("Selected items contain only in-process binary containers which cannot be downloaded via the web UI.");
+      return;
+    }
+
     try {
       await downloadFilesAsZip(
-        selectedFiles.map((f) => ({
+        eligibleFiles.map((f) => ({
           id: f.id,
           name: f.sanitized_name,
           size: f.byte_size,
@@ -912,14 +999,27 @@ export function FileManager({
     }
   };
 
-  // Fetch paginated files with server-side query (ultra-fresh, bypasses stale browser caches)
+  // Fetch paginated files with server-side query (ultra-fresh, merges into local memory)
   const fetchFiles = useCallback(
-    async (p: number, q: string, cat: string, sort: string, order: string) => {
-      setLoading(true);
+    async (
+      p: number,
+      q: string,
+      cat: string,
+      sort: string,
+      order: string,
+      isBackgroundSync = false
+    ) => {
+      // Never block UI with loading spinner if we already have files in local memory
+      if (!isBackgroundSync && masterFilesMapRef.current.size === 0) {
+        setLoading(true);
+      } else {
+        setIsRevalidating(true);
+      }
+
       try {
         const params = new URLSearchParams({
           page: p.toString(),
-          pageSize: "20",
+          pageSize: "50",
           q,
           category: cat,
           sortBy: sort,
@@ -934,7 +1034,13 @@ export function FileManager({
         });
         if (res.ok) {
           const data = await res.json();
-          setFiles(sortFiles(data.files, sort as FileSortOption, order as "desc" | "asc"));
+          if (Array.isArray(data.files)) {
+            for (const f of data.files) {
+              masterFilesMapRef.current.set(f.id, f);
+            }
+            const allFiles = Array.from(masterFilesMapRef.current.values());
+            setFiles(sortFiles(allFiles, sort as FileSortOption, order as "desc" | "asc"));
+          }
           setTotalCount(data.totalCount);
           setTotalPages(data.totalPages);
           setPage(data.page);
@@ -943,6 +1049,7 @@ export function FileManager({
         console.error("Failed to fetch files:", err);
       } finally {
         setLoading(false);
+        setIsRevalidating(false);
       }
     },
     []
@@ -975,44 +1082,62 @@ export function FileManager({
       "archives",
     ].includes(path);
 
-    if (isSystemCategory) {
-      try {
-        const res = await authFetch(`/api/v1/folders?_t=${Date.now()}`, {
-          cache: "no-store",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCurrentFolderData({
-            subfolders: data.subfolders || [],
-            breadcrumbs: [{ name: "Storage", path: "" }],
-            totalSubfolders: data.totalSubfolders || 0,
-            totalFiles: data.totalFiles || 0,
-          });
-        }
-      } catch {}
-      return;
-    }
+    const endpoint = isSystemCategory
+      ? `/api/v1/folders?_t=${Date.now()}`
+      : `/api/v1/folders?path=${encodeURIComponent(path)}&_t=${Date.now()}`;
 
-    setIsLoadingFolderContents(true);
     try {
-      const res = await authFetch(`/api/v1/folders?path=${encodeURIComponent(path)}&_t=${Date.now()}`, {
+      const res = await authFetch(endpoint, {
         cache: "no-store",
       });
       if (res.ok) {
         const data = await res.json();
-        setCurrentFolderData({
+        const folderData = {
           subfolders: data.subfolders || [],
-          breadcrumbs: data.breadcrumbs || getBreadcrumbs(path),
+          breadcrumbs:
+            data.breadcrumbs ||
+            (isSystemCategory ? [{ name: "Storage", path: "" }] : getBreadcrumbs(path)),
           totalSubfolders: data.totalSubfolders || 0,
           totalFiles: data.totalFiles || 0,
-        });
+        };
+        folderDataCacheRef.current.set(path, folderData);
+        setCurrentFolderData(folderData);
       }
     } catch (err) {
-      console.warn("Failed to fetch folder contents:", err);
-    } finally {
-      setIsLoadingFolderContents(false);
+      console.warn("Notice: failed to fetch folder contents:", err);
     }
   }, []);
+
+  // Google Drive-style instant local navigation with zero-flicker background sync
+  const navigateToFolder = useCallback(
+    (targetPath: string) => {
+      const cleanPath = targetPath.trim() || "all";
+      setCategory(cleanPath);
+      setPage(1);
+
+      // Instant optimistic breadcrumbs (0ms)
+      const immediateCrumbs =
+        cleanPath === "all" ? [{ name: "Storage", path: "" }] : getBreadcrumbs(cleanPath);
+
+      // Instant optimistic folder data from local cache or local state (0ms)
+      const cached = folderDataCacheRef.current.get(cleanPath);
+      if (cached) {
+        setCurrentFolderData(cached);
+      } else {
+        setCurrentFolderData((prev) => ({
+          subfolders: prev?.subfolders ?? [],
+          totalSubfolders: prev?.totalSubfolders ?? 0,
+          totalFiles: prev?.totalFiles ?? 0,
+          breadcrumbs: immediateCrumbs,
+        }));
+      }
+
+      // Silent non-blocking background sync (never flashes spinner)
+      void fetchFolderContents(cleanPath);
+      void fetchFiles(1, searchQuery, cleanPath, sortBy, sortOrder, true);
+    },
+    [fetchFolderContents, fetchFiles, searchQuery, sortBy, sortOrder]
+  );
 
   // Single-file enrich helper for live events with ID only
   const fetchSingleFileEnrich = useCallback(
@@ -1240,30 +1365,18 @@ export function FileManager({
 
   // Skip redundant initial fetch on mount (page 1 and folders are already server-rendered)
   const isInitialMount = useRef(true);
-  const isInitialFoldersMount = useRef(true);
 
-  useEffect(() => {
-    if (isInitialFoldersMount.current) {
-      isInitialFoldersMount.current = false;
-      if (category === "all") {
-        return;
-      }
-    }
-    void fetchFolderTree();
-    void fetchFolderContents(category);
-  }, [category, fetchFolderTree, fetchFolderContents]);
-
-  // Trigger search on query / filter change with debounce
+  // Trigger search on query change with debounce
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     const handler = setTimeout(() => {
-      fetchFiles(1, searchQuery, category, sortBy, sortOrder);
+      void fetchFiles(1, searchQuery, category, sortBy, sortOrder, true);
     }, 250);
     return () => clearTimeout(handler);
-  }, [searchQuery, category, sortBy, sortOrder, fetchFiles]);
+  }, [searchQuery, sortBy, sortOrder, category, fetchFiles]);
 
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -1277,15 +1390,18 @@ export function FileManager({
     setDeleteError(null);
     const targetFile = selectedFileForDelete;
     try {
-      const res = await authFetch(`/api/files/${targetFile.id}`, {
+      const res = await authFetch(`/api/files/${targetFile.id}?force=true`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmReleaseDeletion: true }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSelectedFileForDelete(null);
         setDeleteError(null);
-        // Optimistically remove immediately from local state
-        setFiles((prev) => prev.filter((f) => f.id !== targetFile.id));
+        // Optimistically remove immediately from local master pool and state
+        masterFilesMapRef.current.delete(targetFile.id);
+        setFiles(Array.from(masterFilesMapRef.current.values()));
         setTotalCount((c) => Math.max(0, c - 1));
         setLastLiveAction({
           message: `Deleted "${targetFile.sanitized_name}"`,
@@ -1325,7 +1441,14 @@ export function FileManager({
     (file: SafeFileItem) =>
       file.share_slug === "gpn-app" ||
       file.share_slug === "gpn-app-sig" ||
-      file.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe",
+      file.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
+      file.sanitized_name === "cpsetup.exe" ||
+      file.sanitized_name === "DownexSetup.exe" ||
+      file.sanitized_name === "GpnSetup.exe" ||
+      file.sanitized_name === "ScheduleMeSetup.exe" ||
+      file.sanitized_name === "Send2MeSetup.exe" ||
+      (file.folder || "").toLowerCase().includes(".dynamic.ota/base") ||
+      (file.r2_key || "").toLowerCase().includes(".dynamic.ota/base"),
     []
   );
 
@@ -2216,10 +2339,10 @@ export function FileManager({
                   "archives",
                 ].includes(category);
                 if (isSys) {
-                  setCategory("all");
+                  navigateToFolder("all");
                 } else {
                   const parent = getFolderParentPath(category);
-                  setCategory(parent || "all");
+                  navigateToFolder(parent || "all");
                 }
               }}
               className="p-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground transition cursor-pointer flex items-center justify-center shrink-0 shadow-2xs hover:border-blue-500/40"
@@ -2233,7 +2356,7 @@ export function FileManager({
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card border border-border text-sm text-muted-foreground select-none overflow-x-auto no-scrollbar max-w-full shadow-2xs">
             <button
               type="button"
-              onClick={() => setCategory("all")}
+              onClick={() => navigateToFolder("all")}
               className={`flex items-center gap-1.5 cursor-pointer font-medium shrink-0 transition-colors ${
                 category === "all"
                   ? "text-foreground font-semibold"
@@ -2273,7 +2396,7 @@ export function FileManager({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => setCategory(crumb.path)}
+                              onClick={() => navigateToFolder(crumb.path)}
                               className="hover:text-foreground hover:underline cursor-pointer shrink-0"
                             >
                               {crumb.name}
@@ -3442,7 +3565,15 @@ export function FileManager({
 
                   {/* Card Actions */}
                   <div className="flex items-center gap-1.5 pt-2.5 mt-auto">
-                    {isExpired ? (
+                    {isBinaryContainer(file) ? (
+                      <div
+                        className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-violet-500/10 border border-violet-500/25 text-violet-600 dark:text-violet-400 text-xs font-semibold select-none cursor-default shadow-2xs"
+                        title="In-process OTA container: Exclusively consumed by the desktop app updater daemon. Zero public web share link."
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-violet-500" />
+                        <span className="truncate">OTA Daemon Only</span>
+                      </div>
+                    ) : isExpired ? (
                       <button
                         onClick={() => {
                           setSelectedFileForExtend(file);
@@ -3505,7 +3636,7 @@ export function FileManager({
                     )}
 
                     <div className="flex items-center gap-1 shrink-0">
-                      {file.share_slug && (
+                      {file.share_slug && !isBinaryContainer(file) && (
                         <button
                           onClick={() => setSelectedFileForLinks(file)}
                           className="w-7 h-7 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 border border-blue-500/25 flex items-center justify-center transition cursor-pointer shrink-0 shadow-2xs"
@@ -3515,18 +3646,28 @@ export function FileManager({
                         </button>
                       )}
 
-                      <button
-                        onClick={() => handleDirectDownload(file)}
-                        disabled={downloadingId === file.id || downloadCooldownIds.has(file.id)}
-                        className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
-                        title={downloadCooldownIds.has(file.id) ? "Download cooling down..." : "Download file"}
-                      >
-                        {downloadingId === file.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+                      {isBinaryContainer(file) ? (
+                        <button
+                          disabled
+                          className="w-7 h-7 rounded-lg text-muted-foreground/30 bg-muted/20 border border-border/40 flex items-center justify-center cursor-not-allowed shrink-0"
+                          title="Binary download disabled in web UI. This OTA container is consumed exclusively in-process by the app updater daemon."
+                        >
+                          <Download className="w-3.5 h-3.5 opacity-30" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleDirectDownload(file)}
+                          disabled={downloadingId === file.id || downloadCooldownIds.has(file.id)}
+                          className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
+                          title={downloadCooldownIds.has(file.id) ? "Download cooling down..." : "Download file"}
+                        >
+                          {downloadingId === file.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
 
                       <button
                         onClick={() => setSelectedFileForAnalytics(file)}
@@ -3731,7 +3872,15 @@ export function FileManager({
                       <span className="hidden sm:inline">Details</span>
                     </button>
 
-                    {file.share_slug ? (
+                    {isBinaryContainer(file) ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/25 text-violet-600 dark:text-violet-400 text-xs font-semibold select-none cursor-default"
+                        title="In-process OTA container: Exclusively consumed by the desktop app updater daemon. Zero public web share link."
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                        <span>OTA Daemon Only</span>
+                      </span>
+                    ) : file.share_slug ? (
                       <div className="flex items-center gap-1.5 shrink-0">
                         {file.is_site ? (
                           <a
@@ -3808,18 +3957,28 @@ export function FileManager({
                       </button>
                     )}
 
-                    <button
-                      onClick={() => handleDirectDownload(file)}
-                      disabled={downloadingId === file.id || downloadCooldownIds.has(file.id)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
-                      title={downloadCooldownIds.has(file.id) ? "Download cooling down..." : "Download file"}
-                    >
-                      {downloadingId === file.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Download className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    {isBinaryContainer(file) ? (
+                      <button
+                        disabled
+                        className="p-1.5 rounded-lg text-muted-foreground/30 cursor-not-allowed"
+                        title="Binary download disabled in web UI. This OTA container is consumed exclusively in-process by the app updater daemon."
+                      >
+                        <Download className="w-3.5 h-3.5 opacity-30" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleDirectDownload(file)}
+                        disabled={downloadingId === file.id || downloadCooldownIds.has(file.id)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
+                        title={downloadCooldownIds.has(file.id) ? "Download cooling down..." : "Download file"}
+                      >
+                        {downloadingId === file.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
 
                     <button
                       onClick={() => setSelectedFileForAnalytics(file)}
@@ -4009,6 +4168,64 @@ export function FileManager({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* In-Process OTA Binary Container Panel */}
+              {isBinaryContainer(selectedFileForDetails) && (
+                <div className="p-3 rounded-xl border border-violet-500/25 bg-violet-500/10 space-y-2 mt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                      In-Process OTA Binary Container
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                        selectedFileForDetails.status === "DISABLED"
+                          ? "bg-rose-500/15 text-rose-500 border-rose-500/30"
+                          : "bg-emerald-500/15 text-emerald-500 border-emerald-500/30"
+                      }`}
+                    >
+                      {selectedFileForDetails.status === "DISABLED" ? "DISABLED" : "ACTIVE"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Web downloads and public share links are strictly disabled for this container. It is consumed exclusively in-process by the desktop application updater daemon.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-violet-500/15">
+                    <span className="text-[11px] text-muted-foreground">
+                      Status: <strong className="text-foreground">{selectedFileForDetails.status === "DISABLED" ? "Disabled from update checks" : "Active & serving updates"}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isTogglingStatus}
+                      onClick={() =>
+                        handleToggleFileStatus(
+                          selectedFileForDetails,
+                          selectedFileForDetails.status === "DISABLED" ? "ACTIVE" : "DISABLED"
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                        selectedFileForDetails.status === "DISABLED"
+                          ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600 shadow-xs"
+                          : "bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                      }`}
+                    >
+                      {isTogglingStatus ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : selectedFileForDetails.status === "DISABLED" ? (
+                        <>
+                          <Check className="w-3 h-3" />
+                          <span>Enable Binary</span>
+                        </>
+                      ) : (
+                        <>
+                          <Ban className="w-3 h-3" />
+                          <span>Disable Binary</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

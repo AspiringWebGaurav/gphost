@@ -22,6 +22,7 @@ const patchSchema = z.object({
   folder: z.string().trim().nullable().optional(),
   moveFolder: z.string().trim().nullable().optional(),
   force: z.boolean().optional(),
+  status: z.enum(["ACTIVE", "DISABLED"]).optional(),
 });
 
 /**
@@ -192,6 +193,32 @@ export async function PATCH(
 
     if (typeof parseBody.data.isReleaseLocked === "boolean") {
       updatePayload.is_release_locked = parseBody.data.isReleaseLocked;
+    }
+
+    if (parseBody.data.status) {
+      updatePayload.status = parseBody.data.status;
+      try {
+        await adminClient
+          .from("app_releases")
+          .update({ is_active: parseBody.data.status === "ACTIVE" })
+          .or(`binary_file_id.eq.${fileId},signature_file_id.eq.${fileId}`);
+      } catch (relErr) {
+        console.warn("Release status sync warning:", relErr);
+      }
+
+      // Globally invalidate release manifest cache in Redis for this app
+      if (redis) {
+        try {
+          const match = (file.folder || file.r2_key || "").match(/([a-z0-9_-]+)\.dynamic\.ota/i);
+          if (match) {
+            const detectedAppId = match[1].toLowerCase();
+            await redis.del(`release:${detectedAppId}:latest:manifest`);
+            if (detectedAppId === "gpn") {
+              await redis.del("gpn:release:latest:manifest");
+            }
+          }
+        } catch {}
+      }
     }
 
     if (parseBody.data.expiryPreset) {
@@ -535,14 +562,47 @@ export async function DELETE(
       } catch {}
     }
 
-    // 4. Update status in database
-    await adminClient
-      .from("files")
-      .update({
-        status: r2Deleted ? "PURGED" : "DELETE_FAILED",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", fileId);
+    // 4. Update status in database / completely remove record to free unique key
+    if (r2Deleted) {
+      try {
+        await adminClient
+          .from("app_releases")
+          .delete()
+          .or(`binary_file_id.eq.${fileId},signature_file_id.eq.${fileId}`);
+      } catch {}
+      const delDbRes = await adminClient.from("files").delete().eq("id", fileId);
+      if (delDbRes.error) {
+        await adminClient
+          .from("files")
+          .update({
+            status: "PURGED",
+            r2_key: `purged_${Date.now()}_${file.r2_key}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", fileId);
+      }
+
+      if (redis) {
+        try {
+          const match = (file.folder || file.r2_key || "").match(/([a-z0-9_-]+)\.dynamic\.ota/i);
+          if (match) {
+            const detectedAppId = match[1].toLowerCase();
+            await redis.del(`release:${detectedAppId}:latest:manifest`);
+            if (detectedAppId === "gpn") {
+              await redis.del("gpn:release:latest:manifest");
+            }
+          }
+        } catch {}
+      }
+    } else {
+      await adminClient
+        .from("files")
+        .update({
+          status: "DELETE_FAILED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", fileId);
+    }
 
     // 4.1. Authoritatively sync profile storage_used_bytes
     let updatedStorageBytes = 0;

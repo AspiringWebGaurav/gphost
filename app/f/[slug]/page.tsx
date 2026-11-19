@@ -178,6 +178,22 @@ const getPublicShare = cache(async (slug: string): Promise<PublicShareRecord | n
     }
   }
 
+  // Global Guard: In-process OTA binary containers are strictly barred from public web share pages
+  if (share && share.file) {
+    const rawF = Array.isArray(share.file) ? share.file[0] : share.file;
+    if (rawF) {
+      const fn = (rawF.sanitized_name || "").toLowerCase();
+      const rk = (rawF.r2_key || "").toLowerCase();
+      if (
+        fn.endsWith(".bin") ||
+        rk.includes(".dynamic.ota/new") ||
+        rk.includes(".dynamic.ota/old")
+      ) {
+        return null;
+      }
+    }
+  }
+
   return share;
 });
 

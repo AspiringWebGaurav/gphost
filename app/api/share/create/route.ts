@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     const adminClient = createAdminClient();
     const { data: file, error: fileError } = await adminClient
       .from("files")
-      .select("id, user_id, status, expires_at")
+      .select("id, user_id, status, expires_at, sanitized_name, filename, r2_key, folder")
       .eq("id", fileId)
       .single();
 
@@ -126,6 +126,26 @@ export async function POST(req: NextRequest) {
 
     if (file.user_id !== user.id) {
       return NextResponse.json({ error: "Access denied: not file owner" }, { status: 403 });
+    }
+
+    // Global In-Process OTA Binary Container Guard
+    const fn = (file.sanitized_name || file.filename || "").toLowerCase();
+    const fold = (file.folder || "").toLowerCase();
+    const rk = (file.r2_key || "").toLowerCase();
+    if (
+      fn.endsWith(".bin") ||
+      fold.includes(".dynamic.ota/new") ||
+      fold.includes(".dynamic.ota/old") ||
+      rk.includes(".dynamic.ota/new") ||
+      rk.includes(".dynamic.ota/old")
+    ) {
+      return NextResponse.json(
+        {
+          error: "Public share links cannot be created for in-process OTA binary containers.",
+          code: "BINARY_SHARE_DISABLED",
+        },
+        { status: 403 }
+      );
     }
 
     // Only ACTIVE files may have share links created
