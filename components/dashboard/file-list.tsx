@@ -417,6 +417,13 @@ export function FileList({
         setFileToDelete(null);
         setDeleteFileError(null);
         setDeletedIds((prev) => new Set(prev).add(deletedId));
+        if (typeof data.storageUsedBytes === "number") {
+          storageEvents.emit("storage:updated", {
+            storageUsedBytes: data.storageUsedBytes,
+            activeFilesCount: data.activeFilesCount,
+            source: "local_optimistic",
+          });
+        }
         storageEvents.emit("file:lifecycle", {
           fileId: deletedId,
           size: deletedSize,

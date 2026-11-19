@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/session";
 import { listUserApiKeys } from "@/lib/auth/api-keys";
 import { SettingsForm } from "@/components/dashboard/settings-form";
+import { XurlSettingsCard } from "@/components/dashboard/xurl-settings-card";
 import { ApiKeysManager } from "@/components/dashboard/api-keys-manager";
 import { GdprComplianceCard } from "@/components/dashboard/gdpr-compliance-card";
 import { Settings } from "lucide-react";
@@ -55,6 +56,8 @@ export default async function SettingsPage() {
           created_at: profile.created_at,
         }}
       />
+
+      <XurlSettingsCard />
 
       <GdprComplianceCard
         storageUsedBytes={profile.storage_used_bytes || 0}

@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { storageEvents, StorageUpdatedPayload } from "@/lib/storage/events";
+import { authFetch } from "@/lib/auth/client-fetch";
 import { StorageContext, StorageContextType } from "./storage-context";
 
 interface StorageProviderProps {
@@ -73,6 +74,7 @@ export function StorageProvider({
   const isMountedRef = useRef<boolean>(true);
   const isSyncingRef = useRef<boolean>(false);
   const lastEtagRef = useRef<string>("");
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Authoritative physical Cloudflare R2 reconciliation (User-triggered via "Sync with R2" button)
   const syncWithR2 = useCallback(async (silent = false) => {
@@ -81,7 +83,7 @@ export function StorageProvider({
     setIsSyncing(true);
 
     try {
-      const res = await fetch("/api/storage/reconcile", {
+      const res = await authFetch("/api/storage/reconcile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -122,7 +124,7 @@ export function StorageProvider({
       if (lastEtagRef.current) {
         headers["If-None-Match"] = lastEtagRef.current;
       }
-      const res = await fetch("/api/storage/signature", { headers });
+      const res = await authFetch("/api/storage/signature", { headers });
       if (res.status === 304) {
         // HTTP 304: Not Modified. 0 state work needed!
         return;
@@ -149,6 +151,15 @@ export function StorageProvider({
       console.error("[StorageProvider] Smart check failed:", err);
     }
   }, []);
+
+  const scheduleDebouncedRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    refreshTimeoutRef.current = setTimeout(() => {
+      void refreshStorageState();
+    }, 150);
+  }, [refreshStorageState]);
 
   // Instant local optimistic broadcast (0ms, no network polling)
   const broadcastStorageUpdate = useCallback(
@@ -212,37 +223,42 @@ export function StorageProvider({
         if (payload.size) {
           setStorageUsedBytes((b) => b + payload.size);
         }
-        void refreshStorageState();
+        scheduleDebouncedRefresh();
       } else if (payload.action === "deleted" || payload.action === "burned") {
         setActiveFilesCount((c) => Math.max(0, c - 1));
         if (payload.size) {
           setStorageUsedBytes((b) => Math.max(0, b - payload.size));
         }
-        void refreshStorageState();
+        scheduleDebouncedRefresh();
       }
     });
 
     // 4. Global screen refresh listener
     const unsubScreenRefresh = storageEvents.on("screen:refresh", () => {
       if (!isMountedRef.current) return;
-      void refreshStorageState();
+      scheduleDebouncedRefresh();
     });
 
-    // 5. Smart Conditional Tracker: Re-verify signature only if user returns after extended inactivity (> 5 minutes)
+    // 5. Smart Conditional Tracker: Re-verify signature when user returns to window (>2s throttle)
     let lastFocusSync = Date.now();
     const onFocus = () => {
       if (document.visibilityState === "visible") {
         const now = Date.now();
-        if (now - lastFocusSync > 5 * 60 * 1000) {
+        if (now - lastFocusSync > 2000) {
           lastFocusSync = now;
-          void refreshStorageState();
+          scheduleDebouncedRefresh();
         }
       }
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
 
-    // 5. Supabase Realtime WebSocket Connection (Pure push, zero polling)
+    // Initial mount self-healing check (validates initial SSR state after 300ms)
+    const initialSyncTimer = setTimeout(() => {
+      void refreshStorageState();
+    }, 300);
+
+    // 6. Supabase Realtime WebSocket Connection (Pure push, zero polling)
     const supabase = createClient();
     const channelName = `storage-realtime-${initialUserId}`;
     const existingChannel = supabase.getChannels().find((c: { topic: string }) => c.topic === `realtime:${channelName}`);
@@ -297,11 +313,14 @@ export function StorageProvider({
         }) => {
           if (!isMountedRef.current) return;
           if (payload.eventType === "INSERT" && payload.new) {
-            setActiveFilesCount((c) => c + 1);
-            if (payload.new.byte_size) {
-              setStorageUsedBytes((b) => b + Number(payload.new!.byte_size));
+            const isRowActive = payload.new.status === "ACTIVE" || payload.new.status === "EXPIRING";
+            if (isRowActive) {
+              setActiveFilesCount((c) => c + 1);
+              if (payload.new.byte_size) {
+                setStorageUsedBytes((b) => b + Number(payload.new!.byte_size));
+              }
             }
-            void refreshStorageState();
+            scheduleDebouncedRefresh();
             storageEvents.emit("file:lifecycle", {
               fileId: (payload.new.id as string) || "",
               filename: (payload.new.sanitized_name || payload.new.filename) as string,
@@ -310,20 +329,44 @@ export function StorageProvider({
               rawRecord: payload.new,
             });
           } else if (payload.eventType === "UPDATE" && payload.new) {
-            void refreshStorageState();
-            storageEvents.emit("file:lifecycle", {
-              fileId: (payload.new.id as string) || "",
-              filename: (payload.new.sanitized_name || payload.new.filename) as string,
-              size: Number(payload.new.byte_size || 0),
-              action: "updated",
-              rawRecord: payload.new,
-            });
+            const wasActive = !payload.old || payload.old.status === "ACTIVE" || payload.old.status === "EXPIRING";
+            const isNowPurged = payload.new.status === "PURGED" || payload.new.status === "DELETE_PENDING";
+            const isNowActive = payload.new.status === "ACTIVE" || payload.new.status === "EXPIRING";
+            const wasUploading = payload.old?.status === "UPLOADING";
+
+            if (wasActive && isNowPurged) {
+              const reclaimed = Number(payload.new.byte_size || payload.old?.byte_size || 0);
+              setActiveFilesCount((c) => Math.max(0, c - 1));
+              if (reclaimed > 0) {
+                setStorageUsedBytes((b) => Math.max(0, b - reclaimed));
+              }
+              storageEvents.emit("file:lifecycle", {
+                fileId: (payload.new.id as string) || "",
+                size: reclaimed,
+                action: "deleted",
+                rawRecord: payload.new,
+              });
+            } else if (wasUploading && isNowActive) {
+              const added = Number(payload.new.byte_size || 0);
+              setActiveFilesCount((c) => c + 1);
+              if (added > 0) {
+                setStorageUsedBytes((b) => b + added);
+              }
+              storageEvents.emit("file:lifecycle", {
+                fileId: (payload.new.id as string) || "",
+                filename: (payload.new.sanitized_name || payload.new.filename) as string,
+                size: added,
+                action: "created",
+                rawRecord: payload.new,
+              });
+            }
+            scheduleDebouncedRefresh();
           } else if (payload.eventType === "DELETE" && payload.old) {
             setActiveFilesCount((c) => Math.max(0, c - 1));
             if (payload.old.byte_size) {
               setStorageUsedBytes((b) => Math.max(0, b - Number(payload.old!.byte_size)));
             }
-            void refreshStorageState();
+            scheduleDebouncedRefresh();
             storageEvents.emit("file:lifecycle", {
               fileId: (payload.old.id as string) || "",
               size: Number(payload.old.byte_size || 0),
@@ -370,6 +413,8 @@ export function StorageProvider({
 
     return () => {
       isMountedRef.current = false;
+      clearTimeout(initialSyncTimer);
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
       unsubEvents();
       unsubFileLifecycle();
       unsubScreenRefresh();
@@ -379,7 +424,7 @@ export function StorageProvider({
         supabase.removeChannel(realtimeChannelRef.current);
       }
     };
-  }, [initialUserId, refreshStorageState]);
+  }, [initialUserId, refreshStorageState, scheduleDebouncedRefresh]);
 
   const contextValue = useMemo<StorageContextType>(
     () => ({

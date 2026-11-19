@@ -1,5 +1,6 @@
 import { Redis } from "@upstash/redis";
 import { redis as defaultRedis } from "@/lib/redis/client";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface XurlShortenResult {
   success: boolean;
@@ -30,6 +31,50 @@ function getRedisClient(customRedis?: Redis | null): Redis | null {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   return defaultRedis;
+}
+
+/**
+ * Resolves the active XURL API key.
+ * Prioritizes dynamic Redis override if set by user in Settings, falling back to process.env.XURL_API_KEY.
+ */
+export async function getActiveXurlApiKey(customRedis?: Redis | null): Promise<string | null> {
+  const redisClient = getRedisClient(customRedis);
+  if (redisClient) {
+    try {
+      const dynamicKey = await redisClient.get<string>("config:xurl:api_key");
+      if (dynamicKey && typeof dynamicKey === "string" && dynamicKey.trim()) {
+        return dynamicKey.trim();
+      }
+    } catch {}
+  }
+  return process.env.XURL_API_KEY || null;
+}
+
+/**
+ * Persists rotated XURL API key into Redis and process.env.
+ */
+export async function setActiveXurlApiKey(newKey: string, customRedis?: Redis | null): Promise<void> {
+  const cleanKey = newKey.trim();
+  process.env.XURL_API_KEY = cleanKey;
+  const redisClient = getRedisClient(customRedis);
+  if (redisClient) {
+    try {
+      await redisClient.set("config:xurl:api_key", cleanKey);
+      await Promise.all([
+        redisClient.del(CIRCUIT_BREAKER_KEY),
+        redisClient.del(RATELIMIT_BREAKER_KEY),
+        redisClient.del("cache:xurl:account_status"),
+      ]);
+    } catch (err) {
+      console.warn("[XURL] Failed to cache rotated API key in Redis:", err);
+    }
+  }
+}
+
+export function maskApiKey(key: string): string {
+  if (!key) return "";
+  if (key.length <= 16) return "••••••••••••";
+  return `${key.slice(0, 16)}••••••••••••••••${key.slice(-4)}`;
 }
 
 export function isLocalOrPrivateHostname(hostname: string): boolean {
@@ -168,7 +213,7 @@ export async function shortenUrl(
 
   const baseUrl = (process.env.XURL_API_URL || "https://xurl.eu.cc/api/v1").replace(/\/+$/, "");
   const endpoint = baseUrl.endsWith("/links") ? baseUrl : `${baseUrl}/links`;
-  const apiKey = process.env.XURL_API_KEY;
+  const apiKey = await getActiveXurlApiKey(customRedis);
 
   if (!apiKey) {
     console.error("[XURL] Missing XURL_API_KEY in environment");
@@ -333,33 +378,36 @@ export async function shortenUrl(
 export interface XurlAccountStatus {
   configured: boolean;
   valid: boolean;
-  status: "connected" | "invalid_key" | "not_configured" | "cooldown" | "network_error";
-  plan?: "unlimited_api" | "free" | "pro";
+  status: "connected" | "invalid_key" | "not_configured" | "cooldown" | "network_error" | "expired";
+  plan?: "premium_permanent" | "unlimited_api" | "free" | "pro";
+  maskedKey?: string;
   message: string;
 }
 
 /**
  * Checks whether the XURL integration is configured, account is active, and verifies plan entitlements.
- * Caches result in Redis for 5 minutes to avoid redundant external network roundtrips.
+ * If candidateApiKey is supplied, tests candidate credentials directly without caching.
+ * Otherwise, resolves the active key via getActiveXurlApiKey() and caches result in Redis for 5 minutes.
  */
 export async function checkXurlAccountStatus(
   forceFresh: boolean = false,
-  customRedis?: Redis | null
+  customRedis?: Redis | null,
+  candidateApiKey?: string
 ): Promise<XurlAccountStatus> {
-  const apiKey = process.env.XURL_API_KEY;
+  const apiKey = candidateApiKey ? candidateApiKey.trim() : await getActiveXurlApiKey(customRedis);
   if (!apiKey) {
     return {
       configured: false,
       valid: false,
       status: "not_configured",
-      message: "XURL API key not configured in environment (XURL_API_KEY missing).",
+      message: "XURL API key not configured in environment or settings (XURL_API_KEY missing).",
     };
   }
 
   const redisClient = getRedisClient(customRedis);
   const cacheKey = "cache:xurl:account_status";
 
-  if (redisClient && !forceFresh) {
+  if (!candidateApiKey && redisClient && !forceFresh) {
     try {
       const cached = await redisClient.get<string | XurlAccountStatus>(cacheKey);
       if (cached) {
@@ -377,7 +425,7 @@ export async function checkXurlAccountStatus(
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
 
     let result: XurlAccountStatus;
@@ -387,21 +435,32 @@ export async function checkXurlAccountStatus(
         configured: true,
         valid: true,
         status: "connected",
-        plan: "unlimited_api",
-        message: "XURL account active with full API lifecycle freedom.",
+        plan: "premium_permanent",
+        maskedKey: maskApiKey(apiKey),
+        message: "XURL account active with Premium Permanent Plan & custom vanity route freedom.",
       };
     } else if (res.status === 401) {
       result = {
         configured: true,
         valid: false,
         status: "invalid_key",
+        maskedKey: maskApiKey(apiKey),
         message: "Account not found or invalid API key on xurl.eu.cc.",
+      };
+    } else if (res.status === 402) {
+      result = {
+        configured: true,
+        valid: false,
+        status: "expired",
+        maskedKey: maskApiKey(apiKey),
+        message: "XURL monthly subscription expired. Your permanent links remain active, but monthly API access is paused. Rotate to an active key.",
       };
     } else if (res.status === 403) {
       result = {
         configured: true,
         valid: false,
         status: "cooldown",
+        maskedKey: maskApiKey(apiKey),
         message: "XURL quota exhausted or free tier restrictions active.",
       };
     } else {
@@ -410,11 +469,12 @@ export async function checkXurlAccountStatus(
         configured: true,
         valid: false,
         status: "network_error",
-        message: errorBody.error || `XURL returned HTTP ${res.status}`,
+        maskedKey: maskApiKey(apiKey),
+        message: errorBody.error || errorBody.message || `XURL returned HTTP ${res.status}`,
       };
     }
 
-    if (redisClient && result.valid) {
+    if (!candidateApiKey && redisClient && result.valid) {
       try {
         await redisClient.set(cacheKey, JSON.stringify(result), { ex: 300 });
       } catch {}
@@ -427,6 +487,7 @@ export async function checkXurlAccountStatus(
       configured: true,
       valid: false,
       status: "network_error",
+      maskedKey: maskApiKey(apiKey),
       message: `Failed to contact XURL service: ${errorMsg}`,
     };
   }
@@ -436,12 +497,15 @@ export async function checkXurlAccountStatus(
  * Deletes a link from XURL (xurl.eu.cc) to keep lifecycles synchronized with GPHost.
  * Non-blocking: 404 is treated as already deleted (success).
  */
-export async function deleteXurlLink(xurlId: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteXurlLink(
+  xurlId: string,
+  customRedis?: Redis | null
+): Promise<{ success: boolean; error?: string }> {
   if (!xurlId || xurlId.startsWith("mock_")) {
     return { success: true };
   }
 
-  const apiKey = process.env.XURL_API_KEY;
+  const apiKey = await getActiveXurlApiKey(customRedis);
   if (!apiKey) {
     return { success: false, error: "Missing XURL API key" };
   }
@@ -456,7 +520,7 @@ export async function deleteXurlLink(xurlId: string): Promise<{ success: boolean
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (res.ok || res.status === 404) {
@@ -472,4 +536,228 @@ export async function deleteXurlLink(xurlId: string): Promise<{ success: boolean
     const errorMsg = err instanceof Error ? err.message : "Network error";
     return { success: false, error: errorMsg };
   }
+}
+
+export interface SavedXurlVerification {
+  status: "connected" | "invalid_key" | "not_configured" | "cooldown" | "network_error" | "expired";
+  valid: boolean;
+  plan?: "premium_permanent" | "unlimited_api" | "free" | "pro";
+  httpStatus?: number;
+  maskedKey?: string;
+  message: string;
+  intervalDays: number;
+  testedAt: string;
+  nextCheckDueAt: string;
+  isDue: boolean;
+}
+
+export async function getXurlCheckIntervalDays(customRedis?: Redis | null): Promise<number> {
+  const redisClient = getRedisClient(customRedis);
+  if (redisClient) {
+    try {
+      const stored = await redisClient.get<string | number>("config:xurl:interval_days");
+      if (stored) {
+        const parsed = parseInt(String(stored), 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+  }
+  return 7; // Default: 7 days (1 week)
+}
+
+export async function saveXurlVerificationToDatabase(
+  testResult: XurlAccountStatus,
+  intervalDays?: number,
+  userId?: string,
+  customRedis?: Redis | null
+): Promise<SavedXurlVerification> {
+  const resolvedInterval =
+    intervalDays && intervalDays > 0
+      ? intervalDays
+      : await getXurlCheckIntervalDays(customRedis);
+  const now = new Date();
+  const nextCheckDue = new Date(now.getTime() + resolvedInterval * 86400000);
+
+  const verification: SavedXurlVerification = {
+    status: testResult.status,
+    valid: testResult.valid,
+    plan: testResult.plan,
+    httpStatus: testResult.valid ? 200 : testResult.status === "expired" ? 402 : 401,
+    maskedKey: testResult.maskedKey,
+    message: testResult.message,
+    intervalDays: resolvedInterval,
+    testedAt: now.toISOString(),
+    nextCheckDueAt: nextCheckDue.toISOString(),
+    isDue: false,
+  };
+
+  // 1. Persist to PostgreSQL database (audit_logs table)
+  try {
+    const adminClient = createAdminClient();
+    await adminClient.from("audit_logs").insert({
+      actor_id: userId || null,
+      event_type: "XURL_KEY_VERIFICATION",
+      resource_type: "xurl_integration",
+      resource_id: "xurl_api_key",
+      ip_hash: "system_authoritative",
+      metadata: {
+        status: verification.status,
+        valid: verification.valid,
+        plan: verification.plan,
+        http_status: verification.httpStatus,
+        masked_key: verification.maskedKey,
+        interval_days: verification.intervalDays,
+        tested_at: verification.testedAt,
+        next_check_due_at: verification.nextCheckDueAt,
+        message: verification.message,
+      },
+    });
+  } catch (dbErr) {
+    console.error("[XURL] Error inserting verification to PostgreSQL database:", dbErr);
+  }
+
+  // 2. Persist to Redis for instant sub-millisecond lookups
+  const redisClient = getRedisClient(customRedis);
+  if (redisClient) {
+    try {
+      await redisClient.set("config:xurl:last_test", JSON.stringify(verification));
+      await redisClient.set("config:xurl:interval_days", String(resolvedInterval));
+    } catch (redisErr) {
+      console.warn("[XURL] Error caching verification to Redis:", redisErr);
+    }
+  }
+
+  return verification;
+}
+
+export async function getSavedXurlVerification(
+  customRedis?: Redis | null
+): Promise<SavedXurlVerification | null> {
+  const redisClient = getRedisClient(customRedis);
+
+  // 1. Try Redis first
+  if (redisClient) {
+    try {
+      const cached = await redisClient.get<string | SavedXurlVerification>("config:xurl:last_test");
+      if (cached) {
+        const item: SavedXurlVerification =
+          typeof cached === "string" ? JSON.parse(cached) : cached;
+        const isDue = Date.now() >= new Date(item.nextCheckDueAt).getTime();
+        return { ...item, isDue };
+      }
+    } catch {}
+  }
+
+  // 2. Fall back to PostgreSQL database (audit_logs)
+  try {
+    const adminClient = createAdminClient();
+    const { data, error } = await adminClient
+      .from("audit_logs")
+      .select("*")
+      .eq("event_type", "XURL_KEY_VERIFICATION")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data || !data.metadata) return null;
+
+    const m = data.metadata as Record<string, unknown>;
+    const intervalDays = typeof m.interval_days === "number" ? m.interval_days : 7;
+    const testedAt = typeof m.tested_at === "string" ? m.tested_at : data.created_at;
+    const nextCheckDueAt =
+      typeof m.next_check_due_at === "string"
+        ? m.next_check_due_at
+        : new Date(new Date(testedAt).getTime() + intervalDays * 86400000).toISOString();
+    const isDue = Date.now() >= new Date(nextCheckDueAt).getTime();
+
+    const verification: SavedXurlVerification = {
+      status: (m.status as SavedXurlVerification["status"]) || "connected",
+      valid: Boolean(m.valid),
+      plan: m.plan as SavedXurlVerification["plan"],
+      httpStatus: typeof m.http_status === "number" ? m.http_status : 200,
+      maskedKey: typeof m.masked_key === "string" ? m.masked_key : undefined,
+      message: typeof m.message === "string" ? m.message : "",
+      intervalDays,
+      testedAt,
+      nextCheckDueAt,
+      isDue,
+    };
+
+    // Cache to Redis
+    if (redisClient) {
+      try {
+        await redisClient.set("config:xurl:last_test", JSON.stringify(verification));
+      } catch {}
+    }
+
+    return verification;
+  } catch (err) {
+    console.error("[XURL] Error querying saved verification from database:", err);
+    return null;
+  }
+}
+
+export async function updateXurlVerificationInterval(
+  newIntervalDays: number,
+  customRedis?: Redis | null
+): Promise<SavedXurlVerification | null> {
+  const existing = await getSavedXurlVerification(customRedis);
+  const redisClient = getRedisClient(customRedis);
+
+  if (redisClient) {
+    try {
+      await redisClient.set("config:xurl:interval_days", String(newIntervalDays));
+    } catch {}
+  }
+
+  if (!existing) return null;
+
+  const testedAtDate = new Date(existing.testedAt);
+  const nextCheckDueAt = new Date(
+    testedAtDate.getTime() + newIntervalDays * 86400000
+  ).toISOString();
+  const isDue = Date.now() >= new Date(nextCheckDueAt).getTime();
+
+  const updated: SavedXurlVerification = {
+    ...existing,
+    intervalDays: newIntervalDays,
+    nextCheckDueAt,
+    isDue,
+  };
+
+  if (redisClient) {
+    try {
+      await redisClient.set("config:xurl:last_test", JSON.stringify(updated));
+    } catch {}
+  }
+
+  // Also update latest audit log metadata in database
+  try {
+    const adminClient = createAdminClient();
+    const { data: latestRow } = await adminClient
+      .from("audit_logs")
+      .select("id, metadata")
+      .eq("event_type", "XURL_KEY_VERIFICATION")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestRow) {
+      const currentMeta = (latestRow.metadata as Record<string, unknown>) || {};
+      await adminClient
+        .from("audit_logs")
+        .update({
+          metadata: {
+            ...currentMeta,
+            interval_days: newIntervalDays,
+            next_check_due_at: nextCheckDueAt,
+          },
+        })
+        .eq("id", latestRow.id);
+    }
+  } catch (err) {
+    console.warn("[XURL] Warning: could not update interval in database:", err);
+  }
+
+  return updated;
 }

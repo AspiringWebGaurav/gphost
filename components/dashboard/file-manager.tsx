@@ -88,6 +88,7 @@ import { getFriendlyFileType } from "@/lib/storage/file-type";
 import { getShareDomainConfig } from "@/lib/share/constants";
 import { useSlugValidation } from "@/lib/hooks/use-slug-validation";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 function getFileTypeDetails(mimeType: string, filename: string) {
   const lowerMime = (mimeType || "").toLowerCase();
@@ -378,6 +379,9 @@ export function FileManager({
   isPremium = false,
   currentUserId,
 }: FileManagerProps) {
+  const router = useRouter();
+  const deletedFolderPathsRef = useRef<Set<string>>(new Set());
+
   // Sort State: Deterministic SSR default ("recent"), restored after hydration
   const [sortBy, setSortBy] = useState<FileSortOption>("recent");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
@@ -457,21 +461,27 @@ export function FileManager({
       setCustomFolders((prev) => {
         const activeFileFolders = new Set<string>();
         for (const f of files) {
-          if (f.folder) {
-            activeFileFolders.add(f.folder.split("/")[0]);
+          if (f.folder && !deletedFolderPathsRef.current.has(f.folder)) {
+            const top = f.folder.split("/")[0];
+            if (top && !deletedFolderPathsRef.current.has(top)) activeFileFolders.add(top);
             activeFileFolders.add(f.folder);
           }
         }
-        const serverSet = new Set(initialCustomFolders);
-        const valid = prev.filter((f) => serverSet.has(f) || activeFileFolders.has(f));
-        const merged = Array.from(new Set([...initialCustomFolders, ...valid]));
+        const serverFiltered = initialCustomFolders.filter(
+          (f) => !deletedFolderPathsRef.current.has(f) && !deletedFolderPathsRef.current.has(f.split("/")[0])
+        );
+        const serverSet = new Set(serverFiltered);
+        const valid = prev.filter(
+          (f) => !deletedFolderPathsRef.current.has(f) && !deletedFolderPathsRef.current.has(f.split("/")[0]) && (serverSet.has(f) || activeFileFolders.has(f))
+        );
+        const merged = Array.from(new Set([...serverFiltered, ...valid]));
         try {
           localStorage.setItem("gphost_custom_folders", JSON.stringify(merged));
         } catch {}
         return merged;
       });
     }
-  }, [initialCustomFolders, files]);
+  }, [initialCustomFolders]);
 
   // Keep files, totalCount, and totalPages in sync when Server Component re-renders (e.g. router.refresh())
   useEffect(() => {
@@ -551,6 +561,7 @@ export function FileManager({
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderNameInput, setNewFolderNameInput] = useState("");
   const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
 
   const [folderToRename, setFolderToRename] = useState<FolderItem | null>(null);
   const [renameFolderNameInput, setRenameFolderNameInput] = useState("");
@@ -1287,6 +1298,13 @@ export function FileManager({
           message: `Deleted "${targetFile.sanitized_name}"`,
           timestamp: Date.now(),
         });
+        if (typeof data.storageUsedBytes === "number") {
+          storageEvents.emit("storage:updated", {
+            storageUsedBytes: data.storageUsedBytes,
+            activeFilesCount: data.activeFilesCount,
+            source: "local_optimistic",
+          });
+        }
         storageEvents.emit("file:lifecycle", {
           fileId: targetFile.id,
           size: targetFile.byte_size,
@@ -1409,6 +1427,14 @@ export function FileManager({
         );
         if (res.ok || res.status === 404) {
           deletedFolderList.push(folderPath);
+          const data = await res.json().catch(() => ({}));
+          if (typeof data.storageUsedBytes === "number") {
+            storageEvents.emit("storage:updated", {
+              storageUsedBytes: data.storageUsedBytes,
+              activeFilesCount: data.activeFilesCount,
+              source: "local_optimistic",
+            });
+          }
         }
       } catch (err) {
         console.error(`Failed to delete folder ${folderPath}:`, err);
@@ -1419,6 +1445,11 @@ export function FileManager({
     }
 
     if (deletedFolderList.length > 0) {
+      for (const df of deletedFolderList) {
+        deletedFolderPathsRef.current.add(df);
+        const top = df.split("/")[0];
+        if (top) deletedFolderPathsRef.current.add(top);
+      }
       setCustomFolders((prev) => {
         const next = prev.filter((f) => !deletedFolderList.some((df) => f === df || f.startsWith(`${df}/`)));
         try {
@@ -1439,6 +1470,10 @@ export function FileManager({
           totalSubfolders: Math.max(0, prev.totalSubfolders - deletedFolderList.length),
         };
       });
+      setFolderTree((prev) =>
+        prev.filter((node) => !deletedFolderList.some((df) => node.path === df || node.path.startsWith(`${df}/`)))
+      );
+      router.refresh();
       setFolderTree((prev) =>
         prev.filter((node) => !deletedFolderList.some((df) => node.path === df || node.path.startsWith(`${df}/`)))
       );
@@ -1544,11 +1579,13 @@ export function FileManager({
     setTargetMoveFolder("");
   };
 
-  const handleCreateNewFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateNewFolder = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isCreatingFolder) return;
+
     const rawInput = newFolderNameInput.trim();
     if (!rawInput) {
-      setNewFolderError("Please enter a folder name or path");
+      setNewFolderError("Please enter a folder name");
       return;
     }
 
@@ -1568,6 +1605,9 @@ export function FileManager({
       targetPath = `${category}/${rawInput}`;
     }
 
+    setIsCreatingFolder(true);
+    setNewFolderError(null);
+
     try {
       const normalized = normalizeFolderPath(targetPath);
       const res = await authFetch("/api/v1/folders", {
@@ -1575,7 +1615,7 @@ export function FileManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: normalized }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setNewFolderError(data.error || "Failed to create folder");
         return;
@@ -1589,18 +1629,24 @@ export function FileManager({
         return next;
       });
 
+      // Keep loader lock active until folder tree and UI are refreshed
+      await Promise.all([
+        fetchFolderTree(),
+        fetchFolderContents(category),
+        fetchFiles(page, searchQuery, category, sortBy, sortOrder),
+      ]);
+
       setShowNewFolderModal(false);
       setNewFolderNameInput("");
       setNewFolderError(null);
-      void fetchFolderTree();
-      void fetchFolderContents(category);
-      void fetchFiles(page, searchQuery, category, sortBy, sortOrder);
       setLastLiveAction({
         message: `Folder '${getFolderNameFromPath(normalized)}' created`,
         timestamp: Date.now(),
       });
     } catch (err: unknown) {
       setNewFolderError(err instanceof Error ? err.message : "Failed to create folder");
+    } finally {
+      setIsCreatingFolder(false);
     }
   };
 
@@ -1697,7 +1743,24 @@ export function FileManager({
         return;
       }
 
+      if (typeof data.storageUsedBytes === "number") {
+        storageEvents.emit("storage:updated", {
+          storageUsedBytes: data.storageUsedBytes,
+          activeFilesCount: data.activeFilesCount,
+          source: "local_optimistic",
+        });
+      } else if (typeof data.reclaimedBytes === "number" && data.reclaimedBytes > 0) {
+        storageEvents.emit("storage:updated", {
+          deltaBytes: -data.reclaimedBytes,
+          source: "local_optimistic",
+        });
+      }
+
       const deletedPath = folderToDelete.path;
+      deletedFolderPathsRef.current.add(deletedPath);
+      const topDeleted = deletedPath.split("/")[0];
+      if (topDeleted) deletedFolderPathsRef.current.add(topDeleted);
+
       setCustomFolders((prev) => {
         const next = prev.filter((f) => f !== deletedPath && !f.startsWith(`${deletedPath}/`));
         try {
@@ -1728,6 +1791,12 @@ export function FileManager({
         prev.filter((node) => node.path !== deletedPath && !node.path.startsWith(`${deletedPath}/`))
       );
 
+      setSelectedFolderPaths((prev) => {
+        const next = new Set(prev);
+        next.delete(deletedPath);
+        return next;
+      });
+
       if (category === deletedPath || category.startsWith(`${deletedPath}/`)) {
         const parent = getFolderParentPath(deletedPath);
         setCategory(parent || "all");
@@ -1736,6 +1805,8 @@ export function FileManager({
       setFolderToDelete(null);
       void fetchFolderTree();
       void fetchFolderContents(category === deletedPath ? "all" : category);
+      void fetchFiles(page, searchQuery, category === deletedPath ? "all" : category, sortBy, sortOrder);
+      router.refresh();
       setLastLiveAction({
         message: `Folder '${deletedPath}' deleted`,
         timestamp: Date.now(),
@@ -1936,20 +2007,26 @@ export function FileManager({
     const system = new Set(["all", "gpn", "api", "websites", "images", "documents", "media", "archives"]);
     const set = new Set<string>();
     for (const f of customFolders) {
-      if (!system.has(f)) {
+      if (!system.has(f) && !deletedFolderPathsRef.current.has(f)) {
         const top = f.split("/")[0];
-        if (top) set.add(top);
+        if (top && !deletedFolderPathsRef.current.has(top)) set.add(top);
       }
     }
     for (const f of files) {
       if (f.folder && !system.has(f.folder)) {
         const top = f.folder.split("/")[0];
-        if (top) set.add(top);
+        if (top && !deletedFolderPathsRef.current.has(top) && !deletedFolderPathsRef.current.has(f.folder)) {
+          set.add(top);
+        }
       }
     }
     if (folderTree && folderTree.length > 0) {
       for (const node of folderTree) {
-        if (!system.has(node.name)) {
+        if (
+          !system.has(node.name) &&
+          !deletedFolderPathsRef.current.has(node.name) &&
+          !deletedFolderPathsRef.current.has(node.path)
+        ) {
           set.add(node.name);
         }
       }
@@ -2014,6 +2091,7 @@ export function FileManager({
           const p = sf.path;
           if (
             !sf.parent_path &&
+            !deletedFolderPathsRef.current.has(p) &&
             !["all", "gpn", "api", "websites", "images", "documents", "media", "archives"].includes(p)
           ) {
             folderMap.set(p, {
@@ -2032,6 +2110,7 @@ export function FileManager({
       for (const f of allDynamicFolders) {
         if (
           !folderMap.has(f) &&
+          !deletedFolderPathsRef.current.has(f) &&
           !["all", "gpn", "api", "websites", "images", "documents", "media", "archives"].includes(f)
         ) {
           const matchingFiles = files.filter(
@@ -2092,7 +2171,7 @@ export function FileManager({
 
       for (const sf of currentFolderData.subfolders) {
         const p = sf.path;
-        if (!p || subMap.has(p)) continue;
+        if (!p || subMap.has(p) || deletedFolderPathsRef.current.has(p)) continue;
         subMap.set(p, {
           id: sf.id || p,
           name: sf.name || getFolderNameFromPath(p),
@@ -2577,22 +2656,23 @@ export function FileManager({
           </div>
 
           {viewMode === "grid" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-3.5">
               {currentLevelFolders.map((folder, idx) => {
                 const FolderIcon = folder.icon || Folder;
                 const isSelected = selectedFolderPaths.has(folder.path);
                 return (
                   <div
                     key={`folder-${folder.path}-${idx}`}
+                    suppressHydrationWarning
                     onClick={() => setCategory(folder.path)}
-                    className={`group relative p-2.5 sm:p-3 rounded-2xl border transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-2.5 ${
+                    className={`group relative p-3 rounded-2xl border transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-3 min-h-[66px] ${
                       isSelected
                         ? "border-blue-500 ring-2 ring-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10 shadow-md"
                         : "border-border bg-card hover:bg-muted/40 hover:border-blue-500/40 text-foreground"
                     }`}
                     title={folder.path}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       {/* Checkbox for dynamic batch select */}
                       <input
                         type="checkbox"
@@ -2625,10 +2705,13 @@ export function FileManager({
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs sm:text-sm font-semibold truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        <div
+                          className="text-xs sm:text-sm font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug break-words line-clamp-2"
+                          title={folder.name}
+                        >
                           {folder.name}
                         </div>
-                        <div className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
+                        <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">
                           {folder.fileCount === 0 && folder.subfolderCount === 0
                             ? "Empty"
                             : `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
@@ -2638,10 +2721,11 @@ export function FileManager({
                       </div>
                     </div>
 
-                    {/* Right side actions in standard flex flow - NEVER covers folder name - NO DELETE ON HOVER */}
+                    {/* Right side actions in subtle glass pill - Never covers folder name and takes 0px flow width */}
                     {!folder.isSpecial && (
                       <div
-                        className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                        suppressHydrationWarning
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-card/95 dark:bg-card/95 backdrop-blur-md px-1.5 py-1 rounded-xl border border-border/80 shadow-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all z-10"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
@@ -2691,6 +2775,29 @@ export function FileManager({
                         >
                           <Move className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFolderToDelete({
+                              id: folder.id,
+                              name: folder.name,
+                              path: folder.path,
+                              parentPath: folder.parentPath,
+                              depth: folder.path.split("/").length,
+                              createdAt: new Date().toISOString(),
+                              updatedAt: new Date().toISOString(),
+                              totalFiles: folder.fileCount,
+                              totalBytes: 0,
+                              totalSubfolders: folder.subfolderCount,
+                            });
+                          }}
+                          className="p-1 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition cursor-pointer"
+                          title={`Delete folder '${folder.name}'`}
+                          aria-label={`Delete folder '${folder.name}'`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                   </div>
@@ -2706,6 +2813,7 @@ export function FileManager({
                 return (
                   <div
                     key={`folder-list-${folder.path}-${idx}`}
+                    suppressHydrationWarning
                     onClick={() => setCategory(folder.path)}
                     className={`group p-3 sm:px-4 flex items-center justify-between gap-3 hover:bg-muted/40 transition-all duration-150 cursor-pointer select-none ${
                       isSelected ? "bg-blue-500/5 dark:bg-blue-500/10" : "text-foreground"
@@ -2740,10 +2848,13 @@ export function FileManager({
                         <FolderIcon className="w-4 h-4 fill-current/20" />
                       </div>
                       <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-xs sm:text-sm font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                        <span
+                          className="text-xs sm:text-sm font-semibold text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors break-words"
+                          title={folder.name}
+                        >
                           {folder.name}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-muted text-muted-foreground border border-border/60">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-muted text-muted-foreground border border-border/60 shrink-0">
                           Folder
                         </span>
                       </div>
@@ -2760,6 +2871,7 @@ export function FileManager({
 
                       {!folder.isSpecial && (
                         <div
+                          suppressHydrationWarning
                           className="flex items-center gap-1 shrink-0"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -2807,6 +2919,29 @@ export function FileManager({
                             title={`Move folder '${folder.name}'`}
                           >
                             <Move className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFolderToDelete({
+                                id: folder.id,
+                                name: folder.name,
+                                path: folder.path,
+                                parentPath: folder.parentPath,
+                                depth: folder.path.split("/").length,
+                                createdAt: new Date().toISOString(),
+                                updatedAt: new Date().toISOString(),
+                                totalFiles: folder.fileCount,
+                                totalBytes: 0,
+                                totalSubfolders: folder.subfolderCount,
+                              });
+                            }}
+                            className="p-1 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition cursor-pointer"
+                            title={`Delete folder '${folder.name}'`}
+                            aria-label={`Delete folder '${folder.name}'`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       )}
@@ -5689,7 +5824,7 @@ export function FileManager({
           role="dialog"
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 dark:bg-black/65 backdrop-blur-md animate-in fade-in duration-200"
-          onClick={() => setShowNewFolderModal(false)}
+          onClick={() => !isCreatingFolder && setShowNewFolderModal(false)}
         >
           <div
             className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/30 dark:border-white/10 bg-card/90 dark:bg-card/85 backdrop-blur-2xl p-5 sm:p-6 shadow-2xl shadow-black/15 dark:shadow-black/50 ring-1 ring-black/5 dark:ring-white/5 space-y-4 animate-in zoom-in-95 duration-200"
@@ -5708,8 +5843,8 @@ export function FileManager({
                     Create New Folder
                   </h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-xs text-muted-foreground">Location:</span>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-mono font-semibold text-foreground truncate max-w-[220px]">
+                    <span className="text-xs text-muted-foreground">Inside:</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 dark:bg-muted/40 border border-border/80 text-[11px] font-semibold text-foreground truncate max-w-[220px]">
                       <Folder className="w-3 h-3 text-amber-500 shrink-0" />
                       <span>
                         {category === "all" ||
@@ -5722,7 +5857,7 @@ export function FileManager({
                           "media",
                           "archives",
                         ].includes(category)
-                          ? "Root (Storage)"
+                          ? "Storage (Main)"
                           : category}
                       </span>
                     </span>
@@ -5731,8 +5866,9 @@ export function FileManager({
               </div>
               <button
                 type="button"
-                onClick={() => setShowNewFolderModal(false)}
-                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer"
+                onClick={() => !isCreatingFolder && setShowNewFolderModal(false)}
+                disabled={isCreatingFolder}
+                className="p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/60 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -5740,44 +5876,23 @@ export function FileManager({
             </div>
 
             <form onSubmit={handleCreateNewFolder} className="space-y-4 relative z-10">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <label className="text-xs font-semibold text-foreground">
-                  Folder Name or Nested Path
+                  Folder Name
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Projects or 2026/Assets"
+                  placeholder="e.g. Invoices, Projects, or Work"
                   value={newFolderNameInput}
+                  disabled={isCreatingFolder}
                   onChange={(e) => {
                     setNewFolderNameInput(e.target.value);
                     setNewFolderError(null);
                   }}
                   autoFocus
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-background/80 border border-border/90 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Alphanumeric, underscores, hyphens, and slashes. Intermediate parent folders are created automatically.
-                </p>
-                {newFolderNameInput.trim() && (
-                  <div className="p-2.5 rounded-xl bg-muted/40 border border-border/80 backdrop-blur-sm text-[11px] font-mono text-muted-foreground truncate">
-                    Resolved path:{" "}
-                    <span className="font-semibold text-blue-600 dark:text-blue-400">
-                      {category === "all" ||
-                      [
-                        "gpn",
-                        "api",
-                        "websites",
-                        "images",
-                        "documents",
-                        "media",
-                        "archives",
-                      ].includes(category) ||
-                      newFolderNameInput.includes("/")
-                        ? newFolderNameInput.trim()
-                        : `${category}/${newFolderNameInput.trim()}`}
-                    </span>
-                  </div>
-                )}
+
                 {newFolderError && (
                   <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -5789,18 +5904,36 @@ export function FileManager({
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80">
                 <button
                   type="button"
-                  onClick={() => setShowNewFolderModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98"
+                  onClick={() => !isCreatingFolder && setShowNewFolderModal(false)}
+                  disabled={isCreatingFolder}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/70 border border-border/70 transition cursor-pointer active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!newFolderNameInput.trim()}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-600/50 cursor-pointer active:scale-95 disabled:opacity-50"
+                  disabled={!newFolderNameInput.trim() || isCreatingFolder}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleCreateNewFolder();
+                  }}
+                  className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-600/50 cursor-pointer active:scale-95 ${
+                    !newFolderNameInput.trim() || isCreatingFolder
+                      ? "opacity-50 cursor-not-allowed active:scale-100"
+                      : ""
+                  }`}
                 >
-                  <FolderPlus className="w-3.5 h-3.5" />
-                  <span>Create Folder</span>
+                  {isCreatingFolder ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0 text-white" />
+                      <span>Creating folder...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FolderPlus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Create Folder</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

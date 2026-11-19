@@ -538,6 +538,14 @@ export function UploadZone({ canCreatePermanent, isAdmin, onUploadSuccess, compa
       setSuccessFile(successDetails);
       setSelectedFile(null);
 
+      if (typeof completedData.storageUsedBytes === "number") {
+        storageEvents.emit("storage:updated", {
+          storageUsedBytes: completedData.storageUsedBytes,
+          activeFilesCount: completedData.activeFilesCount,
+          source: "local_optimistic",
+        });
+      }
+
       const fileSize = finalByteSize;
       storageEvents.emit("file:lifecycle", {
         fileId,

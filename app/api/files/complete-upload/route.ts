@@ -183,6 +183,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 6.1. Authoritatively sync profile storage_used_bytes & clear reserved_bytes
+    let updatedStorageBytes = 0;
+    let activeFilesCount = 0;
+    try {
+      const { data: activeFiles } = await adminClient
+        .from("files")
+        .select("byte_size")
+        .eq("user_id", userId)
+        .in("status", ["ACTIVE", "EXPIRING"]);
+      const activeList = activeFiles || [];
+      updatedStorageBytes = activeList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      activeFilesCount = activeList.length;
+
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: updatedStorageBytes,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+    } catch (profileSyncErr) {
+      console.warn("[complete-upload] Profile storage sync warning:", profileSyncErr);
+    }
+
     // 7. Ensure a Share Link & Slug exists (unless noShareLink / private is set)
     const sanitizedSlug = requestedSlug?.toLowerCase().trim();
     let finalSlug: string | null = null;
@@ -338,6 +363,8 @@ export async function POST(req: NextRequest) {
       rawUrl,
       downloadUrl,
       permanentRawUrl: rawUrl,
+      storageUsedBytes: updatedStorageBytes,
+      activeFilesCount,
     });
   } catch (err: unknown) {
     console.error("Unhandled error in complete-upload:", err);

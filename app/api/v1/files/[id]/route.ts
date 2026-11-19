@@ -544,6 +544,30 @@ export async function DELETE(
       })
       .eq("id", fileId);
 
+    // 4.1. Authoritatively sync profile storage_used_bytes
+    let updatedStorageBytes = 0;
+    let activeFilesCount = 0;
+    try {
+      const { data: remainingFiles } = await adminClient
+        .from("files")
+        .select("byte_size")
+        .eq("user_id", userId)
+        .in("status", ["ACTIVE", "EXPIRING"]);
+      const activeList = remainingFiles || [];
+      updatedStorageBytes = activeList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      activeFilesCount = activeList.length;
+      await adminClient
+        .from("profiles")
+        .update({
+          storage_used_bytes: updatedStorageBytes,
+          reserved_bytes: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+    } catch (syncErr) {
+      console.warn("[v1 Files ID DELETE] Storage sync error:", syncErr);
+    }
+
     // 5. Audit Log
     try {
       await adminClient.from("audit_logs").insert({
@@ -564,6 +588,8 @@ export async function DELETE(
       success: true,
       status: "PURGED",
       message: "File permanently deleted and storage quota reclaimed.",
+      storageUsedBytes: updatedStorageBytes,
+      activeFilesCount,
     });
   } catch (err: unknown) {
     console.error("[v1 Files ID DELETE] Error:", err);

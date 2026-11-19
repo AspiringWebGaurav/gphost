@@ -449,7 +449,7 @@ export async function relocateFolder(
   const { data: baseCheck } = await adminClient
     .from("files")
     .select("id, sanitized_name, share_links(slug)")
-    .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/%/${oldNorm}/%`);
+    .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/%/${oldNorm}/%,filename.ilike.${oldNorm}/%`);
 
   if (baseCheck && !options?.force) {
     for (const f of baseCheck) {
@@ -613,7 +613,13 @@ export async function deleteFolder(
   path: string,
   recursive: boolean = true,
   options?: { force?: boolean }
-): Promise<{ deletedFolders: number; deletedFiles: number; reclaimedBytes: number }> {
+): Promise<{
+  deletedFolders: number;
+  deletedFiles: number;
+  reclaimedBytes: number;
+  storageUsedBytes?: number;
+  activeFilesCount?: number;
+}> {
   const norm = normalizeFolderPath(path);
   if (!norm) throw new Error("Root folder cannot be deleted");
 
@@ -637,7 +643,7 @@ export async function deleteFolder(
   const { data: baseCheck } = await adminClient
     .from("files")
     .select("id, sanitized_name, share_links(slug)")
-    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/%/${norm}/%`);
+    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/%/${norm}/%,filename.ilike.${norm}/%`);
 
   if (baseCheck && !options?.force) {
     for (const f of baseCheck) {
@@ -659,7 +665,7 @@ export async function deleteFolder(
     .from("files")
     .select("id, sanitized_name, byte_size, r2_key, share_links(id, slug)")
     .eq("user_id", userId)
-    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%`);
+    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%,filename.ilike.${norm}/%`);
 
   if (candidateFiles && !options?.force) {
     for (const f of candidateFiles) {
@@ -717,15 +723,21 @@ export async function deleteFolder(
 
     deletedFilesCount = candidateFiles.length;
     reclaimedBytes = candidateFiles.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+  }
 
-    // Authoritatively sync profile storage_used_bytes
-    try {
-      const { data: remainingFiles } = await adminClient
-        .from("files")
-        .select("byte_size")
-        .eq("user_id", userId)
-        .in("status", ["ACTIVE", "EXPIRING"]);
-      const updatedStorageBytes = (remainingFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+  // Authoritatively sync profile storage_used_bytes and get remaining metrics
+  let updatedStorageBytes: number | undefined = undefined;
+  let remainingActiveCount: number | undefined = undefined;
+  try {
+    const { data: remainingFiles } = await adminClient
+      .from("files")
+      .select("byte_size")
+      .eq("user_id", userId)
+      .in("status", ["ACTIVE", "EXPIRING"]);
+    const activeList = remainingFiles || [];
+    updatedStorageBytes = activeList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+    remainingActiveCount = activeList.length;
+    if (deletedFilesCount > 0) {
       await adminClient
         .from("profiles")
         .update({
@@ -734,8 +746,8 @@ export async function deleteFolder(
           updated_at: new Date().toISOString(),
         })
         .eq("id", userId);
-    } catch {}
-  }
+    }
+  } catch {}
 
   // 3. Delete folders in batch
   let deletedFoldersCount = 0;
@@ -782,5 +794,7 @@ export async function deleteFolder(
     deletedFolders: deletedFoldersCount,
     deletedFiles: deletedFilesCount,
     reclaimedBytes,
+    storageUsedBytes: updatedStorageBytes,
+    activeFilesCount: remainingActiveCount,
   };
 }

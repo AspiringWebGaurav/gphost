@@ -31,10 +31,19 @@ export async function GET(req: NextRequest) {
     );
     const activeFilesCount = activeFilesList.length;
 
+    // Fetch current profile metrics to verify synchronization
+    const { data: dbProfile } = await adminClient
+      .from("profiles")
+      .select("storage_used_bytes, quota_bytes, reserved_bytes")
+      .eq("id", userId)
+      .single();
+
+    const quotaBytes = dbProfile?.quota_bytes ?? profile.quota_bytes ?? -1;
+    const reservedBytes = dbProfile?.reserved_bytes ?? 0;
+    const dbStorageUsed = dbProfile?.storage_used_bytes ?? 0;
+
     // Self-heal profile if storage_used_bytes drifted or was out of sync
-    let storageUsedBytes = profile.storage_used_bytes;
-    if (storageUsedBytes !== trueStorageUsedBytes) {
-      storageUsedBytes = trueStorageUsedBytes;
+    if (dbStorageUsed !== trueStorageUsedBytes || reservedBytes !== 0) {
       await adminClient
         .from("profiles")
         .update({
@@ -45,12 +54,8 @@ export async function GET(req: NextRequest) {
         .eq("id", userId);
     }
 
-    const quotaBytes = profile.quota_bytes;
-    const reservedBytes = profile.reserved_bytes;
-    const updatedAt = profile.updated_at || new Date().toISOString();
-
     // Compute smart checksum ETag
-    const signatureRaw = `${userId}:${storageUsedBytes}:${quotaBytes}:${reservedBytes}:${activeFilesCount}:${updatedAt}`;
+    const signatureRaw = `${userId}:${trueStorageUsedBytes}:${quotaBytes}:${activeFilesCount}`;
     const etag = `"${crypto.createHash("md5").update(signatureRaw).digest("hex")}"`;
 
     // Check If-None-Match header
@@ -61,24 +66,24 @@ export async function GET(req: NextRequest) {
         status: 304,
         headers: {
           ETag: etag,
-          "Cache-Control": "private, no-cache",
+          "Cache-Control": "private, no-cache, no-store, must-revalidate",
         },
       });
     }
 
     return NextResponse.json(
       {
-        storageUsedBytes,
+        storageUsedBytes: trueStorageUsedBytes,
         quotaBytes,
-        reservedBytes,
+        reservedBytes: 0,
         activeFilesCount,
-        updatedAt,
+        isUnlimited: quotaBytes === -1,
       },
       {
         status: 200,
         headers: {
           ETag: etag,
-          "Cache-Control": "private, no-cache",
+          "Cache-Control": "private, no-cache, no-store, must-revalidate",
         },
       }
     );

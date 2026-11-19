@@ -230,13 +230,17 @@ export async function DELETE(
       .eq("id", fileId);
 
     // 5.1. Authoritatively sync profile storage_used_bytes to actual remaining active files
+    let updatedStorageBytes = 0;
+    let activeFilesCount = 0;
     try {
       const { data: remainingFiles } = await adminClient
         .from("files")
         .select("byte_size")
         .eq("user_id", file.user_id)
         .in("status", ["ACTIVE", "EXPIRING"]);
-      const updatedStorageBytes = (remainingFiles || []).reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      const activeList = remainingFiles || [];
+      updatedStorageBytes = activeList.reduce((sum, f) => sum + (f.byte_size || 0), 0);
+      activeFilesCount = activeList.length;
       await adminClient
         .from("profiles")
         .update({
@@ -269,6 +273,8 @@ export async function DELETE(
       success: true,
       status: "PURGED",
       message: "File permanently deleted and storage reclaimed.",
+      storageUsedBytes: updatedStorageBytes,
+      activeFilesCount,
     });
   } catch (err: unknown) {
     console.error("Unhandled error in DELETE /api/files/[id]:", err);

@@ -254,6 +254,13 @@ export function HtmlHostModal({
         }
 
         targetFileId = initData.fileId;
+        if (typeof compData.storageUsedBytes === "number") {
+          storageEvents.emit("storage:updated", {
+            storageUsedBytes: compData.storageUsedBytes,
+            activeFilesCount: compData.activeFilesCount,
+            source: "local_optimistic",
+          });
+        }
       } else {
         setDeployProgress(40);
         setDeployPhase("Registering custom web slug on edge router...");
