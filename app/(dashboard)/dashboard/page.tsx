@@ -25,6 +25,10 @@ export default async function DashboardPage() {
   // Fetch initial files for server rendering
   const adminClient = createAdminClient();
   const nowIso = new Date().toISOString();
+  const configuredAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const isOwnerOrAdmin =
+    profile.role === "admin" ||
+    Boolean(configuredAdminEmail && profile.email.toLowerCase() === configuredAdminEmail);
 
   // Non-blocking Lazy Reconciliation: Transition past-due files to EXPIRED in background (throttled to once per 5m per user)
   try {
@@ -46,11 +50,21 @@ export default async function DashboardPage() {
     // Non-blocking fallback
   }
 
+  // Check Redis for cached user share stats (30-second TTL, shared with /api/files)
+  const shareStatsCacheKey = `user:share_stats:${user.id}`;
+  let cachedShareStats: { activeLinks: number; totalDownloads: number } | null = null;
+  try {
+    const raw = await redis.get<{ activeLinks: number; totalDownloads: number }>(shareStatsCacheKey);
+    if (raw && typeof raw.activeLinks === "number") {
+      cachedShareStats = raw;
+    }
+  } catch {}
+
   const [
     maxFiles,
     { data: filesRaw, count: totalFilesCount },
-    { data: shareLinksRaw },
-    { data: approvedRequest },
+    shareLinksRes,
+    approvedRequestRes,
   ] = await Promise.all([
     getUserMaxFiles(user.id),
     adminClient
@@ -73,23 +87,27 @@ export default async function DashboardPage() {
       .in("status", ["ACTIVE", "EXPIRING", "EXPIRED"])
       .order("created_at", { ascending: false })
       .limit(10),
-    adminClient
-      .from("share_links")
-      .select(
-        `id, download_count, max_downloads, expires_at, is_active,
-         files!inner(id, user_id, status, expires_at)`
-      )
-      .eq("files.user_id", user.id)
-      .eq("files.status", "ACTIVE")
-      .eq("is_active", true),
-    adminClient
-      .from("access_requests")
-      .select("reviewed_at, rejection_reason")
-      .eq("user_id", user.id)
-      .eq("status", "approved")
-      .order("reviewed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    cachedShareStats
+      ? Promise.resolve({ data: null })
+      : adminClient
+          .from("share_links")
+          .select(
+            `id, download_count, max_downloads, expires_at, is_active,
+             files!inner(id, user_id, status, expires_at)`
+          )
+          .eq("files.user_id", user.id)
+          .eq("files.status", "ACTIVE")
+          .eq("is_active", true),
+    isOwnerOrAdmin
+      ? Promise.resolve({ data: null })
+      : adminClient
+          .from("access_requests")
+          .select("reviewed_at, rejection_reason")
+          .eq("user_id", user.id)
+          .eq("status", "approved")
+          .order("reviewed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
   ]);
 
   interface DbShareLinkStatsRow {
@@ -103,39 +121,57 @@ export default async function DashboardPage() {
       | { id: string; user_id: string; status: string; expires_at: string | null }[];
   }
 
-  const allShareLinks = (shareLinksRaw as unknown as DbShareLinkStatsRow[] | null) || [];
-  const nowMs = new Date(nowIso).getTime();
-  const staleLinkIds: string[] = [];
+  let activeLinksCount = cachedShareStats?.activeLinks ?? 0;
+  let totalDownloads = cachedShareStats?.totalDownloads ?? 0;
 
-  const validActiveLinks = allShareLinks.filter((l) => {
-    const file = Array.isArray(l.files) ? l.files[0] : l.files;
-    if (!file || file.status !== "ACTIVE") {
-      staleLinkIds.push(l.id);
-      return false;
-    }
-    if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) {
-      staleLinkIds.push(l.id);
-      return false;
-    }
-    if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) {
-      staleLinkIds.push(l.id);
-      return false;
-    }
-    if (l.max_downloads !== null && l.download_count >= l.max_downloads) {
-      staleLinkIds.push(l.id);
-      return false;
-    }
-    return true;
-  });
+  if (!cachedShareStats && shareLinksRes.data) {
+    const allShareLinks = (shareLinksRes.data as unknown as DbShareLinkStatsRow[] | null) || [];
+    const nowMs = new Date(nowIso).getTime();
+    const staleLinkIds: string[] = [];
 
-  // Background cleanup of any newly discovered stale link IDs
-  if (staleLinkIds.length > 0) {
-    adminClient
-      .from("share_links")
-      .update({ is_active: false })
-      .in("id", staleLinkIds)
-      .then(() => {});
+    const validActiveLinks = allShareLinks.filter((l) => {
+      const file = Array.isArray(l.files) ? l.files[0] : l.files;
+      if (!file || file.status !== "ACTIVE") {
+        staleLinkIds.push(l.id);
+        return false;
+      }
+      if (file.expires_at && new Date(file.expires_at).getTime() <= nowMs) {
+        staleLinkIds.push(l.id);
+        return false;
+      }
+      if (l.expires_at && new Date(l.expires_at).getTime() <= nowMs) {
+        staleLinkIds.push(l.id);
+        return false;
+      }
+      if (l.max_downloads !== null && l.download_count >= l.max_downloads) {
+        staleLinkIds.push(l.id);
+        return false;
+      }
+      return true;
+    });
+
+    activeLinksCount = validActiveLinks.length;
+    totalDownloads = allShareLinks.reduce(
+      (sum, link) => sum + (Number(link.download_count) || 0),
+      0
+    );
+
+    // Cache computed stats in Redis for 30s
+    try {
+      await redis.set(shareStatsCacheKey, { activeLinks: activeLinksCount, totalDownloads }, { ex: 30 });
+    } catch {}
+
+    // Background cleanup of any newly discovered stale link IDs
+    if (staleLinkIds.length > 0) {
+      adminClient
+        .from("share_links")
+        .update({ is_active: false })
+        .in("id", staleLinkIds)
+        .then(() => {});
+    }
   }
+
+  const approvedRequest = approvedRequestRes.data;
 
   interface DbShareLink {
     id: string;
@@ -189,16 +225,6 @@ export default async function DashboardPage() {
     };
   });
 
-  const totalDownloads = allShareLinks.reduce(
-    (sum, link) => sum + (Number(link.download_count) || 0),
-    0
-  );
-
-  const configuredAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-  const isOwnerOrAdmin =
-    profile.role === "admin" ||
-    Boolean(configuredAdminEmail && profile.email.toLowerCase() === configuredAdminEmail);
-
   const welcomeInfo =
     !isOwnerOrAdmin && approvedRequest
       ? {
@@ -221,7 +247,7 @@ export default async function DashboardPage() {
       welcomeInfo={welcomeInfo}
       stats={{
         totalFiles: totalFilesCount ?? formattedFiles.length,
-        activeLinks: validActiveLinks.length,
+        activeLinks: activeLinksCount,
         totalDownloads,
       }}
       profile={{
