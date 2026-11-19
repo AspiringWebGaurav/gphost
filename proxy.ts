@@ -61,7 +61,7 @@ export async function proxy(request: NextRequest) {
   // Allow 'unsafe-inline' and 'unsafe-eval' so Next.js inline hydration scripts ($RC, self.__next_f) and static route replacements execute cleanly without being blocked
   const isDev = process.env.NODE_ENV !== "production";
   const scriptSrc = `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://switchyy.eu.cc;`;
-  const connectSrc = `connect-src 'self' ${isDev ? "ws: wss: " : ""}https://*.supabase.co https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://switchyy.eu.cc https://xurl.eu.cc;`;
+  const connectSrc = `connect-src 'self' ${isDev ? "ws: wss: " : ""}https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://switchyy.eu.cc https://xurl.eu.cc;`;
 
   // Only upgrade insecure requests in production when accessed over HTTPS.
   // In development (or over local network HTTP such as 192.168.x.x:3000), upgrade-insecure-requests causes mobile
