@@ -1139,6 +1139,35 @@ export function FileManager({
     [fetchFolderContents, fetchFiles, searchQuery, sortBy, sortOrder]
   );
 
+  // Google Drive-style instant local navigation with zero-flicker background sync
+  const navigateToFolder = useCallback(
+    (targetPath: string) => {
+      const cleanPath = targetPath.trim() || "all";
+      setCategory(cleanPath);
+      setPage(1);
+
+      // Instant optimistic breadcrumbs (0ms)
+      const immediateCrumbs =
+        cleanPath === "all" ? [{ name: "Storage", path: "" }] : getBreadcrumbs(cleanPath);
+
+      // Instant optimistic folder data from local cache or local state (0ms)
+      const cached = folderDataCacheRef.current.get(cleanPath);
+      if (cached) {
+        setCurrentFolderData(cached);
+      } else {
+        setCurrentFolderData((prev) => ({
+          ...prev,
+          breadcrumbs: immediateCrumbs,
+        }));
+      }
+
+      // Silent non-blocking background sync (never flashes spinner)
+      void fetchFolderContents(cleanPath);
+      void fetchFiles(1, searchQuery, cleanPath, sortBy, sortOrder, true);
+    },
+    [fetchFolderContents, fetchFiles, searchQuery, sortBy, sortOrder]
+  );
+
   // Single-file enrich helper for live events with ID only
   const fetchSingleFileEnrich = useCallback(
     async (id: string) => {
