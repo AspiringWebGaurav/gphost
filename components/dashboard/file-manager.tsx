@@ -64,6 +64,7 @@ import {
   normalizeFolderPath,
   getFolderNameFromPath,
   getFolderParentPath,
+  getFolderDepth,
   getBreadcrumbs,
   type FolderItem,
   type FolderTreeNode,
@@ -1124,41 +1125,56 @@ export function FileManager({
       if (cached) {
         setCurrentFolderData(cached);
       } else {
-        setCurrentFolderData((prev) => ({
-          subfolders: prev?.subfolders ?? [],
-          totalSubfolders: prev?.totalSubfolders ?? 0,
-          totalFiles: prev?.totalFiles ?? 0,
+        // Build immediate optimistic subfolders from known files & tree in local memory
+        const optimisticSubfolders: FolderItem[] = [];
+        if (cleanPath === "all") {
+          const rootSet = new Set<string>();
+          for (const f of masterFilesMapRef.current.values()) {
+            if (f.folder) {
+              const top = f.folder.split("/")[0];
+              if (top) rootSet.add(top);
+            }
+          }
+          for (const r of Array.from(rootSet)) {
+            if (!deletedFolderPathsRef.current.has(r)) {
+              optimisticSubfolders.push({
+                id: r,
+                name: getFolderNameFromPath(r),
+                path: r,
+                parent_path: null,
+                depth: 1,
+              });
+            }
+          }
+        } else {
+          const subSet = new Set<string>();
+          const prefix = `${cleanPath}/`;
+          for (const f of masterFilesMapRef.current.values()) {
+            if (f.folder && f.folder.startsWith(prefix)) {
+              const rest = f.folder.slice(prefix.length);
+              const segment = rest.split("/")[0];
+              if (segment) subSet.add(`${cleanPath}/${segment}`);
+            }
+          }
+          for (const s of Array.from(subSet)) {
+            if (!deletedFolderPathsRef.current.has(s)) {
+              optimisticSubfolders.push({
+                id: s,
+                name: getFolderNameFromPath(s),
+                path: s,
+                parent_path: cleanPath,
+                depth: getFolderDepth(s),
+              });
+            }
+          }
+        }
+
+        setCurrentFolderData({
+          subfolders: optimisticSubfolders,
           breadcrumbs: immediateCrumbs,
-        }));
-      }
-
-      // Silent non-blocking background sync (never flashes spinner)
-      void fetchFolderContents(cleanPath);
-      void fetchFiles(1, searchQuery, cleanPath, sortBy, sortOrder, true);
-    },
-    [fetchFolderContents, fetchFiles, searchQuery, sortBy, sortOrder]
-  );
-
-  // Google Drive-style instant local navigation with zero-flicker background sync
-  const navigateToFolder = useCallback(
-    (targetPath: string) => {
-      const cleanPath = targetPath.trim() || "all";
-      setCategory(cleanPath);
-      setPage(1);
-
-      // Instant optimistic breadcrumbs (0ms)
-      const immediateCrumbs =
-        cleanPath === "all" ? [{ name: "Storage", path: "" }] : getBreadcrumbs(cleanPath);
-
-      // Instant optimistic folder data from local cache or local state (0ms)
-      const cached = folderDataCacheRef.current.get(cleanPath);
-      if (cached) {
-        setCurrentFolderData(cached);
-      } else {
-        setCurrentFolderData((prev) => ({
-          ...prev,
-          breadcrumbs: immediateCrumbs,
-        }));
+          totalSubfolders: optimisticSubfolders.length,
+          totalFiles: 0,
+        });
       }
 
       // Silent non-blocking background sync (never flashes spinner)
@@ -1508,6 +1524,16 @@ export function FileManager({
       // Root folder: STRICTLY files with NO folder.
       // Never show files that belong inside subfolders (e.g. cp-immutable-base, gaurav, etc.)
       baseFiles = files.filter((f) => !f.folder || f.folder === "");
+    } else if (category === "websites") {
+      baseFiles = files.filter((f) => f.is_site || f.mime_type === "text/html" || f.sanitized_name?.toLowerCase().endsWith(".html") || f.sanitized_name?.toLowerCase().endsWith(".htm"));
+    } else if (category === "images") {
+      baseFiles = files.filter((f) => f.mime_type?.startsWith("image/"));
+    } else if (category === "documents") {
+      baseFiles = filterByFileType(files, "documents");
+    } else if (category === "media") {
+      baseFiles = files.filter((f) => f.mime_type?.startsWith("video/") || f.mime_type?.startsWith("audio/"));
+    } else if (category === "archives") {
+      baseFiles = filterByFileType(files, "archives");
     } else {
       // Inside a specific folder: STRICTLY files directly inside this folder.
       // Never show files from deeper nested subfolders!
@@ -2140,12 +2166,13 @@ export function FileManager({
     }
     if (folderTree && folderTree.length > 0) {
       for (const node of folderTree) {
+        const topPath = node.path ? node.path.split("/")[0] : (node.parent_path ? null : node.name);
         if (
-          !system.has(node.name) &&
-          !deletedFolderPathsRef.current.has(node.name) &&
-          !deletedFolderPathsRef.current.has(node.path)
+          topPath &&
+          !system.has(topPath) &&
+          !deletedFolderPathsRef.current.has(topPath)
         ) {
-          set.add(node.name);
+          set.add(topPath);
         }
       }
     }
@@ -2177,8 +2204,10 @@ export function FileManager({
       if (currentFolderData?.subfolders) {
         for (const sf of currentFolderData.subfolders) {
           const p = sf.path;
+          const isRootFolder = (!sf.parent_path && !sf.parentPath) || !p.includes("/");
           if (
-            !sf.parent_path &&
+            isRootFolder &&
+            !p.includes("/") &&
             !deletedFolderPathsRef.current.has(p) &&
             !["all", "websites", "images", "documents", "media", "archives"].includes(p)
           ) {
@@ -2207,6 +2236,7 @@ export function FileManager({
       // Add root dynamic folders discovered from files or customFolders
       for (const f of allDynamicFolders) {
         if (
+          !f.includes("/") &&
           !folderMap.has(f) &&
           !deletedFolderPathsRef.current.has(f) &&
           !["all", "websites", "images", "documents", "media", "archives"].includes(f)
@@ -2214,13 +2244,21 @@ export function FileManager({
           const matchingFiles = files.filter(
             (file) => file.folder === f || file.folder?.startsWith(`${f}/`)
           );
+          // Calculate subfolder count at root
+          const subfoldersUnderRoot = new Set<string>();
+          for (const item of files) {
+            if (item.folder && item.folder.startsWith(`${f}/`)) {
+              const seg = item.folder.slice(`${f}/`.length).split("/")[0];
+              if (seg) subfoldersUnderRoot.add(seg);
+            }
+          }
           folderMap.set(f, {
             id: f,
             name: f,
             path: f,
             parentPath: null,
             fileCount: matchingFiles.length,
-            subfolderCount: 0,
+            subfolderCount: subfoldersUnderRoot.size,
             totalBytes: matchingFiles.reduce((acc, file) => acc + (file.byte_size || 0), 0),
           });
         }
@@ -2250,7 +2288,7 @@ export function FileManager({
       });
     }
 
-    // Inside a specific subfolder (e.g. send2me.dynamic.ota or releases)
+    // Inside a specific subfolder (e.g. send2me.dynamic.ota or gpn.dynamic.ota)
     const subMap = new Map<
       string,
       {
@@ -2272,6 +2310,13 @@ export function FileManager({
       for (const sf of currentFolderData.subfolders) {
         const p = sf.path;
         if (!p || subMap.has(p) || deletedFolderPathsRef.current.has(p)) continue;
+        // MUST be an immediate direct child of current category
+        const isChild =
+          sf.parent_path === category ||
+          sf.parentPath === category ||
+          (p.startsWith(`${category}/`) && p.slice(`${category}/`.length).split("/").length === 1);
+        if (!isChild) continue;
+
         const matchingFiles = files.filter(
           (f) => f.folder === p || f.folder?.startsWith(`${p}/`)
         );
@@ -2324,6 +2369,40 @@ export function FileManager({
           }
         }
       }
+    }
+
+    // Also complement subMap with children from folderTree
+    const findChildrenInTree = (nodes: FolderTreeNode[]) => {
+      for (const n of nodes) {
+        if (n.path === category && n.children) {
+          for (const c of n.children) {
+            const cp = c.path;
+            if (!subMap.has(cp) && !deletedFolderPathsRef.current.has(cp)) {
+              const matchingFiles = files.filter(
+                (file) => file.folder === cp || file.folder?.startsWith(`${cp}/`)
+              );
+              subMap.set(cp, {
+                id: c.id || cp,
+                name: c.name || getFolderNameFromPath(cp),
+                path: cp,
+                parentPath: category,
+                fileCount: matchingFiles.length,
+                subfolderCount: c.children?.length || 0,
+                totalBytes: matchingFiles.reduce((acc, file) => acc + (file.byte_size || 0), 0),
+                isSpecial: false,
+                icon: Folder,
+                color: "text-amber-500",
+                bg: "bg-amber-500/10 border-amber-500/20",
+              });
+            }
+          }
+        } else if (n.children && n.children.length > 0) {
+          findChildrenInTree(n.children);
+        }
+      }
+    };
+    if (folderTree && folderTree.length > 0) {
+      findChildrenInTree(folderTree);
     }
 
     const subs = Array.from(subMap.values());
@@ -2788,7 +2867,7 @@ export function FileManager({
                   <div
                     key={`folder-${folder.path}-${idx}`}
                     suppressHydrationWarning
-                    onClick={() => setCategory(folder.path)}
+                    onClick={() => navigateToFolder(folder.path)}
                     className={`group relative p-3 rounded-2xl border transition-all duration-150 cursor-pointer shadow-2xs select-none flex items-center justify-between gap-3 min-h-[66px] ${
                       isSelected
                         ? "border-blue-500 ring-2 ring-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10 shadow-md"
@@ -2950,7 +3029,7 @@ export function FileManager({
                   <div
                     key={`folder-list-${folder.path}-${idx}`}
                     suppressHydrationWarning
-                    onClick={() => setCategory(folder.path)}
+                    onClick={() => navigateToFolder(folder.path)}
                     className={`group p-3 sm:px-4 flex items-center justify-between gap-3 hover:bg-muted/40 transition-all duration-150 cursor-pointer select-none ${
                       isSelected ? "bg-blue-500/5 dark:bg-blue-500/10" : "text-foreground"
                     }`}
@@ -3230,6 +3309,11 @@ export function FileManager({
       )}
 
       {/* 4. Files Container (Grid or List View) */}
+      {isRevalidating && (
+        <div className="h-0.5 w-full bg-blue-500/10 rounded-full overflow-hidden mb-2">
+          <div className="h-full bg-blue-500 animate-pulse w-full rounded-full" />
+        </div>
+      )}
       {loading ? (
         <div className="p-12 flex flex-col items-center justify-center gap-3 text-muted-foreground rounded-2xl border border-border bg-card shadow-2xs">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -3289,10 +3373,10 @@ export function FileManager({
                       "archives",
                     ].includes(category);
                     if (isSys) {
-                      setCategory("all");
+                      navigateToFolder("all");
                     } else {
                       const parent = getFolderParentPath(category);
-                      setCategory(parent || "all");
+                      navigateToFolder(parent || "all");
                     }
                   }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition cursor-pointer"
