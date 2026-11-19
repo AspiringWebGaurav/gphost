@@ -300,10 +300,10 @@ export async function PATCH(req: NextRequest) {
         { status: 409 }
       );
     }
-    if (customErr.code === "BASE_INSTALLER_PROTECTED") {
+    if (customErr.code === "RELEASE_LOCKED" || customErr.code === "BASE_INSTALLER_PROTECTED") {
       return NextResponse.json(
-        { error: customErr.message, code: "BASE_INSTALLER_PROTECTED" },
-        { status: 403 }
+        { error: customErr.message, code: customErr.code },
+        { status: 409 }
       );
     }
     console.error("[v1 Folders PATCH] Error:", err);
@@ -370,10 +370,10 @@ export async function DELETE(req: NextRequest) {
         { status: 409 }
       );
     }
-    if (customErr.code === "BASE_INSTALLER_PROTECTED") {
+    if (customErr.code === "RELEASE_LOCKED" || customErr.code === "BASE_INSTALLER_PROTECTED") {
       return NextResponse.json(
-        { error: customErr.message, code: "BASE_INSTALLER_PROTECTED" },
-        { status: 403 }
+        { error: customErr.message, code: customErr.code },
+        { status: 409 }
       );
     }
     console.error("[v1 Folders DELETE] Error:", err);

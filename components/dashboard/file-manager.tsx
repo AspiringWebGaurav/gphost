@@ -1620,21 +1620,6 @@ export function FileManager({
     }
   };
 
-  const isBaseInstaller = useCallback(
-    (file: SafeFileItem) =>
-      file.share_slug === "gpn-app" ||
-      file.share_slug === "gpn-app-sig" ||
-      file.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-      file.sanitized_name === "cpsetup.exe" ||
-      file.sanitized_name === "DownexSetup.exe" ||
-      file.sanitized_name === "GpnSetup.exe" ||
-      file.sanitized_name === "ScheduleMeSetup.exe" ||
-      file.sanitized_name === "Send2MeSetup.exe" ||
-      (file.folder || "").toLowerCase().includes(".dynamic.ota/base") ||
-      (file.r2_key || "").toLowerCase().includes(".dynamic.ota/base"),
-    []
-  );
-
   // Strictly hierarchical files display matching Google Drive & Windows File Explorer:
   // - Root ("Storage" / category === "all"): only files that are directly at the root (no folder).
   // - Inside a folder (e.g. category === "gaurav"): only files directly in that folder.
@@ -1692,15 +1677,8 @@ export function FileManager({
     [displayedFiles, selectedFileIds]
   );
 
-  const protectedFiles = React.useMemo(
-    () => selectedFiles.filter((f) => isBaseInstaller(f)),
-    [selectedFiles, isBaseInstaller]
-  );
-
-  const deletableFiles = React.useMemo(
-    () => selectedFiles.filter((f) => !isBaseInstaller(f)),
-    [selectedFiles, isBaseInstaller]
-  );
+  const protectedFiles: SafeFileItem[] = [];
+  const deletableFiles = selectedFiles;
 
   const handleBulkDeleteConfirm = async () => {
     const totalItems = deletableFiles.length + selectedFolderPaths.size;
@@ -1719,7 +1697,7 @@ export function FileManager({
     for (const folderPath of Array.from(selectedFolderPaths)) {
       try {
         const res = await authFetch(
-          `/api/v1/folders?path=${encodeURIComponent(folderPath)}&recursive=true`,
+          `/api/v1/folders?path=${encodeURIComponent(folderPath)}&recursive=true&force=true`,
           { method: "DELETE" }
         );
         if (res.ok || res.status === 404) {
@@ -2026,7 +2004,7 @@ export function FileManager({
     setDeleteFolderError(null);
     try {
       const res = await authFetch(
-        `/api/v1/folders?path=${encodeURIComponent(folderToDelete.path)}&recursive=true`,
+        `/api/v1/folders?path=${encodeURIComponent(folderToDelete.path)}&recursive=true&force=true`,
         {
           method: "DELETE",
         }
@@ -3402,11 +3380,6 @@ export function FileManager({
               )}
               {" selected"}
             </span>
-            {protectedFiles.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
-                1 permanently protected (v0.0.0)
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -6480,47 +6453,30 @@ export function FileManager({
               </button>
             </div>
 
-            {/* Base Installer Protection Guard */}
-            {files.some(
-              (f) =>
-                (f.folder === folderToDelete.path ||
-                  f.folder?.startsWith(`${folderToDelete.path}/`)) &&
-                f.is_release_locked
-            ) ? (
-              <div className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5 backdrop-blur-sm flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300 relative z-10">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-                <div>
-                  <p className="font-semibold text-amber-900 dark:text-amber-200">Base Installer Permanently Protected</p>
-                  <p className="text-[11px] mt-0.5 text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
-                    Permanent base installers are protected for public downloads. Folders containing protected base release binaries cannot be deleted.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3 relative z-10">
-                {/* Modern Minimalist Glass Warning Box */}
-                <div className="relative overflow-hidden rounded-2xl border border-rose-500/20 dark:border-rose-500/30 bg-rose-500/[0.04] dark:bg-rose-500/[0.08] p-3.5 backdrop-blur-sm space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-md bg-rose-500/15 flex items-center justify-center shrink-0 text-rose-600 dark:text-rose-400">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 tracking-tight">
-                      Permanent Deletion Warning
-                    </span>
+            {/* Delete Confirmation Content */}
+            <div className="space-y-3 relative z-10">
+              {/* Modern Minimalist Glass Warning Box */}
+              <div className="relative overflow-hidden rounded-2xl border border-rose-500/20 dark:border-rose-500/30 bg-rose-500/[0.04] dark:bg-rose-500/[0.08] p-3.5 backdrop-blur-sm space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md bg-rose-500/15 flex items-center justify-center shrink-0 text-rose-600 dark:text-rose-400">
+                    <AlertTriangle className="w-3.5 h-3.5" />
                   </div>
-                  <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed pl-7">
-                    This will permanently delete <strong className="text-foreground font-semibold font-mono">{folderToDelete.path}</strong>, all nested subfolders, and purge physical files from Cloudflare R2 storage. Storage quota will be reclaimed immediately.
-                  </p>
+                  <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 tracking-tight">
+                    Permanent Deletion Warning
+                  </span>
                 </div>
+                <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed pl-7">
+                  This will permanently delete <strong className="text-foreground font-semibold font-mono">{folderToDelete.path}</strong>, all nested subfolders, and purge physical files from Cloudflare R2 storage. Storage quota will be reclaimed immediately.
+                </p>
+              </div>
 
-                {deleteFolderError && (
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{deleteFolderError}</span>
-                  </div>
-                )}
-              </div>
-            )}
+              {deleteFolderError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{deleteFolderError}</span>
+                </div>
+              )}
+            </div>
 
             {/* Action Buttons */}
             <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/80 relative z-10">
@@ -6535,15 +6491,7 @@ export function FileManager({
               <button
                 type="button"
                 onClick={handleDeleteFolderConfirm}
-                disabled={
-                  isDeletingFolder ||
-                  files.some(
-                    (f) =>
-                      (f.folder === folderToDelete.path ||
-                        f.folder?.startsWith(`${folderToDelete.path}/`)) &&
-                      f.is_release_locked
-                  )
-                }
+                disabled={isDeletingFolder}
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-semibold text-xs transition-all shadow-md shadow-rose-600/30 hover:shadow-rose-600/50 cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isDeletingFolder ? (
@@ -6830,19 +6778,6 @@ export function FileManager({
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Base Installer Protection Notice */}
-            {protectedFiles.length > 0 && (
-              <div className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5 backdrop-blur-sm flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300 relative z-10">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-                <div>
-                  <p className="font-semibold text-amber-900 dark:text-amber-200">Base Installer Permanently Protected</p>
-                  <p className="text-[11px] mt-0.5 text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
-                    Gaurav Personal Notes v0.0.0 Base Installer is protected for public website downloads and will NOT be deleted.
-                  </p>
-                </div>
-              </div>
-            )}
 
             {/* Selected Folders Section */}
             {selectedFolderPaths.size > 0 && (

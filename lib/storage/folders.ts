@@ -505,6 +505,8 @@ export async function relocateFolder(
     return { oldPath: oldNorm, newPath: newNorm, updatedFolders: 0, updatedFiles: 0 };
   }
 
+  const adminClient = createAdminClient();
+
   // Guard: Immutable folder check
   const allUserFolders = await getAllUserFolders(userId);
   const sourceFolder = allUserFolders.find((f) => f.path === oldNorm);
@@ -515,30 +517,6 @@ export async function relocateFolder(
     (err as any).code = "FOLDER_IMMUTABLE";
     (err as any).status = 409;
     throw err;
-  }
-
-  const adminClient = createAdminClient();
-
-  // Guard: Base v0.0.0 installer check in files (global protection)
-  const { data: baseCheck } = await adminClient
-    .from("files")
-    .select("id, sanitized_name, share_links(slug)")
-    .or(`r2_key.ilike.${oldNorm}/%,r2_key.ilike.u/%/${oldNorm}/%,filename.ilike.${oldNorm}/%`);
-
-  if (baseCheck && !options?.force) {
-    for (const f of baseCheck) {
-      const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
-      if (
-        shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
-        f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-        (f.sanitized_name || "").includes("0.0.0")
-      ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently isolated and cannot be moved or renamed without force.");
-        (err as any).code = "BASE_INSTALLER_PROTECTED";
-        (err as any).status = 403;
-        throw err;
-      }
-    }
   }
 
   // Ensure destination parent folder exists if newNorm has a parent
@@ -603,7 +581,7 @@ export async function relocateFolder(
   let updatedFilesCount = 0;
   if (filesToMove && filesToMove.length > 0) {
     const moveResults = await Promise.allSettled(
-      filesToMove.map(async (file) => {
+      filesToMove.map(async (file: any) => {
         let newR2Key: string;
         if (file.r2_key.startsWith(`${oldNorm}/`)) {
           newR2Key = `${newNorm}/${file.r2_key.substring(oldNorm.length + 1)}`;
@@ -621,7 +599,7 @@ export async function relocateFolder(
         return true;
       })
     );
-    updatedFilesCount = moveResults.filter((r) => r.status === "fulfilled" && (r as PromiseFulfilledResult<boolean>).value).length;
+    updatedFilesCount = moveResults.filter((r: any) => r.status === "fulfilled" && r.value).length;
   }
 
   return {
@@ -713,47 +691,21 @@ export async function deleteFolder(
 
   const adminClient = createAdminClient();
 
-  // 1. Guard check: Base v0.0.0 installer permanence in files (global protection)
-  const { data: baseCheck } = await adminClient
-    .from("files")
-    .select("id, sanitized_name, share_links(slug)")
-    .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/%/${norm}/%,filename.ilike.${norm}/%`);
-
-  if (baseCheck && !options?.force) {
-    for (const f of baseCheck) {
-      const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
-      if (
-        shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
-        f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-        (f.sanitized_name || "").includes("0.0.0")
-      ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected. Pass '?force=true' to override.");
-        (err as any).code = "BASE_INSTALLER_PROTECTED";
-        (err as any).status = 403;
-        throw err;
-      }
-    }
-  }
-
   const { data: candidateFiles } = await adminClient
     .from("files")
-    .select("id, sanitized_name, byte_size, r2_key, share_links(id, slug)")
+    .select("id, sanitized_name, byte_size, r2_key, is_release_locked, share_links(id, slug)")
     .eq("user_id", userId)
     .or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%,filename.ilike.${norm}/%`);
 
   if (candidateFiles && !options?.force) {
-    for (const f of candidateFiles) {
-      const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
-      if (
-        shares.some((s) => s.slug === "gpn-app" || s.slug === "gpn-app-sig") ||
-        f.sanitized_name === "Gaurav_Personal_Notes_v0.0.0_x64-setup.exe" ||
-        (f.sanitized_name || "").includes("0.0.0")
-      ) {
-        const err = new Error("BASE_INSTALLER_PROTECTED: Folder contains Base v0.0.0 installer which is permanently protected. Pass '?force=true' to override.");
-        (err as any).code = "BASE_INSTALLER_PROTECTED";
-        (err as any).status = 403;
-        throw err;
-      }
+    const lockedFile = candidateFiles.find((f: any) => f.is_release_locked);
+    if (lockedFile) {
+      const err = new Error(
+        `RELEASE_LOCKED: Folder contains release-locked binary '${lockedFile.sanitized_name}'. Pass '?force=true' to override.`
+      );
+      (err as any).code = "RELEASE_LOCKED";
+      (err as any).status = 409;
+      throw err;
     }
   }
 

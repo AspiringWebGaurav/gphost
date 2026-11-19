@@ -164,23 +164,25 @@ function validateFolderMove(sourcePath, destParentPath) {
   return newPath;
 }
 
-function validateBaseInstallerPermanence(targetPath, files = []) {
+function validateFolderImmutabilityAndReleaseLocks(targetPath, folderMetadata = {}, files = [], isForce = false) {
+  if (isForce) return true;
   const norm = normalizeFolderPath(targetPath);
-  if (norm === "gpn-dynamic-update" || norm.startsWith("gpn-dynamic-update/")) {
-    const err = new Error("BASE_INSTALLER_PROTECTED: Base v0.0.0 installer is permanently protected.");
-    err.code = "BASE_INSTALLER_PROTECTED";
+  if (folderMetadata.is_immutable) {
+    const err = new Error(`FOLDER_IMMUTABLE: Folder '${norm}' is marked as IMMUTABLE. Pass '?force=true' to override.`);
+    err.code = "FOLDER_IMMUTABLE";
     throw err;
   }
   for (const f of files) {
     if (
       (f.folder === norm || (f.folder && f.folder.startsWith(`${norm}/`))) &&
-      (f.is_release_locked || f.share_slug === "gpn-app" || f.share_slug === "gpn-app-sig")
+      f.is_release_locked
     ) {
-      const err = new Error(`BASE_INSTALLER_PROTECTED: Protected Base installer binary exists in '${f.folder}'.`);
-      err.code = "BASE_INSTALLER_PROTECTED";
+      const err = new Error(`RELEASE_LOCKED: Folder contains release-locked binary '${f.sanitized_name || f.filename}'. Pass '?force=true' to override.`);
+      err.code = "RELEASE_LOCKED";
       throw err;
     }
   }
+  return true;
 }
 
 // =============================================================================
@@ -342,35 +344,47 @@ await runTest("Computes valid moved path to root or sibling parent", () => {
 });
 
 // =============================================================================
-// SUITE 6: Base v0.0.0 Installer Permanence Protection
+// SUITE 6: Dynamic Folder Immutability & File Release Locking Safeguards
 // =============================================================================
-console.log("\n--- Suite 6: Base v0.0.0 Installer Protection ---");
+console.log("\n--- Suite 6: Dynamic Folder & Binary Protection Safeguards ---");
 
-await runTest("Rejects deletion or rename of protected Base v0.0.0 installer folder", () => {
+await runTest("Rejects deletion of immutable folder without force, succeeds with force", () => {
   assert.throws(
-    () => validateBaseInstallerPermanence("gpn-dynamic-update"),
+    () => validateFolderImmutabilityAndReleaseLocks("releases/stable", { is_immutable: true }, [], false),
     (err) => {
-      assert.equal(err.code, "BASE_INSTALLER_PROTECTED");
+      assert.equal(err.code, "FOLDER_IMMUTABLE");
       return true;
     }
   );
 
+  // Force override allows deletion
+  assert.doesNotThrow(() => {
+    validateFolderImmutabilityAndReleaseLocks("releases/stable", { is_immutable: true }, [], true);
+  });
+});
+
+await runTest("Rejects deletion of folder containing release-locked binary without force, succeeds with force", () => {
   const mockFiles = [
-    { id: "1", folder: "custom/release", share_slug: "gpn-app", is_release_locked: true },
-    { id: "2", folder: "custom/other", share_slug: "other-slug", is_release_locked: false },
+    { id: "1", folder: "custom/release", filename: "app-v1.0.0.exe", is_release_locked: true },
+    { id: "2", folder: "custom/other", filename: "notes.txt", is_release_locked: false },
   ];
 
   assert.throws(
-    () => validateBaseInstallerPermanence("custom/release", mockFiles),
+    () => validateFolderImmutabilityAndReleaseLocks("custom/release", {}, mockFiles, false),
     (err) => {
-      assert.equal(err.code, "BASE_INSTALLER_PROTECTED");
+      assert.equal(err.code, "RELEASE_LOCKED");
       return true;
     }
   );
 
-  // Unrelated folder deletion allowed
+  // Force override allows deletion of locked folder
   assert.doesNotThrow(() => {
-    validateBaseInstallerPermanence("custom/other", mockFiles);
+    validateFolderImmutabilityAndReleaseLocks("custom/release", {}, mockFiles, true);
+  });
+
+  // Non-locked folder deletion allowed without force
+  assert.doesNotThrow(() => {
+    validateFolderImmutabilityAndReleaseLocks("custom/other", {}, mockFiles, false);
   });
 });
 
@@ -519,15 +533,32 @@ if (apiKey) {
       assert.equal(data.newPath, `${uniqueFolder}/2_renamed`);
     });
 
-    await runTest("Live API: Protects Base v0.0.0 installer from deletion (403 BASE_INSTALLER_PROTECTED)", async () => {
-      const res = await fetch(`${baseUrl}/api/v1/folders?path=gpn-dynamic-update&recursive=true`, {
+    await runTest("Live API: Enforces folder immutability & allows deletion with force=true", async () => {
+      // Create immutable folder
+      await fetch(`${baseUrl}/api/v1/folders`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path: `${uniqueFolder}/immutable_test`, immutable: true }),
+      });
+
+      // Normal delete fails with 409 FOLDER_IMMUTABLE
+      const res = await fetch(`${baseUrl}/api/v1/folders?path=${encodeURIComponent(`${uniqueFolder}/immutable_test`)}&recursive=true`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${apiKey}` },
       });
 
       const data = await res.json();
-      assert.equal(res.status, 403, `Expected 403 Forbidden, got ${res.status}`);
-      assert.equal(data.code, "BASE_INSTALLER_PROTECTED");
+      assert.equal(res.status, 409, `Expected 409 Conflict, got ${res.status}`);
+      assert.equal(data.code, "FOLDER_IMMUTABLE");
+
+      // Force delete succeeds
+      const forceRes = await fetch(`${baseUrl}/api/v1/folders?path=${encodeURIComponent(`${uniqueFolder}/immutable_test`)}&recursive=true&force=true`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const forceData = await forceRes.json();
+      assert.equal(forceRes.status, 200);
+      assert.ok(forceData.success);
     });
 
     await runTest("Live API: Deletes test folder hierarchy via DELETE /api/v1/folders", async () => {

@@ -244,7 +244,7 @@ curl -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -F "noShareLink=true" \\
   https://gphost.eu.cc/api/v1/upload`;
 
-  const folderApiCode = `# 1. Create nested folders without limitation (e.g. projects -> backend -> v1):
+  const folderApiCode = `# 1. Create nested folders without limitation (optionally mark immutable):
 curl -X POST https://gphost.eu.cc/api/v1/folders \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
@@ -276,8 +276,14 @@ curl -X PATCH https://gphost.eu.cc/api/v1/folders \\
   -H "Content-Type: application/json" \\
   -d '{"path": "projects/backend/stable", "destinationParent": "archive/2026"}'
 
-# 7. Safely delete a folder hierarchy (purges R2 files, reclaims storage quota):
-curl -X DELETE "https://gphost.eu.cc/api/v1/folders?path=archive/2026&recursive=true" \\
+# 7. Protect a folder with immutability (blocks accidental deletion or rename):
+curl -X PATCH https://gphost.eu.cc/api/v1/folders \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"path": "archive/2026", "immutable": true}'
+
+# 8. Delete a folder hierarchy (pass ?force=true to override locks and purge R2 assets):
+curl -X DELETE "https://gphost.eu.cc/api/v1/folders?path=archive/2026&recursive=true&force=true" \\
   -H "Authorization: Bearer gp_live_YOUR_KEY"`;
 
   const releaseApiCode = `# 1. Publish a new release with Minisign Ed25519 cryptographic signature:
@@ -291,17 +297,27 @@ curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/publish" \\
     "notes": "Feature release v1.2.0 with performance optimizations"
   }'
 
-# 2. Query live Tauri v2 autoupdater manifest:
+# 2. Lock a release file to prevent accidental deletion:
+curl -X PATCH "https://gphost.eu.cc/api/v1/files/FILE_UUID" \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"isReleaseLocked": true}'
+
+# 3. Query live Tauri v2 autoupdater manifest:
 curl "https://gphost.eu.cc/api/v1/releases/my-desktop-app/latest"
 
-# 3. Direct edge download of specific version (Cloudflare R2 presigned redirect):
+# 4. Direct edge download of specific version (Cloudflare R2 presigned redirect):
 curl -L "https://gphost.eu.cc/api/v1/releases/my-desktop-app/download/1.2.0" -o app-setup.exe
 
-# 4. Instant rollback to previous active release:
+# 5. Instant rollback to previous active release:
 curl -X POST "https://gphost.eu.cc/api/v1/releases/my-desktop-app/rollback" \\
   -H "Authorization: Bearer gp_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"targetVersion": "1.1.9"}'`;
+  -d '{"targetVersion": "1.1.9"}'
+
+# 6. Delete a release file (pass ?force=true to override release locks):
+curl -X DELETE "https://gphost.eu.cc/api/v1/files/FILE_UUID?force=true" \\
+  -H "Authorization: Bearer gp_live_YOUR_KEY"`;
 
   const replaceCode = `# Replace an existing release binary atomically while keeping permanent URL intact:
 curl -X POST https://gphost.eu.cc/api/v1/replace \\
@@ -1009,11 +1025,11 @@ print("Link to share:", data["file"]["url"])`;
 
               <div className="p-3.5 rounded-xl bg-muted/40 border border-border space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-xs text-foreground">
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Base Installer Immunity</span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Dynamic Folder & Binary Protection</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Base installer (v0.0.0) is permanently protected. Attempting to delete or illegally move folders containing release assets returns <code>403 BASE_INSTALLER_PROTECTED</code>.
+                  Folders and release binaries can be marked immutable or release-locked via API. Owners can unlock or override at any time using <code>?force=true</code>.
                 </p>
               </div>
             </div>
