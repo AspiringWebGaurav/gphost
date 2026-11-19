@@ -145,6 +145,7 @@ scripts/test_*.mjs
 !scripts/test_live_apis_and_quotas.mjs
 !scripts/test_owner_api_releases.mjs
 !scripts/test_r2_cors.mjs
+!scripts/test_playwright_thorough.mjs
 audit_results*.json
 scripts/api-audit-report.json
 public/audit-screenshots/
