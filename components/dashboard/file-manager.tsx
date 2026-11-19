@@ -415,6 +415,12 @@ export function FileManager({
   // Non-blocking silent revalidation indicator (zero layout shift, zero spinner)
   const [isRevalidating, setIsRevalidating] = useState(false);
 
+  // Browser History & In-App Navigation Stack
+  const navHistoryRef = useRef<string[]>(["all"]);
+  const navIndexRef = useRef<number>(0);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+
   // Sort State: Deterministic SSR default ("recent"), restored after hydration
   const [sortBy, setSortBy] = useState<FileSortOption>("recent");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
@@ -1109,18 +1115,67 @@ export function FileManager({
     }
   }, []);
 
-  // Google Drive-style instant local navigation with zero-flicker background sync
+  // Google Drive-style instant local navigation with zero-flicker background sync & History API
   const navigateToFolder = useCallback(
-    (targetPath: string) => {
+    (
+      targetPath: string,
+      options?: { pushHistory?: boolean; fromPopState?: boolean }
+    ) => {
       const cleanPath = targetPath.trim() || "all";
+      const shouldPush = options?.pushHistory !== false;
+      const isPop = Boolean(options?.fromPopState);
+
       setCategory(cleanPath);
       setPage(1);
 
-      // Instant optimistic breadcrumbs (0ms)
+      // 1. History Stack Synchronization
+      if (isPop) {
+        const hist = navHistoryRef.current;
+        const curr = navIndexRef.current;
+        if (curr > 0 && hist[curr - 1] === cleanPath) {
+          navIndexRef.current = curr - 1;
+        } else if (curr < hist.length - 1 && hist[curr + 1] === cleanPath) {
+          navIndexRef.current = curr + 1;
+        } else {
+          const matchIdx = hist.lastIndexOf(cleanPath);
+          if (matchIdx !== -1) {
+            navIndexRef.current = matchIdx;
+          } else {
+            hist.push(cleanPath);
+            navIndexRef.current = hist.length - 1;
+          }
+        }
+        setCanGoBack(navIndexRef.current > 0);
+        setCanGoForward(navIndexRef.current < navHistoryRef.current.length - 1);
+      } else if (shouldPush) {
+        const nextHist = navHistoryRef.current.slice(0, navIndexRef.current + 1);
+        if (nextHist[nextHist.length - 1] !== cleanPath) {
+          nextHist.push(cleanPath);
+        }
+        navHistoryRef.current = nextHist;
+        navIndexRef.current = nextHist.length - 1;
+        setCanGoBack(nextHist.length > 1);
+        setCanGoForward(false);
+
+        // Update browser URL query and history state
+        if (typeof window !== "undefined") {
+          try {
+            const currentUrl = new URL(window.location.href);
+            if (cleanPath === "all") {
+              currentUrl.searchParams.delete("folder");
+            } else {
+              currentUrl.searchParams.set("folder", cleanPath);
+            }
+            window.history.pushState({ folder: cleanPath }, "", currentUrl.toString());
+          } catch {}
+        }
+      }
+
+      // 2. Instant optimistic breadcrumbs (0ms)
       const immediateCrumbs =
         cleanPath === "all" ? [{ name: "Storage", path: "" }] : getBreadcrumbs(cleanPath);
 
-      // Instant optimistic folder data from local cache or local state (0ms)
+      // 3. Instant optimistic folder data from local cache or local state (0ms)
       const cached = folderDataCacheRef.current.get(cleanPath);
       if (cached) {
         setCurrentFolderData(cached);
@@ -1177,12 +1232,95 @@ export function FileManager({
         });
       }
 
-      // Silent non-blocking background sync (never flashes spinner)
+      // 4. Silent non-blocking background sync (never flashes spinner)
       void fetchFolderContents(cleanPath);
       void fetchFiles(1, searchQuery, cleanPath, sortBy, sortOrder, true);
     },
     [fetchFolderContents, fetchFiles, searchQuery, sortBy, sortOrder]
   );
+
+  const handleNavBack = useCallback(() => {
+    if (navIndexRef.current > 0) {
+      window.history.back();
+    } else if (category !== "all") {
+      const parent = getFolderParentPath(category) || "all";
+      navigateToFolder(parent);
+    }
+  }, [category, navigateToFolder]);
+
+  const handleNavForward = useCallback(() => {
+    if (navIndexRef.current < navHistoryRef.current.length - 1) {
+      window.history.forward();
+    }
+  }, []);
+
+  // Popstate Listener (Physical browser back/forward buttons & window.history)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Check URL on initial mount (e.g. user refreshed or shared link with ?folder=...)
+    const initialParams = new URLSearchParams(window.location.search);
+    const initialFolder = initialParams.get("folder");
+    if (initialFolder && initialFolder !== "all") {
+      navigateToFolder(initialFolder, { pushHistory: false, fromPopState: false });
+      navHistoryRef.current = ["all", initialFolder];
+      navIndexRef.current = 1;
+      setCanGoBack(true);
+      setCanGoForward(false);
+      window.history.replaceState({ folder: initialFolder }, "", window.location.href);
+    } else {
+      window.history.replaceState({ folder: "all" }, "", window.location.href);
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      let targetFolder = "all";
+      if (e.state && typeof e.state.folder === "string") {
+        targetFolder = e.state.folder;
+      } else {
+        const params = new URLSearchParams(window.location.search);
+        targetFolder = params.get("folder") || "all";
+      }
+
+      navigateToFolder(targetFolder, { pushHistory: false, fromPopState: true });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [navigateToFolder]);
+
+  // Desktop Keyboard Shortcuts (Alt+Left, Alt+Right, Alt+Up)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        handleNavBack();
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNavForward();
+      } else if (e.altKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        if (category !== "all") {
+          const parent = getFolderParentPath(category) || "all";
+          navigateToFolder(parent);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNavBack, handleNavForward, category, navigateToFolder]);
 
   // Single-file enrich helper for live events with ID only
   const fetchSingleFileEnrich = useCallback(
@@ -2433,11 +2571,33 @@ export function FileManager({
     <div className="space-y-3 sm:space-y-5">
       {/* 1. Windows 11 & Google Drive Navigation Bar with Breadcrumbs & Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        {/* Navigation / Address Bar with Up Button & Breadcrumbs */}
+        {/* Navigation / Address Bar with Back/Forward/Up Controls & Breadcrumbs */}
         <div className="flex items-center gap-2 flex-wrap min-w-0">
-          {category !== "all" && (
+          {/* Windows Explorer / Google Drive Navigation Buttons */}
+          <div className="flex items-center gap-0.5 p-1 rounded-xl bg-card border border-border shadow-2xs shrink-0">
             <button
               type="button"
+              disabled={!canGoBack}
+              onClick={handleNavBack}
+              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
+              title="Go back (Alt+Left or Browser Back)"
+              aria-label="Go back"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={!canGoForward}
+              onClick={handleNavForward}
+              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
+              title="Go forward (Alt+Right or Browser Forward)"
+              aria-label="Go forward"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={category === "all"}
               onClick={() => {
                 const isSys = [
                   "websites",
@@ -2453,12 +2613,13 @@ export function FileManager({
                   navigateToFolder(parent || "all");
                 }
               }}
-              className="p-1.5 rounded-xl border border-border bg-card hover:bg-muted text-foreground transition cursor-pointer flex items-center justify-center shrink-0 shadow-2xs hover:border-blue-500/40"
-              title="Navigate up one folder level"
+              className="p-1.5 rounded-lg hover:bg-muted text-foreground transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:text-blue-500"
+              title={category === "all" ? "Already at root" : "Up to parent folder (Alt+Up)"}
+              aria-label="Up to parent folder"
             >
-              <CornerLeftUp className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+              <CornerLeftUp className="w-4 h-4" />
             </button>
-          )}
+          </div>
 
           {/* Interactive Clickable Breadcrumbs */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card border border-border text-sm text-muted-foreground select-none overflow-x-auto no-scrollbar max-w-full shadow-2xs">
