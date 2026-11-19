@@ -30,6 +30,7 @@ function getRedisFolderKey(userId: string): string {
  */
 export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
   const adminClient = createAdminClient();
+  const pathMap = new Map<string, FolderItem>();
 
   try {
     const { data, error } = await adminClient
@@ -39,16 +40,30 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
       .order("path", { ascending: true });
 
     if (!error && data && data.length > 0) {
-      return data as FolderItem[];
+      for (const item of data as FolderItem[]) {
+        const itemPath = normalizeFolderPath(item.path);
+        if (itemPath && !pathMap.has(itemPath)) {
+          const isImm = Boolean(item.is_immutable ?? item.isImmutable);
+          pathMap.set(itemPath, {
+            ...item,
+            path: itemPath,
+            name: item.name || getFolderNameFromPath(itemPath),
+            parent_path: item.parent_path ?? getFolderParentPath(itemPath),
+            is_immutable: isImm,
+            isImmutable: isImm,
+            purpose: item.purpose || (isImm ? "immutable" : null),
+            description: item.description || null,
+          });
+        }
+      }
     }
   } catch {}
 
-  // Redis fallback
+  // Redis fallback / merge
   try {
     if (redis) {
       const allEntries = await redis.hgetall<Record<string, string>>(getRedisFolderKey(userId));
       if (allEntries && Object.keys(allEntries).length > 0) {
-        const pathMap = new Map<string, FolderItem>();
         for (const [hashKey, val] of Object.entries(allEntries)) {
           try {
             const item = typeof val === "string" ? (JSON.parse(val) as FolderItem) : (val as FolderItem);
@@ -70,13 +85,51 @@ export async function getAllUserFolders(userId: string): Promise<FolderItem[]> {
             }
           } catch {}
         }
-
-        return Array.from(pathMap.values()).sort((a, b) => a.path.localeCompare(b.path));
       }
     }
   } catch {}
 
-  return [];
+  // Discovery merge: automatically discover all active folders and ancestor paths directly from storage files
+  try {
+    const { data: fileRows } = await adminClient
+      .from("files")
+      .select("r2_key")
+      .eq("user_id", userId)
+      .in("status", ["ACTIVE", "EXPIRING"]);
+
+    if (fileRows && fileRows.length > 0) {
+      for (const row of fileRows) {
+        const folder = extractFolderFromR2Key(row.r2_key);
+        if (folder) {
+          const parts = folder.split("/");
+          let accumulated = "";
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const parent = accumulated || null;
+            accumulated = accumulated ? `${accumulated}/${part}` : part;
+            if (!pathMap.has(accumulated)) {
+              pathMap.set(accumulated, {
+                id: accumulated,
+                user_id: userId,
+                name: part,
+                path: accumulated,
+                parent_path: parent,
+                depth: i + 1,
+                is_immutable: false,
+                isImmutable: false,
+                purpose: null,
+                description: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(pathMap.values()).sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export interface CreateFolderOptions {
@@ -315,10 +368,10 @@ export async function listFolderContents(
     return norm ? f.parent_path === norm : f.parent_path === null || f.parent_path === "";
   });
 
-  // Query files in this folder
+  // Query files in this folder with schema-safe column selection
   let filesQuery = adminClient
     .from("files")
-    .select("id, filename, sanitized_name, mime_type, byte_size, r2_key, status, expires_at, created_at, updated_at, is_release_locked, share_links(slug, is_active, is_site)")
+    .select("id, filename, sanitized_name, mime_type, byte_size, r2_key, status, expires_at, created_at, updated_at, share_links(slug, is_active)")
     .eq("user_id", userId)
     .in("status", ["ACTIVE", "EXPIRING"]);
 
@@ -330,7 +383,24 @@ export async function listFolderContents(
     }
   }
 
-  const { data: dbFiles } = await filesQuery;
+  let { data: dbFiles, error: filesErr } = await filesQuery;
+
+  if (filesErr) {
+    console.warn("[listFolderContents] filesQuery error with share_links, falling back to core columns:", filesErr.message);
+    let fallbackQuery = adminClient
+      .from("files")
+      .select("id, filename, sanitized_name, mime_type, byte_size, r2_key, status, expires_at, created_at, updated_at")
+      .eq("user_id", userId)
+      .in("status", ["ACTIVE", "EXPIRING"]);
+
+    if (norm) {
+      fallbackQuery = fallbackQuery.or(`r2_key.ilike.${norm}/%,r2_key.ilike.u/${userId}/${norm}/%`);
+    }
+
+    const { data: fallbackData } = await fallbackQuery;
+    dbFiles = (fallbackData || []).map((f) => ({ ...f, share_links: [] as { slug: string; is_active: boolean }[] }));
+  }
+
   let files = (dbFiles || []).map((f) => {
     const rawFolder = extractFolderFromR2Key(f.r2_key);
     const shares = Array.isArray(f.share_links) ? f.share_links : f.share_links ? [f.share_links] : [];
@@ -339,7 +409,7 @@ export async function listFolderContents(
       ...f,
       folder: rawFolder,
       share_slug: activeShare?.slug || null,
-      is_site: Boolean(activeShare?.is_site),
+      is_site: false,
     };
   });
 
@@ -360,11 +430,15 @@ export async function listFolderContents(
       return fFolder === sf.path || fFolder?.startsWith(`${sf.path}/`);
     });
     const subfolderChildren = allFolders.filter((f) => f.parent_path === sf.path);
+    const byteSize = nestedFiles.reduce((acc, f) => acc + (f.byte_size || 0), 0);
     return {
       ...sf,
       file_count: nestedFiles.length,
+      totalFiles: nestedFiles.length,
       subfolder_count: subfolderChildren.length,
-      total_bytes: nestedFiles.reduce((acc, f) => acc + (f.byte_size || 0), 0),
+      totalSubfolders: subfolderChildren.length,
+      total_bytes: byteSize,
+      totalBytes: byteSize,
     };
   });
 

@@ -2013,6 +2013,7 @@ export function FileManager({
           parentPath: string | null;
           fileCount: number;
           subfolderCount: number;
+          totalBytes?: number;
           isSpecial?: boolean;
           icon?: React.ElementType;
           color?: string;
@@ -2029,13 +2030,23 @@ export function FileManager({
             !deletedFolderPathsRef.current.has(p) &&
             !["all", "websites", "images", "documents", "media", "archives"].includes(p)
           ) {
+            const matchingFiles = files.filter(
+              (file) => file.folder === p || file.folder?.startsWith(`${p}/`)
+            );
+            const serverFiles = sf.totalFiles ?? sf.file_count ?? 0;
+            const fileCount = Math.max(serverFiles, matchingFiles.length);
+            const serverBytes = sf.totalBytes ?? sf.total_bytes ?? 0;
+            const localBytes = matchingFiles.reduce((acc, f) => acc + (f.byte_size || 0), 0);
+            const totalBytes = Math.max(serverBytes, localBytes);
+
             folderMap.set(p, {
               id: sf.id || p,
               name: sf.name || p,
               path: p,
               parentPath: null,
-              fileCount: sf.totalFiles ?? sf.file_count ?? 0,
+              fileCount,
               subfolderCount: sf.totalSubfolders ?? sf.subfolder_count ?? 0,
+              totalBytes,
             });
           }
         }
@@ -2058,6 +2069,7 @@ export function FileManager({
             parentPath: null,
             fileCount: matchingFiles.length,
             subfolderCount: 0,
+            totalBytes: matchingFiles.reduce((acc, file) => acc + (file.byte_size || 0), 0),
           });
         }
       }
@@ -2086,69 +2098,104 @@ export function FileManager({
       });
     }
 
-    // Inside a specific subfolder (e.g. downex-dynamic-binaries or releases)
-    if (currentFolderData?.subfolders && currentFolderData.subfolders.length > 0) {
-      const subMap = new Map<
-        string,
-        {
-          id: string;
-          name: string;
-          path: string;
-          parentPath: string | null;
-          fileCount: number;
-          subfolderCount: number;
-          isSpecial?: boolean;
-          icon?: React.ElementType;
-          color?: string;
-          bg?: string;
-        }
-      >();
+    // Inside a specific subfolder (e.g. send2me.dynamic.ota or releases)
+    const subMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        path: string;
+        parentPath: string | null;
+        fileCount: number;
+        subfolderCount: number;
+        totalBytes?: number;
+        isSpecial?: boolean;
+        icon?: React.ElementType;
+        color?: string;
+        bg?: string;
+      }
+    >();
 
+    if (currentFolderData?.subfolders) {
       for (const sf of currentFolderData.subfolders) {
         const p = sf.path;
         if (!p || subMap.has(p) || deletedFolderPathsRef.current.has(p)) continue;
+        const matchingFiles = files.filter(
+          (f) => f.folder === p || f.folder?.startsWith(`${p}/`)
+        );
+        const serverFiles = sf.totalFiles ?? sf.file_count ?? 0;
+        const fileCount = Math.max(serverFiles, matchingFiles.length);
+        const serverBytes = sf.totalBytes ?? sf.total_bytes ?? 0;
+        const localBytes = matchingFiles.reduce((acc, f) => acc + (f.byte_size || 0), 0);
+        const totalBytes = Math.max(serverBytes, localBytes);
+
         subMap.set(p, {
           id: sf.id || p,
           name: sf.name || getFolderNameFromPath(p),
           path: p,
           parentPath: sf.parent_path || sf.parentPath || category,
-          fileCount:
-            sf.totalFiles ??
-            sf.file_count ??
-            files.filter((f) => f.folder === p || f.folder?.startsWith(`${p}/`)).length,
+          fileCount,
           subfolderCount: sf.totalSubfolders ?? sf.subfolder_count ?? 0,
+          totalBytes,
           isSpecial: false,
           icon: Folder,
           color: "text-amber-500",
           bg: "bg-amber-500/10 border-amber-500/20",
         });
       }
+    }
 
-      const subs = Array.from(subMap.values());
-      const filtered = searchQuery.trim()
-        ? subs.filter(
-            (folder) =>
-              folder.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
-              folder.path.toLowerCase().includes(searchQuery.toLowerCase().trim())
-          )
-        : subs;
+    // Also complement subMap with any child folders present in files
+    for (const f of files) {
+      if (f.folder && f.folder.startsWith(`${category}/`)) {
+        const rel = f.folder.slice(`${category}/`.length);
+        const childSegment = rel.split("/")[0];
+        if (childSegment) {
+          const childPath = `${category}/${childSegment}`;
+          if (!subMap.has(childPath) && !deletedFolderPathsRef.current.has(childPath)) {
+            const matchingFiles = files.filter(
+              (file) => file.folder === childPath || file.folder?.startsWith(`${childPath}/`)
+            );
+            subMap.set(childPath, {
+              id: childPath,
+              name: childSegment,
+              path: childPath,
+              parentPath: category,
+              fileCount: matchingFiles.length,
+              subfolderCount: 0,
+              totalBytes: matchingFiles.reduce((acc, file) => acc + (file.byte_size || 0), 0),
+              isSpecial: false,
+              icon: Folder,
+              color: "text-amber-500",
+              bg: "bg-amber-500/10 border-amber-500/20",
+            });
+          }
+        }
+      }
+    }
 
-      return [...filtered].sort((a, b) => {
-        if (sortBy === "sanitized_name") {
-          return sortOrder === "asc"
-            ? a.name.localeCompare(b.name, undefined, { numeric: true })
-            : b.name.localeCompare(a.name, undefined, { numeric: true });
-        }
-        if (sortBy === "byte_size") {
-          return sortOrder === "asc" ? a.fileCount - b.fileCount : b.fileCount - a.fileCount;
-        }
+    const subs = Array.from(subMap.values());
+    const filtered = searchQuery.trim()
+      ? subs.filter(
+          (folder) =>
+            folder.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+            folder.path.toLowerCase().includes(searchQuery.toLowerCase().trim())
+        )
+      : subs;
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "sanitized_name") {
         return sortOrder === "asc"
           ? a.name.localeCompare(b.name, undefined, { numeric: true })
           : b.name.localeCompare(a.name, undefined, { numeric: true });
-      });
-    }
-
-    return [];
+      }
+      if (sortBy === "byte_size") {
+        return sortOrder === "asc" ? a.fileCount - b.fileCount : b.fileCount - a.fileCount;
+      }
+      return sortOrder === "asc"
+        ? a.name.localeCompare(b.name, undefined, { numeric: true })
+        : b.name.localeCompare(a.name, undefined, { numeric: true });
+    });
   }, [category, currentFolderData, allDynamicFolders, files, searchQuery, sortBy, sortOrder]);
 
   return (
@@ -2639,8 +2686,20 @@ export function FileManager({
                         <div className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">
                           {folder.fileCount === 0 && folder.subfolderCount === 0
                             ? "Empty"
-                            : `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
-                                folder.subfolderCount > 0 ? ` • ${folder.subfolderCount} folders` : ""
+                            : folder.fileCount > 0
+                            ? `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
+                                folder.totalBytes && folder.totalBytes > 0
+                                  ? ` • ${formatBytes(folder.totalBytes)}`
+                                  : ""
+                              }${
+                                folder.subfolderCount > 0
+                                  ? ` • ${folder.subfolderCount} ${
+                                      folder.subfolderCount === 1 ? "folder" : "folders"
+                                    }`
+                                  : ""
+                              }`
+                            : `${folder.subfolderCount} ${
+                                folder.subfolderCount === 1 ? "folder" : "folders"
                               }`}
                         </div>
                       </div>
@@ -2665,7 +2724,7 @@ export function FileManager({
                               createdAt: new Date().toISOString(),
                               updatedAt: new Date().toISOString(),
                               totalFiles: folder.fileCount,
-                              totalBytes: 0,
+                              totalBytes: folder.totalBytes || 0,
                               totalSubfolders: folder.subfolderCount,
                             });
                             setRenameFolderNameInput(folder.name);
@@ -2789,8 +2848,20 @@ export function FileManager({
                       <span className="font-mono text-[11px]">
                         {folder.fileCount === 0 && folder.subfolderCount === 0
                           ? "Empty"
-                          : `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
-                              folder.subfolderCount > 0 ? ` • ${folder.subfolderCount} folders` : ""
+                          : folder.fileCount > 0
+                          ? `${folder.fileCount} ${folder.fileCount === 1 ? "file" : "files"}${
+                              folder.totalBytes && folder.totalBytes > 0
+                                ? ` • ${formatBytes(folder.totalBytes)}`
+                                : ""
+                            }${
+                              folder.subfolderCount > 0
+                                ? ` • ${folder.subfolderCount} ${
+                                    folder.subfolderCount === 1 ? "folder" : "folders"
+                                  }`
+                                : ""
+                            }`
+                          : `${folder.subfolderCount} ${
+                              folder.subfolderCount === 1 ? "folder" : "folders"
                             }`}
                       </span>
 
@@ -2812,7 +2883,7 @@ export function FileManager({
                                 createdAt: new Date().toISOString(),
                                 updatedAt: new Date().toISOString(),
                                 totalFiles: folder.fileCount,
-                                totalBytes: 0,
+                                totalBytes: folder.totalBytes || 0,
                                 totalSubfolders: folder.subfolderCount,
                               });
                               setRenameFolderNameInput(folder.name);

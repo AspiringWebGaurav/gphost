@@ -379,6 +379,14 @@ export async function POST(req: NextRequest) {
                     .eq("id", userId);
                 }
               }
+              try {
+                await adminClient
+                  .from("app_releases")
+                  .delete()
+                  .or(`binary_file_id.eq.${oldFile.id},signature_file_id.eq.${oldFile.id}`);
+              } catch (relErr) {
+                console.warn("Release cleanup warning:", relErr);
+              }
               await adminClient.from("files").delete().eq("id", oldFile.id);
             }
           }
@@ -536,6 +544,14 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existingSameKeyFile) {
+        try {
+          await adminClient
+            .from("app_releases")
+            .delete()
+            .or(`binary_file_id.eq.${existingSameKeyFile.id},signature_file_id.eq.${existingSameKeyFile.id}`);
+        } catch (relErr) {
+          console.warn("Release cleanup warning:", relErr);
+        }
         await adminClient.from("share_links").delete().eq("file_id", existingSameKeyFile.id);
         await adminClient.from("files").delete().eq("id", existingSameKeyFile.id);
       }

@@ -253,6 +253,14 @@ export async function POST(req: NextRequest) {
                       .eq("id", userId);
                   }
                 }
+                try {
+                  await adminClient
+                    .from("app_releases")
+                    .delete()
+                    .or(`binary_file_id.eq.${oldFile.id},signature_file_id.eq.${oldFile.id}`);
+                } catch (relErr) {
+                  console.warn("Release cleanup warning:", relErr);
+                }
                 await adminClient.from("files").delete().eq("id", oldFile.id);
               }
             }
