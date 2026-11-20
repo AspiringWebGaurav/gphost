@@ -53,6 +53,7 @@ import {
   FolderInput,
   FolderTree,
   CornerLeftUp,
+  Home,
   Edit2,
   Move,
   MoreVertical,
@@ -1315,6 +1316,11 @@ export function FileManager({
         if (category !== "all") {
           const parent = getFolderParentPath(category) || "all";
           navigateToFolder(parent);
+        }
+      } else if (e.altKey && (e.key === "Home" || e.key.toLowerCase() === "h")) {
+        e.preventDefault();
+        if (category !== "all") {
+          navigateToFolder("all");
         }
       }
     };
@@ -2638,6 +2644,23 @@ export function FileManager({
             >
               <CornerLeftUp className="w-4 h-4" />
             </button>
+
+            {/* Dynamic Home Button - shown only when inner in a folder */}
+            {!isAtRoot && (
+              <>
+                <div className="w-px h-4 bg-border/60 my-auto mx-0.5 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => navigateToFolder("all")}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition-all duration-150 cursor-pointer active:scale-90 shrink-0 animate-in fade-in zoom-in-95"
+                  title="Go to Home folder (Root Storage - Alt+H)"
+                  aria-label="Go to Home folder"
+                >
+                  <Home className="w-3.5 h-3.5 text-blue-500" />
+                  <span className="hidden sm:inline">Home</span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* Interactive Clickable Breadcrumbs */}
