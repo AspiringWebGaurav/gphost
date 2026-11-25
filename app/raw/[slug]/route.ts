@@ -394,9 +394,10 @@ export async function GET(
         meta.mime_type
       );
       const isImmutable = slug === "gpn-app" || slug === "gpn-app-sig";
+      // Never serve stale presigned 307 redirects beyond the 1-hour signature lifetime
       const cacheControl = isImmutable
-        ? "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400"
-        : "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+        ? "public, max-age=120, s-maxage=600, must-revalidate"
+        : "public, max-age=60, s-maxage=300, must-revalidate";
 
       return NextResponse.redirect(presignedUrl, {
         status: 307,
@@ -441,9 +442,7 @@ export async function GET(
       headers.set("Content-Disposition", `${dispositionType}; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
     }
 
-    // Complete payload buffering for HTML and assets <= 15MB without range headers:
-    // Prevents chunked encoding stream stalls (ERR_INCOMPLETE_CHUNKED_ENCODING)
-    // and delivers a complete, intact document with exact Content-Length so the browser loads cleanly.
+    // Buffer only compact HTML & small archives (<= 512 KB) in memory; stream large binaries immediately for minimal TTFB
     let responseBody: BodyInit;
     const bodyObj = s3Res.Body as unknown as {
       transformToByteArray?: () => Promise<Uint8Array>;
@@ -452,7 +451,7 @@ export async function GET(
 
     if (
       !range &&
-      (isHtml || (s3Res.ContentLength !== undefined && s3Res.ContentLength <= 15 * 1024 * 1024)) &&
+      (isHtml || (s3Res.ContentLength !== undefined && s3Res.ContentLength <= 512 * 1024)) &&
       typeof bodyObj.transformToByteArray === "function"
     ) {
       const bytes = await bodyObj.transformToByteArray();
