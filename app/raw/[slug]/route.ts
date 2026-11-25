@@ -394,10 +394,10 @@ export async function GET(
         meta.mime_type
       );
       const isImmutable = slug === "gpn-app" || slug === "gpn-app-sig";
-      // Never serve stale presigned 307 redirects beyond the 1-hour signature lifetime
+      // Never cache non-immutable release 307 redirects so binary/extension updates propagate immediately
       const cacheControl = isImmutable
         ? "public, max-age=120, s-maxage=600, must-revalidate"
-        : "public, max-age=60, s-maxage=300, must-revalidate";
+        : "no-store, no-cache, must-revalidate";
 
       return NextResponse.redirect(presignedUrl, {
         status: 307,
