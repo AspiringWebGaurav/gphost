@@ -57,10 +57,11 @@ export async function GET(
         fileName = fileRecord.sanitized_name || fileRecord.filename;
       }
     } else {
-      // Fallback: Check if file with matching version exists in files
+      // Fallback: Check if file for this specific appId with matching version exists in files
       const { data: fallbackFile } = await adminClient
         .from("files")
         .select("id, sanitized_name, filename, byte_size, r2_key")
+        .ilike("sanitized_name", `%${appId}%`)
         .ilike("sanitized_name", `%${cleanVersion}%`)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -88,7 +89,7 @@ export async function GET(
       return NextResponse.redirect(presignedUrl, {
         status: 307,
         headers: {
-          "Cache-Control": "public, max-age=86400, s-maxage=31536000, stale-while-revalidate=86400",
+          "Cache-Control": "private, no-cache, no-store, max-age=0, must-revalidate",
           "Access-Control-Allow-Origin": "*",
         },
       });
